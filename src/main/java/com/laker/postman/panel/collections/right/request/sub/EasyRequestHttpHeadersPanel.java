@@ -128,13 +128,19 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
         // Create Bulk Edit button
         EditButton bulkEditButton = new EditButton();
         bulkEditButton.setToolTipText(I18nUtil.getMessage(MessageKeys.BULK_EDIT));
-        bulkEditButton.addActionListener(e -> showBulkEditDialog());
+        bulkEditButton.addActionListener(e -> showBulkEditDialog(false));
+
+        // Create Bulk Edit button
+        EditButton bulkEditBrowserButton = new EditButton();
+        bulkEditBrowserButton.setToolTipText(I18nUtil.getMessage(MessageKeys.BULK_EDIT));
+        bulkEditBrowserButton.addActionListener(e -> showBulkEditDialog(true));
 
         headerPanel.add(label);
         headerPanel.add(eyeButton);
         headerPanel.add(countLabel);
         headerPanel.add(Box.createHorizontalStrut(5)); // 添加间距
         headerPanel.add(bulkEditButton);
+        headerPanel.add(bulkEditBrowserButton);
 
         // Create table panel and set parent reference
         tablePanel = new EasyHttpHeadersTablePanel();
@@ -606,13 +612,13 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
      * 显示批量编辑对话框
      * 支持以 "Key: Value" 格式批量粘贴和编辑请求头
      */
-    private void showBulkEditDialog() {
+    private void showBulkEditDialog(boolean isBrowser) {
         // 1. 将当前表格数据转换为文本格式（Key: Value\n）
         StringBuilder text = new StringBuilder();
         List<HttpHeader> currentHeaders = getHeadersList();
         for (HttpHeader header : currentHeaders) {
             if (!header.getKey().isEmpty()) {
-                text.append(header.getKey()).append(": ").append(header.getValue()).append("\n");
+                text.append(header.getKey()).append(isBrowser ? "\n" : ": ").append(header.getValue()).append("\n");
             }
         }
 
@@ -637,12 +643,12 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
         hintPanel.setOpaque(false);
 
         // 主提示文本
-        JLabel hintLabel = new JLabel(I18nUtil.getMessage(MessageKeys.BULK_EDIT_HINT));
+        JLabel hintLabel = new JLabel(isBrowser ? "从浏览器中复制粘贴" : I18nUtil.getMessage(MessageKeys.BULK_EDIT_HINT));
         hintLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         hintLabel.setForeground(ModernColors.getTextPrimary());
 
         // 支持格式说明
-        JLabel formatLabel = new JLabel(I18nUtil.getMessage(MessageKeys.BULK_EDIT_SUPPORTED_FORMATS));
+        JLabel formatLabel = new JLabel(isBrowser ? "每个Key、每个Value均为单独的行" : I18nUtil.getMessage(MessageKeys.BULK_EDIT_SUPPORTED_FORMATS));
         formatLabel.setForeground(ModernColors.getTextSecondary());
         formatLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
         formatLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -668,7 +674,7 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
 
         // 6. 创建自定义对话框
         Window window = SwingUtilities.getWindowAncestor(tablePanel);
-        JDialog dialog = new JDialog(window, I18nUtil.getMessage(MessageKeys.BULK_EDIT_HEADERS), Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog dialog = new JDialog(window, I18nUtil.getMessage(MessageKeys.BULK_EDIT_HEADERS) + (isBrowser ? "(来源于浏览器)" : ""), Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setLayout(new BorderLayout());
         dialog.add(contentPanel, BorderLayout.CENTER);
         dialog.add(buttonPanel, BorderLayout.SOUTH);
@@ -681,7 +687,7 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
 
         // 7. 按钮事件处理
         okButton.addActionListener(e -> {
-            parseBulkText(textArea.getText());
+            parseBulkText(textArea.getText(), isBrowser);
             dialog.dispose();
         });
 
@@ -711,7 +717,7 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
      * - Key=Value
      * 空行会被忽略
      */
-    private void parseBulkText(String text) {
+    private void parseBulkText(String text, boolean isBrowser) {
         if (text == null || text.trim().isEmpty()) {
             // 如果文本为空，清空所有非默认请求头
             clearNonDefaultHeaders();
@@ -720,32 +726,43 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
 
         List<HttpHeader> headers = new ArrayList<>();
         String[] lines = text.split("\n");
-
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) {
-                continue; // 忽略空行和注释
-            }
-
-            // 支持 ":" 和 "=" 两种分隔符
-            String[] parts = null;
-            if (line.contains(":")) {
-                parts = line.split(":", 2);
-            } else if (line.contains("=")) {
-                parts = line.split("=", 2);
-            }
-
-            if (parts != null && parts.length == 2) {
-                String key = parts[0].trim();
-                String value = parts[1].trim();
+        if (isBrowser && lines.length > 1 && lines.length % 2 == 0) {
+            String[] lines2 = new String[lines.length / 2];
+            for (int i = 0; i < lines2.length; i++) {
+                String key = lines[2 * i].trim();
+                String value = lines[2 * i + 1].trim();
                 if (!key.isEmpty()) {
+                    System.out.println(key + "=" + value);
                     headers.add(new HttpHeader(true, key, value));
                 }
-            } else if (line.contains(":") || line.contains("=")) {
-                // 如果包含分隔符但解析失败，可能是值为空的情况
-                String key = line.replaceAll("[=:].*", "").trim();
-                if (!key.isEmpty()) {
-                    headers.add(new HttpHeader(true, key, ""));
+            }
+        } else {
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) {
+                    continue; // 忽略空行和注释
+                }
+
+                // 支持 ":" 和 "=" 两种分隔符
+                String[] parts = null;
+                if (line.contains(":")) {
+                    parts = line.split(":", 2);
+                } else if (line.contains("=")) {
+                    parts = line.split("=", 2);
+                }
+
+                if (parts != null && parts.length == 2) {
+                    String key = parts[0].trim();
+                    String value = parts[1].trim();
+                    if (!key.isEmpty()) {
+                        headers.add(new HttpHeader(true, key, value));
+                    }
+                } else if (line.contains(":") || line.contains("=")) {
+                    // 如果包含分隔符但解析失败，可能是值为空的情况
+                    String key = line.replaceAll("[=:].*", "").trim();
+                    if (!key.isEmpty()) {
+                        headers.add(new HttpHeader(true, key, ""));
+                    }
                 }
             }
         }
