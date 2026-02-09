@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import com.formdev.flatlaf.FlatClientProperties;
 import com.laker.postman.common.SingletonFactory;
 import com.laker.postman.common.component.MarkdownEditorPanel;
+import com.laker.postman.common.component.tab.IndicatorTabComponent;
 import com.laker.postman.common.component.table.FormDataTablePanel;
 import com.laker.postman.common.component.table.FormUrlencodedTablePanel;
 import com.laker.postman.common.exception.DownloadCancelledException;
@@ -95,6 +96,13 @@ public class RequestEditSubPanel extends JPanel {
     private final ScriptPanel scriptPanel;
     private final MarkdownEditorPanel descriptionEditor; // Docs tab
     private final JTabbedPane reqTabs; // 请求选项卡面板
+
+    // Tab indicators for showing content status
+    private IndicatorTabComponent paramsTabIndicator;
+    private IndicatorTabComponent authTabIndicator;
+    private IndicatorTabComponent headersTabIndicator;
+    private IndicatorTabComponent bodyTabIndicator;
+    private IndicatorTabComponent scriptsTabIndicator;
 
     // 当前请求的 SwingWorker，用于支持取消
     private transient volatile SwingWorker<Void, Void> currentWorker;
@@ -199,7 +207,9 @@ public class RequestEditSubPanel extends JPanel {
 
         // 2.1 Params
         paramsPanel = new EasyRequestParamsPanel();
+        paramsTabIndicator = new IndicatorTabComponent(I18nUtil.getMessage(MessageKeys.TAB_PARAMS));
         reqTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_PARAMS), paramsPanel); // 2.1 添加参数选项卡
+        reqTabs.setTabComponentAt(1, paramsTabIndicator);
 
         // 添加Params面板的监听器，实现从Params到URL的联动
         paramsPanel.addTableModelListener(e -> {
@@ -210,20 +220,28 @@ public class RequestEditSubPanel extends JPanel {
 
         // 2.2 Auth 面板
         authTabPanel = new AuthTabPanel();
+        authTabIndicator = new IndicatorTabComponent(I18nUtil.getMessage(MessageKeys.TAB_AUTHORIZATION));
         reqTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_AUTHORIZATION), authTabPanel);
+        reqTabs.setTabComponentAt(2, authTabIndicator);
 
         // 2.3 Headers
         headersPanel = new EasyRequestHttpHeadersPanel();
+        headersTabIndicator = new IndicatorTabComponent(I18nUtil.getMessage(MessageKeys.TAB_REQUEST_HEADERS));
         reqTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_REQUEST_HEADERS), headersPanel);
+        reqTabs.setTabComponentAt(3, headersTabIndicator);
 
         // 2.4 Body 面板
         requestBodyPanel = new RequestBodyPanel(protocol);
+        bodyTabIndicator = new IndicatorTabComponent(I18nUtil.getMessage(MessageKeys.TAB_REQUEST_BODY));
         reqTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_REQUEST_BODY), requestBodyPanel);
+        reqTabs.setTabComponentAt(4, bodyTabIndicator);
 
 
         // 2.5 脚本Tab
         scriptPanel = new ScriptPanel();
+        scriptsTabIndicator = new IndicatorTabComponent(I18nUtil.getMessage(MessageKeys.TAB_SCRIPTS));
         reqTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_SCRIPTS), scriptPanel);
+        reqTabs.setTabComponentAt(5, scriptsTabIndicator);
 
         // 3. 响应面板
         // 只有 HTTP 协议且非 SAVED_RESPONSE 类型才启用保存响应按钮
@@ -233,12 +251,6 @@ public class RequestEditSubPanel extends JPanel {
         // 根据保存的设置初始化布局方向
         boolean isVertical = SettingManager.isLayoutVertical();
         int orientation = isVertical ? JSplitPane.VERTICAL_SPLIT : JSplitPane.HORIZONTAL_SPLIT;
-
-        // 水平布局时，设置 responsePanel 的 minimumSize 与 reqTabs 对称（reqTabs 在第 172 行已设置）
-        if (!isVertical) {
-            responsePanel.setMinimumSize(new Dimension(400, 120));
-        }
-
         splitPane = new JSplitPane(orientation, reqTabs, responsePanel);
         splitPane.setDividerSize(4); // 设置分割条宽度
         splitPane.setOneTouchExpandable(false);
@@ -279,6 +291,9 @@ public class RequestEditSubPanel extends JPanel {
         }
         // 监听表单内容变化，动态更新tab红点
         addDirtyListeners();
+
+        // 初始化tab指示器状态
+        SwingUtilities.invokeLater(this::updateTabIndicators);
 
         // 添加保存响应按钮监听器（仅HTTP协议且非保存的响应面板）
         if (protocol.isHttpProtocol() && panelType != RequestEditSubPanelType.SAVED_RESPONSE
@@ -355,6 +370,170 @@ public class RequestEditSubPanel extends JPanel {
         }
         // 监听脚本面板
         scriptPanel.addDirtyListeners(this::updateTabDirty);
+
+        // 添加tab内容指示器监听器
+        addTabIndicatorListeners();
+    }
+
+    /**
+     * 添加监听器以更新tab内容指示器（绿点）
+     */
+    private void addTabIndicatorListeners() {
+
+        // 监听paramsPanel
+        paramsPanel.addTableModelListener(e -> updateTabIndicators());
+
+        // 监听authTabPanel
+        authTabPanel.addDirtyListener(this::updateTabIndicators);
+
+        // 监听headersPanel
+        headersPanel.addTableModelListener(e -> updateTabIndicators());
+
+        // 监听requestBodyPanel
+        if (protocol.isHttpProtocol()) {
+            if (requestBodyPanel.getBodyArea() != null) {
+                requestBodyPanel.getBodyArea().getDocument().addDocumentListener(new DocumentListener() {
+                    public void insertUpdate(DocumentEvent e) {
+                        updateTabIndicators();
+                    }
+
+                    public void removeUpdate(DocumentEvent e) {
+                        updateTabIndicators();
+                    }
+
+                    public void changedUpdate(DocumentEvent e) {
+                        updateTabIndicators();
+                    }
+                });
+            }
+            if (requestBodyPanel.getFormDataTablePanel() != null) {
+                requestBodyPanel.getFormDataTablePanel().addTableModelListener(e -> updateTabIndicators());
+            }
+            if (requestBodyPanel.getFormUrlencodedTablePanel() != null) {
+                requestBodyPanel.getFormUrlencodedTablePanel().addTableModelListener(e -> updateTabIndicators());
+            }
+        }
+
+        // 监听scriptPanel - 脚本面板有自己的指示器，但我们也需要更新reqTabs的指示器
+        scriptPanel.addDirtyListeners(this::updateTabIndicators);
+    }
+
+    /**
+     * 更新所有tab的内容指示器
+     */
+    private void updateTabIndicators() {
+        SwingUtilities.invokeLater(() -> {
+            if (paramsTabIndicator != null) {
+                paramsTabIndicator.setShowIndicator(hasParamsContent());
+            }
+            if (authTabIndicator != null) {
+                authTabIndicator.setShowIndicator(hasAuthContent());
+            }
+            if (headersTabIndicator != null) {
+                headersTabIndicator.setShowIndicator(hasHeadersContent());
+            }
+            if (bodyTabIndicator != null) {
+                bodyTabIndicator.setShowIndicator(hasBodyContent());
+            }
+            if (scriptsTabIndicator != null) {
+                scriptsTabIndicator.setShowIndicator(hasScriptsContent());
+            }
+        });
+    }
+
+    /**
+     * 检查Params tab是否有内容
+     */
+    private boolean hasParamsContent() {
+        List<HttpParam> params = paramsPanel.getParamsList();
+        if (params == null || params.isEmpty()) {
+            return false;
+        }
+        // 检查是否有非空的参数
+        return params.stream().anyMatch(param ->
+                param.getKey() != null && !param.getKey().trim().isEmpty()
+        );
+    }
+
+    /**
+     * 检查Auth tab是否有内容
+     */
+    private boolean hasAuthContent() {
+        String authType = authTabPanel.getAuthType();
+        // 如果认证类型不是 "inherit" 或 "none"，则认为有内容
+        return authType != null &&
+                !AuthTabPanel.AUTH_TYPE_INHERIT.equals(authType) &&
+                !AuthTabPanel.AUTH_TYPE_NONE.equals(authType);
+    }
+
+    /**
+     * 检查Headers tab是否有内容
+     */
+    private boolean hasHeadersContent() {
+        List<HttpHeader> headers = headersPanel.getHeadersList();
+        if (headers == null || headers.isEmpty()) {
+            return false;
+        }
+        // 检查是否有非空的header
+        return headers.stream().anyMatch(header ->
+                header.getKey() != null && !header.getKey().trim().isEmpty()
+        );
+    }
+
+    /**
+     * 检查Body tab是否有内容
+     */
+    private boolean hasBodyContent() {
+        if (!protocol.isHttpProtocol()) {
+            return false;
+        }
+
+        String bodyType = requestBodyPanel.getBodyType();
+        if (bodyType == null) {
+            return false;
+        }
+
+        switch (bodyType) {
+            case "none":
+                return false;
+            case "raw":
+            case "binary":
+                String rawBody = requestBodyPanel.getRawBody();
+                return rawBody != null && !rawBody.trim().isEmpty();
+            case "form-data":
+                FormDataTablePanel formDataPanel = requestBodyPanel.getFormDataTablePanel();
+                if (formDataPanel != null) {
+                    List<HttpFormData> items = formDataPanel.getFormDataList();
+                    return items != null && items.stream().anyMatch(item ->
+                            item.getKey() != null && !item.getKey().trim().isEmpty()
+                    );
+                }
+                return false;
+            case "x-www-form-urlencoded":
+                FormUrlencodedTablePanel urlencodedPanel = requestBodyPanel.getFormUrlencodedTablePanel();
+                if (urlencodedPanel != null) {
+                    List<HttpFormUrlencoded> items = urlencodedPanel.getFormDataList();
+                    return items != null && items.stream().anyMatch(item ->
+                            item.getKey() != null && !item.getKey().trim().isEmpty()
+                    );
+                }
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * 检查Scripts tab是否有内容
+     */
+    private boolean hasScriptsContent() {
+        String prescript = scriptPanel.getPrescript();
+        String postscript = scriptPanel.getPostscript();
+
+        boolean hasPrescript = prescript != null && !prescript.trim().isEmpty();
+        boolean hasPostscript = postscript != null && !postscript.trim().isEmpty();
+
+        return hasPrescript || hasPostscript;
     }
 
     private void addDocumentListener(Document document) {
@@ -1727,13 +1906,17 @@ public class RequestEditSubPanel extends JPanel {
     @Override
     public void doLayout() {
         super.doLayout();
-        // 第一次布局时，为水平布局设置精确的 5:5 分割位置
-        // 垂直布局依赖 resizeWeight 即可，不需要额外设置
-        if (!initialDividerLocationSet && splitPane != null &&
-                splitPane.getOrientation() == JSplitPane.HORIZONTAL_SPLIT &&
-                splitPane.getWidth() > 0) {
-            initialDividerLocationSet = true;
-            splitPane.setDividerLocation(0.5);
+        // 第一次布局时，设置分割位置
+        if (!initialDividerLocationSet && splitPane != null) {
+            if (splitPane.getOrientation() == JSplitPane.HORIZONTAL_SPLIT && splitPane.getWidth() > 0) {
+                // 水平布局：设置 5:5 分割位置
+                initialDividerLocationSet = true;
+                splitPane.setDividerLocation(0.5);
+            } else if (splitPane.getOrientation() == JSplitPane.VERTICAL_SPLIT && splitPane.getHeight() > 0) {
+                // 垂直布局：设置协议默认比例
+                initialDividerLocationSet = true;
+                splitPane.setDividerLocation(getDefaultResizeWeight());
+            }
         }
     }
 

@@ -1,11 +1,16 @@
 package com.laker.postman.panel.collections.right.request.sub;
 
 import com.laker.postman.common.component.SearchableTextArea;
+import com.laker.postman.common.component.button.HelpButton;
 import com.laker.postman.common.component.button.SnippetButton;
 import com.laker.postman.common.component.dialog.SnippetDialog;
+import com.laker.postman.common.component.tab.IndicatorTabComponent;
 import com.laker.postman.model.Snippet;
 import com.laker.postman.service.js.ScriptSnippetManager;
-import com.laker.postman.util.*;
+import com.laker.postman.util.EditorThemeUtil;
+import com.laker.postman.util.FontsUtil;
+import com.laker.postman.util.I18nUtil;
+import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -25,6 +30,8 @@ public class ScriptPanel extends JPanel {
     private final RSyntaxTextArea postscriptArea;
     private final JTabbedPane tabbedPane;
     private final SnippetButton snippetBtn;
+    private final IndicatorTabComponent preScriptTab;
+    private final IndicatorTabComponent postScriptTab;
 
     public ScriptPanel() {
         setLayout(new BorderLayout());
@@ -44,24 +51,31 @@ public class ScriptPanel extends JPanel {
         // 创建选项卡面板 垂直方向
         tabbedPane = new JTabbedPane(SwingConstants.LEFT);
 
-        // Pre-script 标签带图标
+        // 创建带指示器的 Tab 组件
+        preScriptTab = new IndicatorTabComponent("Pre-script");
+        postScriptTab = new IndicatorTabComponent("Post-script");
+
+        // Pre-script 标签带指示器
         tabbedPane.addTab("Pre-script", prescriptSearchableArea);
+        tabbedPane.setTabComponentAt(0, preScriptTab);
 
-        // Post-script 标签带图标
+        // Post-script 标签带指示器
         tabbedPane.addTab("Post-script", postscriptSearchableArea);
+        tabbedPane.setTabComponentAt(1, postScriptTab);
 
-        // 创建帮助面板
-        JPanel helpPanel = createHelpPanel();
-        tabbedPane.addTab(null,
-                IconUtil.createThemed("icons/help.svg", 18, 18),
-                helpPanel);
+        // 添加文档监听器以更新指示器
+        addIndicatorListeners();
 
         add(tabbedPane, BorderLayout.CENTER);
 
-        // 右下角添加 Snippets 按钮
+        // 右下角添加帮助按钮和 Snippets 按钮
         snippetBtn = new SnippetButton();
 
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        HelpButton helpBtn = new HelpButton();
+        helpBtn.addActionListener(e -> showHelpDialog());
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 2));
+        btnPanel.add(helpBtn);
         btnPanel.add(snippetBtn);
         add(btnPanel, BorderLayout.SOUTH);
 
@@ -73,6 +87,22 @@ public class ScriptPanel extends JPanel {
 
         // Snippets 按钮点击事件
         snippetBtn.addActionListener(e -> openSnippetDialog());
+    }
+
+    /**
+     * 显示帮助对话框
+     */
+    private void showHelpDialog() {
+        JDialog dialog = new JDialog((Frame) SwingUtilities.getWindowAncestor(this),
+                I18nUtil.getMessage(MessageKeys.SCRIPT_HELP_TITLE), true);
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+        JPanel helpPanel = createHelpPanel();
+        dialog.add(helpPanel);
+
+        dialog.setSize(600, 500);
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
     }
 
     /**
@@ -199,10 +229,21 @@ public class ScriptPanel extends JPanel {
 
     public void setPrescript(String text) {
         prescriptArea.setText(text);
+        updateIndicator(preScriptTab, text);
+        // 如果设置的内容不为空，自动切换到Pre-script标签页
+        if (text != null && !text.trim().isEmpty()) {
+            tabbedPane.setSelectedIndex(0);
+        }
     }
 
     public void setPostscript(String text) {
         postscriptArea.setText(text);
+        updateIndicator(postScriptTab, text);
+        // 如果Pre-script为空且Post-script有内容，自动切换到Post-script标签页
+        if (text != null && !text.trim().isEmpty() &&
+            (prescriptArea.getText() == null || prescriptArea.getText().trim().isEmpty())) {
+            tabbedPane.setSelectedIndex(1);
+        }
     }
 
     public String getPrescript() {
@@ -234,6 +275,58 @@ public class ScriptPanel extends JPanel {
         postscriptArea.getDocument().addDocumentListener(listener);
     }
 
+
+    /**
+     * 添加文档监听器以更新指示器状态
+     */
+    private void addIndicatorListeners() {
+        // Pre-script 监听器
+        prescriptArea.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                updateIndicator(preScriptTab, prescriptArea.getText());
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                updateIndicator(preScriptTab, prescriptArea.getText());
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                updateIndicator(preScriptTab, prescriptArea.getText());
+            }
+        });
+
+        // Post-script 监听器
+        postscriptArea.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                updateIndicator(postScriptTab, postscriptArea.getText());
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                updateIndicator(postScriptTab, postscriptArea.getText());
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                updateIndicator(postScriptTab, postscriptArea.getText());
+            }
+        });
+    }
+
+    /**
+     * 根据文本内容更新指示器状态
+     *
+     * @param tabComponent Tab组件
+     * @param text         文本内容
+     */
+    private void updateIndicator(IndicatorTabComponent tabComponent, String text) {
+        boolean hasContent = text != null && !text.trim().isEmpty();
+        tabComponent.setShowIndicator(hasContent);
+    }
 
     /**
      * 为 RSyntaxTextArea 添加自动补全、悬浮提示和代码片段
