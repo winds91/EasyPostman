@@ -823,7 +823,7 @@ jobs:
           echo "Creating Gitee release: $RELEASE_TAG"
 
           # 使用 form-data 提交，包含必须的 target_commitish 字段（这里使用当前运行的 commit SHA）
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/ssff_admin/easy-postman/releases" \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/releases" \
             -F "access_token=${{ secrets.GITEE_TOKEN }}" \
             -F "tag_name=${RELEASE_TAG}" \
             -F "name=${RELEASE_NAME}" \
@@ -867,7 +867,7 @@ jobs:
           
               for attempt in {1..3}; do
                 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-                  "https://gitee.com/api/v5/repos/ssff_admin/easy-postman/releases/$RELEASE_ID/attach_files" \
+                  "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/releases/$RELEASE_ID/attach_files" \
                   -F "access_token=${{ secrets.GITEE_TOKEN }}" \
                   -F "file=@$file")
           
@@ -900,4 +900,4 @@ jobs:
           echo "https://github.com/winds91/EasyPostman/releases/tag/auto-build-${{ github.run_number }}"
           echo ""
           echo "📍 Gitee Release:"
-          echo "https://gitee.com/ssff_admin/easy-postman/releases/tag/auto-build-${{ github.run_number }}"
+          echo "https://gitee.com/ssff_admin/EasyPostman/releases/tag/auto-build-${{ github.run_number }}"
