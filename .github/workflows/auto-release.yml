@@ -811,59 +811,47 @@ jobs:
       - name: Create Gitee Release（创建码云发行版）
         id: create_release
         run: |
+          set -euo pipefail
+
           VERSION="${{ needs.get-version.outputs.version }}"
           RELEASE_TAG="auto-build-${{ github.run_number }}"
-          
-          RELEASE_BODY="🚀 EasyPostman Auto Build Release
+          RELEASE_NAME="Auto Build #${{ github.run_number }} - v${VERSION}"
 
-          ## 📥 下载安装包
+          # 多行描述，使用 printf 保持换行，然后在 curl -F 中传入
+          RELEASE_BODY=$(printf '%s\n\n%s\n\n%s\n' \ "🚀 EasyPostman Auto Build Release" \ "## 📥 下载安装包" \ "参见下方附件（Windows/macOS/Linux/JAR）" )
 
-          ### Windows
-          - 🟢 **portable.zip** - 便携版（推荐）
-          - 💾 **.exe** - 安装程序版本
-
-          ### macOS
-          - 🍎 **macos-x86_64.dmg** - Intel 版本
-          - 🍎 **macos-arm64.dmg** - Apple Silicon (M1/M2/M3/M4)
-
-          ### Linux
-          - 🐧 **.deb** - Ubuntu/Debian 包
-
-          ### 跨平台
-          - 📄 **.jar** - 独立 JAR 包（需要 Java 17+）
-
-          **GitHub Release**: ${{ github.server_url }}/${{ github.repository }}/releases/tag/\$RELEASE_TAG
-          **构建编号**: #${{ github.run_number }}"
-          
           echo "Creating Gitee release: $RELEASE_TAG"
-          
-          RESPONSE=$(curl -s -X POST \
-            -H "Content-Type: application/json" \
-            "https://gitee.com/api/v5/repos/ssff_admin/easy-postman/releases" \
-            -d "{
-              \"tag_name\": \"$RELEASE_TAG\",
-              \"name\": \"Auto Build #${{ github.run_number }} - v$VERSION\",
-              \"body\": \"$(printf '%s\n' "$RELEASE_BODY" | sed 's/"/\\"/g')\",
-              \"prerelease\": false
-            }" \
-            -H "Authorization: token ${{ secrets.GITEE_TOKEN }}")
-          
-          echo "Response: $RESPONSE"
-          RELEASE_ID=$(echo "$RESPONSE" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "⚠️ Could not extract release ID"
-            echo "$RESPONSE"
-          fi
-          
-          echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
 
-      - name: Prepare Files for Upload（准备上传文件）
-        run: |
-          mkdir -p gitee-files
-          find all-artifacts -type f \( -name "*.zip" -o -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.jar" \) -exec cp {} gitee-files/ \;
-          echo "📦 Files ready for upload:"
-          ls -lah gitee-files/ || echo "No files found"
+          # 使用 form-data 提交，包含必须的 target_commitish 字段（这里使用当前运行的 commit SHA）
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/ssff_admin/easy-postman/releases" \
+            -F "access_token=${{ secrets.GITEE_TOKEN }}" \
+            -F "tag_name=${RELEASE_TAG}" \
+            -F "name=${RELEASE_NAME}" \
+            -F "body=${RELEASE_BODY}" \
+            -F "prerelease=false" \
+            -F "target_commitish=${{ github.sha }}" )
+        
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response Body: $BODY"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            # 提取 release id
+            RELEASE_ID=$(echo "$BODY" | jq -r '.id // empty')
+            if [ -z "$RELEASE_ID" ]; then
+              echo "❌ Created but could not extract release id. Full response:"
+              echo "$BODY"
+              exit 1
+            fi
+            echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+            echo "✅ Gitee Release created with ID: $RELEASE_ID"
+          else
+            echo "❌ Failed to create Gitee Release (HTTP $HTTP_CODE)"
+            echo "$BODY"
+            exit 1
+          fi
 
       - name: Upload Files to Gitee Release（上传文件到码云）
         if: steps.create_release.outputs.release_id != ''
