@@ -206,32 +206,12 @@ jobs:
           
           Write-Host "✅ Created portable version: $zipName"
 
-      - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'auto-release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*-portable.zip
-          fail_on_unmatched_files: true
-          tag_name: ${{ github.ref_name }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload as Artifact（手动触发时上传为构建产物）
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+      - name: Upload as Artifact（上传为构建产物）
         uses: actions/upload-artifact@v4
         with:
           name: EasyPostman-Windows-Portable
           path: dist/*-portable.zip
           retention-days: 7
-
-      - name: Upload Portable ZIP for Gitee sync（上传便携版 ZIP 供 Gitee 同步使用）
-        if: github.event_name == 'auto-release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-portable-zip
-          path: dist/*-portable.zip
-          retention-days: 1
 
 
   build-windows-exe:
@@ -412,32 +392,12 @@ jobs:
             exit 1
           }
 
-      - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'auto-release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.exe
-          fail_on_unmatched_files: true
-          tag_name: ${{ github.ref_name }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload as Artifact（手动触发时上传为构建产物）
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+      - name: Upload as Artifact（上传为构建产物）
         uses: actions/upload-artifact@v4
         with:
           name: EasyPostman-Windows-EXE
           path: dist/*.exe
           retention-days: 7
-
-      - name: Upload EXE for Gitee sync（上传 EXE 供 Gitee 同步使用）
-        if: github.event_name == 'auto-release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-exe
-          path: dist/*.exe
-          retention-days: 1
 
   build-macos-intel:
     name: Build macOS Intel DMG（构建 macOS Intel 版安装包）
@@ -538,32 +498,12 @@ jobs:
           mv dist/EasyPostman-$VERSION.dmg dist/EasyPostman-$VERSION-macos-x86_64.dmg
           echo "✅ Created: EasyPostman-$VERSION-macos-x86_64.dmg"
 
-      - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'auto-release'  # 只在 Release 触发时上传
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*-macos-x86_64.dmg
-          fail_on_unmatched_files: true
-          tag_name: ${{ github.ref_name }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload as Artifact（手动触发时上传为构建产物）
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+      - name: Upload as Artifact（上传为构建产物）
         uses: actions/upload-artifact@v4
         with:
           name: EasyPostman-macOS-Intel-DMG
           path: dist/*-macos-x86_64.dmg
           retention-days: 7  # 保留 7 天
-
-      - name: Upload DMG for Gitee sync（上传 DMG 供 Gitee 同步使用）
-        if: github.event_name == 'auto-release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-dmg-intel
-          path: dist/*-macos-x86_64.dmg
-          retention-days: 1
 
   build-macos-arm:
     name: Build macOS Apple Silicon DMG（构建 macOS Apple Silicon 版安装包）
@@ -664,32 +604,12 @@ jobs:
           mv dist/EasyPostman-$VERSION.dmg dist/EasyPostman-$VERSION-macos-arm64.dmg
           echo "✅ Created: EasyPostman-$VERSION-macos-arm64.dmg"
 
-      - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'auto-release'  # 只在 Release 触发时上传
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*-macos-arm64.dmg
-          fail_on_unmatched_files: true
-          tag_name: ${{ github.ref_name }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload as Artifact（手动触发时上传为构建产物）
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+      - name: Upload as Artifact（上传为构建产物）
         uses: actions/upload-artifact@v4
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: dist/*-macos-arm64.dmg
           retention-days: 7  # 保留 7 天
-
-      - name: Upload DMG for Gitee sync（上传 DMG 供 Gitee 同步使用）
-        if: github.event_name == 'auto-release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-dmg-arm64
-          path: dist/*-macos-arm64.dmg
-          retention-days: 1
 
   build-jar:
     name: Build Standalone JAR（构建独立 JAR 包）
@@ -703,19 +623,7 @@ jobs:
           name: app-jar
           path: dist
 
-      - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'auto-release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.jar
-          fail_on_unmatched_files: true
-          tag_name: ${{ github.ref_name }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload as Artifact（手动触发时上传为构建产物）
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+      - name: Upload as Artifact（上传为构建产物）
         uses: actions/upload-artifact@v4
         with:
           name: EasyPostman-Standalone-JAR
@@ -822,382 +730,63 @@ jobs:
           # 执行 jpackage
           jpackage "${JPACKAGE_ARGS[@]}"
 
-      - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'auto-release'  # 只在 Release 触发时上传
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.deb
-          fail_on_unmatched_files: true
-          tag_name: ${{ github.ref_name }}
-          overwrite_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload as Artifact（手动触发时上传为构建产物）
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
+      - name: Upload as Artifact（上传为构建产物）
         uses: actions/upload-artifact@v4
         with:
           name: EasyPostman-Ubuntu-DEB
           path: dist/*.deb
           retention-days: 7  # 保留 7 天
 
-      - name: Upload DEB for Gitee sync（上传 DEB 供 Gitee 同步使用）
-        if: github.event_name == 'auto-release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-deb
-          path: dist/*.deb
-          retention-days: 1
-
-  # 检查是否至少有一个构建成功
-  check-any-build-success:
-    name: Check Any Build Success（检查至少一个构建成功）
-    if: github.event_name == 'auto-release' && always()
-    needs: [ build-windows-portable, build-windows-exe, build-macos-arm ]
+  # 发布到 GitHub Release
+  publish-to-release:
+    name: Publish to GitHub Release（发布到 GitHub Release）
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [ get-version, build-windows-portable, build-windows-exe, build-macos-intel, build-macos-arm, build-ubuntu, build-jar ]
     runs-on: ubuntu-latest
-    outputs:
-      should_create_release: ${{ steps.check.outputs.should_create }}
 
     steps:
-      - name: Check if any build succeeded（检查是否有任何构建成功）
-        id: check
-        run: |
-          echo "📊 检查构建状态..."
-          echo "  Windows Portable: ${{ needs.build-windows-portable.result }}"
-          echo "  Windows EXE: ${{ needs.build-windows-exe.result }}"
-          echo "  macOS ARM: ${{ needs.build-macos-arm.result }}"
-          
-          # 只要有一个成功就创建 Release
-          if [ "${{ needs.build-windows-portable.result }}" == "success" ] || \
-             [ "${{ needs.build-windows-exe.result }}" == "success" ] || \
-             [ "${{ needs.build-macos-arm.result }}" == "success" ]; then
-            echo "✅ 至少有一个构建成功，可以创建 Gitee Release"
-            echo "should_create=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ 所有构建都失败，跳过创建 Gitee Release"
-            echo "should_create=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-  # 创建 Gitee Release（至少一个构建成功后创建）
-  create-gitee-release:
-    name: Create Gitee Release（创建 Gitee Release）
-    if: github.event_name == 'auto-release' && needs.check-any-build-success.outputs.should_create_release == 'true'
-    needs: [ get-version, check-any-build-success ]
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.gitee_release.outputs.release_id }}
-      tag_name: ${{ steps.get_version.outputs.tag }}
-
-    steps:
-      - name: Get version from tag（从标签获取版本号）
-        id: get_version
-        run: |
-          TAG_NAME="${{ github.event.release.tag_name }}"
-          VERSION="${TAG_NAME#v}"  # 移除 v 前缀
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
-
-      - name: Create Gitee Release（创建 Gitee Release）
-        id: gitee_release
-        run: |
-          VERSION="${{ steps.get_version.outputs.version }}"
-          TAG_NAME="${{ steps.get_version.outputs.tag }}"
-          RELEASE_BODY="${{ github.event.release.body }}"
-          
-          if [ -z "$RELEASE_BODY" ]; then
-            RELEASE_BODY="EasyPostman ${VERSION} 发布版本，支持 Windows、macOS 和 Linux。详情：https://github.com/lakernote/easy-postman"
-          fi
-          
-          echo "🚀 Creating Gitee Release for tag: $TAG_NAME"
-          echo "📝 Release Body: $RELEASE_BODY"
-          
-          # 重试机制
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          SUCCESS=false
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
-            echo "⏳ Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
-          
-            # 使用更健壮的 curl 选项
-            # --retry 3: curl 内部重试 3 次
-            # --retry-delay 2: 重试间隔 2 秒
-            # --connect-timeout 30: 连接超时 30 秒
-            # --max-time 60: 整体超时 60 秒
-            set +e  # 临时禁用 exit on error
-            HTTP_CODE=$(curl -w "%{http_code}" \
-              --retry 3 \
-              --retry-delay 2 \
-              --connect-timeout 30 \
-              --max-time 60 \
-              -S -X POST \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "tag_name=$TAG_NAME" \
-              -F "name=$TAG_NAME" \
-              -F "body=$RELEASE_BODY" \
-              -F "prerelease=false" \
-              -F "target_commitish=master" \
-              "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases" \
-              -o /tmp/release.json 2>&1 | tail -n1)
-            CURL_EXIT_CODE=$?
-            set -e  # 重新启用 exit on error
-          
-            echo "curl exit code: $CURL_EXIT_CODE"
-            echo "HTTP Status Code: $HTTP_CODE"
-          
-            if [ $CURL_EXIT_CODE -eq 0 ] && [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              SUCCESS=true
-              echo "✅ API call successful!"
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Failed (curl: $CURL_EXIT_CODE, HTTP: $HTTP_CODE), retrying in 5 seconds..."
-                sleep 5
-              fi
-            fi
-          done
-          
-          if [ "$SUCCESS" = false ]; then
-            echo "❌ Failed to create Gitee Release after $MAX_RETRIES attempts"
-            echo "Last curl exit code: $CURL_EXIT_CODE"
-            echo "Last HTTP code: $HTTP_CODE"
-            cat /tmp/release.json 2>/dev/null || echo "No response file"
-            exit 1
-          fi
-          
-          echo "API Response:"
-          cat /tmp/release.json
-          
-          # 优先使用 jq（GitHub Actions Ubuntu runner 预装）
-          RELEASE_ID=$(jq -r '.id // empty' /tmp/release.json 2>/dev/null || echo "")
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "jq extraction failed, trying python3..."
-            RELEASE_ID=$(python3 -c "import sys, json; print(json.load(open('/tmp/release.json'))['id'])" 2>/dev/null || echo "")
-          fi
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "python3 failed, trying grep..."
-            RELEASE_ID=$(grep -o '"id":[0-9]*' /tmp/release.json | head -1 | grep -o '[0-9]*')
-          fi
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "❌ Error: Failed to extract release ID from response"
-            exit 1
-          fi
-          
-          echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
-          echo "✅ Gitee Release created successfully with ID: $RELEASE_ID"
-
-  # Windows 绿色版上传到 Gitee
-  sync-windows-portable-to-gitee:
-    name: Upload Windows Portable to Gitee（上传 Windows 绿色版到 Gitee）
-    if: github.event_name == 'auto-release' && needs.build-windows-portable.result == 'success'
-    needs: [ create-gitee-release, build-windows-portable ]  # 等待 Release 创建和构建完成
-    runs-on: ubuntu-latest
-    continue-on-error: true  # 上传失败不影响其他任务
-
-    steps:
-      - name: Download Windows Portable artifact（下载 Windows 绿色版产物）
+      - name: Download All Artifacts（下载所有产物）
         uses: actions/download-artifact@v4
         with:
-          name: release-portable-zip
-          path: artifacts
+          path: all-artifacts
 
-      - name: Upload Windows Portable to Gitee（上传 Windows 绿色版到 Gitee）
+      - name: Organize Release Files（整理发布文件）
         run: |
-          RELEASE_ID="${{ needs.create-gitee-release.outputs.release_id }}"
-          FILE=$(find artifacts -name "*-portable.zip" | head -n 1)
-          
-          if [ -z "$FILE" ]; then
-            echo "❌ Windows Portable ZIP file not found!"
-            exit 1
-          fi
-          
-          echo "📦 [Priority 1] Uploading $(basename $FILE) to Gitee..."
-          
-          # 上传到 Gitee，带重试机制
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -X POST "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases/$RELEASE_ID/attach_files" \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "file=@$FILE"; then
-              echo "✅ Windows Portable uploaded successfully!"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Upload failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
-                sleep 5
-              fi
-            fi
-          done
-          
-          echo "❌ Failed to upload Windows Portable after $MAX_RETRIES attempts"
-          exit 1
+          mkdir -p release-files
+          find all-artifacts -type f \( -name "*.zip" -o -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.jar" \) -exec cp {} release-files/ \;
+          echo "📦 Files prepared for release:"
+          ls -lah release-files/
 
-  # Windows EXE 上传到 Gitee
-  sync-windows-exe-to-gitee:
-    name: Upload Windows EXE to Gitee（上传 Windows EXE 到 Gitee）
-    if: github.event_name == 'auto-release' && needs.build-windows-exe.result == 'success'
-    needs: [ create-gitee-release, build-windows-exe ]  # 等待 Release 创建和构建完成
-    runs-on: ubuntu-latest
-    continue-on-error: true  # 上传失败不影响其他任务
-
-    steps:
-      - name: Download Windows EXE artifact（下载 Windows EXE 产物）
-        uses: actions/download-artifact@v4
+      - name: Create Release and Upload Assets（创建 Release 并上传文件）
+        uses: softprops/action-gh-release@v2
         with:
-          name: release-exe
-          path: artifacts
+          tag_name: "auto-build-${{ github.run_number }}"
+          name: "Auto Build #${{ github.run_number }} - v${{ needs.get-version.outputs.version }}"
+          body: |
+            🚀 EasyPostman Auto Build Release
 
-      - name: Upload Windows EXE to Gitee（上传 Windows EXE 到 Gitee）
-        run: |
-          RELEASE_ID="${{ needs.create-gitee-release.outputs.release_id }}"
-          FILE=$(find artifacts -name "*.exe" | head -n 1)
-          
-          if [ -z "$FILE" ]; then
-            echo "❌ Windows EXE file not found!"
-            exit 1
-          fi
-          
-          echo "📦 [Priority 2] Uploading $(basename $FILE) to Gitee..."
-          
-          # 上传到 Gitee，带重试机制
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -X POST "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases/$RELEASE_ID/attach_files" \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "file=@$FILE"; then
-              echo "✅ Windows EXE uploaded successfully!"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Upload failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
-                sleep 5
-              fi
-            fi
-          done
-          
-          echo "❌ Failed to upload Windows EXE after $MAX_RETRIES attempts"
-          exit 1
+            ## 📥 Download Packages
 
-  # macOS ARM 上传到 Gitee（macOS 构建完成后立即上传）
-  sync-macos-to-gitee:
-    name: Upload macOS ARM to Gitee（上传 macOS ARM 到 Gitee）
-    if: github.event_name == 'auto-release' && needs.build-macos-arm.result == 'success'
-    # ✅ 只等待 2 个条件：
-    # 1. create-gitee-release 完成（获得 release_id）
-    # 2. build-macos-arm 完成（DMG 文件准备好）
-    needs: [ create-gitee-release, build-macos-arm ]
-    runs-on: ubuntu-latest
-    continue-on-error: true  # 上传失败不影响其他任务
+            Platform-specific installers are available below:
 
-    steps:
-      - name: Download macOS ARM artifact（下载 macOS ARM 产物）
-        uses: actions/download-artifact@v4
-        with:
-          name: release-dmg-arm64
-          path: artifacts
+            ### Windows
+            - 🟢 **EasyPostman-*-windows-x64-portable.zip** - Portable version (recommended)
+            - 💾 **EasyPostman-*-windows-x64.exe** - Installer version
 
-      - name: Upload macOS ARM to Gitee（上传 macOS ARM 到 Gitee）
-        run: |
-          RELEASE_ID="${{ needs.create-gitee-release.outputs.release_id }}"
-          FILE=$(find artifacts -name "*-macos-arm64.dmg" | head -n 1)
-          
-          if [ -z "$FILE" ]; then
-            echo "❌ macOS ARM DMG file not found!"
-            exit 1
-          fi
-          
-          echo "🍎 [Priority 3] Uploading $(basename $FILE) to Gitee..."
-          
-          # 上传到 Gitee，带重试机制
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -X POST "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases/$RELEASE_ID/attach_files" \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "file=@$FILE"; then
-              echo "✅ macOS ARM uploaded successfully!"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Upload failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
-                sleep 5
-              fi
-            fi
-          done
-          
-          echo "❌ Failed to upload macOS ARM after $MAX_RETRIES attempts"
-          exit 1
+            ### macOS
+            - 🍎 **EasyPostman-*-macos-x86_64.dmg** - Intel version
+            - 🍎 **EasyPostman-*-macos-arm64.dmg** - Apple Silicon (M1/M2/M3/M4)
 
-  # 汇总结果
-  sync-summary:
-    name: Sync Summary（同步汇总）
-    if: github.event_name == 'auto-release' && always()  # 即使有失败也执行
-    needs: [ check-any-build-success, create-gitee-release, sync-windows-portable-to-gitee, sync-windows-exe-to-gitee, sync-macos-to-gitee ]
-    runs-on: ubuntu-latest
+            ### Linux
+            - 🐧 **EasyPostman-*-amd64.deb** - Ubuntu/Debian package
 
-    steps:
-      - name: Summary（汇总）
-        run: |
-          echo "📊 Gitee Release 同步完成！"
-          
-          CHECK_STATUS="${{ needs.check-any-build-success.result }}"
-          RELEASE_STATUS="${{ needs.create-gitee-release.result }}"
-          
-          echo ""
-          echo "🔍 构建检查结果: $CHECK_STATUS"
-          echo "📝 Gitee Release 创建: $RELEASE_STATUS"
-          
-          if [ "$RELEASE_STATUS" == "success" ]; then
-            echo "📍 Release URL: https://gitee.com/lakernote/easy-postman/releases/${{ needs.create-gitee-release.outputs.tag_name }}"
-          fi
-          
-          echo ""
-          echo "⏱️  同步时间线（智能触发）："
-          echo "  1️⃣  各平台并行构建"
-          echo "  2️⃣  任意一个构建成功 → 立即创建 Gitee Release ⚡"
-          echo "  3️⃣  成功的平台 → 立即上传到 Gitee"
-          echo ""
-          echo "已同步到 Gitee 的文件："
-          echo "  📦 Windows Portable (绿色版) - ${{ needs.sync-windows-portable-to-gitee.result }}"
-          echo "  🪟 Windows EXE (安装包) - ${{ needs.sync-windows-exe-to-gitee.result }}"
-          echo "  🍎 macOS Apple Silicon (ARM64) - ${{ needs.sync-macos-to-gitee.result }}"
-          echo ""
-          echo "💡 其他平台（Standalone JAR、macOS Intel、Ubuntu DEB）仅在 GitHub Release 提供"
-          echo ""
-          
-          PORTABLE_STATUS="${{ needs.sync-windows-portable-to-gitee.result }}"
-          EXE_STATUS="${{ needs.sync-windows-exe-to-gitee.result }}"
-          MACOS_STATUS="${{ needs.sync-macos-to-gitee.result }}"
-          
-          SUCCESS_COUNT=0
-          [ "$PORTABLE_STATUS" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-          [ "$EXE_STATUS" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-          [ "$MACOS_STATUS" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-          
-          echo "📈 成功上传: $SUCCESS_COUNT 个平台"
-          
-          if [ "$CHECK_STATUS" == "failure" ]; then
-            echo "❌ 所有构建都失败，未创建 Gitee Release"
-            exit 1
-          elif [ $SUCCESS_COUNT -eq 0 ] && [ "$RELEASE_STATUS" == "success" ]; then
-            echo "⚠️  Gitee Release 已创建，但所有文件上传失败"
-            echo "💡 可以手动上传文件到 Gitee Release"
-          elif [ $SUCCESS_COUNT -gt 0 ]; then
-            echo "✅ Gitee Release 创建成功，已上传 $SUCCESS_COUNT 个平台的文件"
-            echo "🚀 优化亮点："
-            echo "   • 任意一个构建成功即可创建 Release（无需等待全部）"
-            echo "   • 各平台完全并行上传，互不阻塞"
-            echo "   • 失败的构建不影响其他平台发布"
-          fi
+            ### Cross-Platform
+            - 📄 **easy-postman-*.jar** - Standalone JAR (requires Java 17+)
+
+            **Build Time**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: release-files/*
+          draft: false
+          prerelease: false
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
