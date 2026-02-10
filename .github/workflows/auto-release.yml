@@ -1,15 +1,13 @@
-name: Release Build（自动构建）
+name: Auto Build（自动构建）
 
 permissions:
   contents: write
 
 on:
   push:
-    branches:
-      - main
-      - master
-  pull_request:
-  workflow_dispatch: { }  # 支持手动触发
+    branches: [main, master]  # Push 时触发
+  pull_request:              # PR 时触发
+  workflow_dispatch:         # 手动触发
 
 env:
   JAVA_VERSION: '17'
@@ -209,7 +207,7 @@ jobs:
           Write-Host "✅ Created portable version: $zipName"
 
       - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*-portable.zip
@@ -228,7 +226,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Portable ZIP for Gitee sync（上传便携版 ZIP 供 Gitee 同步使用）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: actions/upload-artifact@v4
         with:
           name: release-portable-zip
@@ -415,7 +413,7 @@ jobs:
           }
 
       - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.exe
@@ -434,7 +432,7 @@ jobs:
           retention-days: 7
 
       - name: Upload EXE for Gitee sync（上传 EXE 供 Gitee 同步使用）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: actions/upload-artifact@v4
         with:
           name: release-exe
@@ -541,7 +539,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-x86_64.dmg"
 
       - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'release'  # 只在 Release 触发时上传
+        if: github.event_name == 'auto-release'  # 只在 Release 触发时上传
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*-macos-x86_64.dmg
@@ -560,7 +558,7 @@ jobs:
           retention-days: 7  # 保留 7 天
 
       - name: Upload DMG for Gitee sync（上传 DMG 供 Gitee 同步使用）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: actions/upload-artifact@v4
         with:
           name: release-dmg-intel
@@ -667,7 +665,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-arm64.dmg"
 
       - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'release'  # 只在 Release 触发时上传
+        if: github.event_name == 'auto-release'  # 只在 Release 触发时上传
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*-macos-arm64.dmg
@@ -686,7 +684,7 @@ jobs:
           retention-days: 7  # 保留 7 天
 
       - name: Upload DMG for Gitee sync（上传 DMG 供 Gitee 同步使用）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: actions/upload-artifact@v4
         with:
           name: release-dmg-arm64
@@ -706,7 +704,7 @@ jobs:
           path: dist
 
       - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.jar
@@ -825,7 +823,7 @@ jobs:
           jpackage "${JPACKAGE_ARGS[@]}"
 
       - name: Upload to Release（上传到 GitHub Release）
-        if: github.event_name == 'release'  # 只在 Release 触发时上传
+        if: github.event_name == 'auto-release'  # 只在 Release 触发时上传
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.deb
@@ -844,7 +842,7 @@ jobs:
           retention-days: 7  # 保留 7 天
 
       - name: Upload DEB for Gitee sync（上传 DEB 供 Gitee 同步使用）
-        if: github.event_name == 'release'
+        if: github.event_name == 'auto-release'
         uses: actions/upload-artifact@v4
         with:
           name: release-deb
@@ -854,7 +852,7 @@ jobs:
   # 检查是否至少有一个构建成功
   check-any-build-success:
     name: Check Any Build Success（检查至少一个构建成功）
-    if: github.event_name == 'release' && always()
+    if: github.event_name == 'auto-release' && always()
     needs: [ build-windows-portable, build-windows-exe, build-macos-arm ]
     runs-on: ubuntu-latest
     outputs:
@@ -884,7 +882,7 @@ jobs:
   # 创建 Gitee Release（至少一个构建成功后创建）
   create-gitee-release:
     name: Create Gitee Release（创建 Gitee Release）
-    if: github.event_name == 'release' && needs.check-any-build-success.outputs.should_create_release == 'true'
+    if: github.event_name == 'auto-release' && needs.check-any-build-success.outputs.should_create_release == 'true'
     needs: [ get-version, check-any-build-success ]
     runs-on: ubuntu-latest
     outputs:
@@ -995,7 +993,7 @@ jobs:
   # Windows 绿色版上传到 Gitee
   sync-windows-portable-to-gitee:
     name: Upload Windows Portable to Gitee（上传 Windows 绿色版到 Gitee）
-    if: github.event_name == 'release' && needs.build-windows-portable.result == 'success'
+    if: github.event_name == 'auto-release' && needs.build-windows-portable.result == 'success'
     needs: [ create-gitee-release, build-windows-portable ]  # 等待 Release 创建和构建完成
     runs-on: ubuntu-latest
     continue-on-error: true  # 上传失败不影响其他任务
@@ -1044,7 +1042,7 @@ jobs:
   # Windows EXE 上传到 Gitee
   sync-windows-exe-to-gitee:
     name: Upload Windows EXE to Gitee（上传 Windows EXE 到 Gitee）
-    if: github.event_name == 'release' && needs.build-windows-exe.result == 'success'
+    if: github.event_name == 'auto-release' && needs.build-windows-exe.result == 'success'
     needs: [ create-gitee-release, build-windows-exe ]  # 等待 Release 创建和构建完成
     runs-on: ubuntu-latest
     continue-on-error: true  # 上传失败不影响其他任务
@@ -1093,7 +1091,7 @@ jobs:
   # macOS ARM 上传到 Gitee（macOS 构建完成后立即上传）
   sync-macos-to-gitee:
     name: Upload macOS ARM to Gitee（上传 macOS ARM 到 Gitee）
-    if: github.event_name == 'release' && needs.build-macos-arm.result == 'success'
+    if: github.event_name == 'auto-release' && needs.build-macos-arm.result == 'success'
     # ✅ 只等待 2 个条件：
     # 1. create-gitee-release 完成（获得 release_id）
     # 2. build-macos-arm 完成（DMG 文件准备好）
@@ -1145,7 +1143,7 @@ jobs:
   # 汇总结果
   sync-summary:
     name: Sync Summary（同步汇总）
-    if: github.event_name == 'release' && always()  # 即使有失败也执行
+    if: github.event_name == 'auto-release' && always()  # 即使有失败也执行
     needs: [ check-any-build-success, create-gitee-release, sync-windows-portable-to-gitee, sync-windows-exe-to-gitee, sync-macos-to-gitee ]
     runs-on: ubuntu-latest
 
