@@ -5,33 +5,45 @@ import com.laker.postman.common.component.button.HelpButton;
 import com.laker.postman.common.component.button.SnippetButton;
 import com.laker.postman.common.component.dialog.SnippetDialog;
 import com.laker.postman.common.component.tab.IndicatorTabComponent;
+import com.laker.postman.common.component.editor.PostmanJavaScriptTokenMaker;
 import com.laker.postman.model.Snippet;
-import com.laker.postman.service.js.ScriptSnippetManager;
+import com.laker.postman.common.component.editor.ScriptSnippetManager;
 import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
 import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.rsyntaxtextarea.AbstractTokenMakerFactory;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.TokenMakerFactory;
+import org.fife.ui.rsyntaxtextarea.folding.CurlyFoldParser;
+import org.fife.ui.rsyntaxtextarea.folding.FoldParserManager;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.awt.event.KeyEvent;
 
 
 @Slf4j
 public class ScriptPanel extends JPanel {
+    private static final String POSTMAN_JS_SYNTAX = "text/postman-javascript";
+
     private final RSyntaxTextArea prescriptArea;
     private final RSyntaxTextArea postscriptArea;
     private final JTabbedPane tabbedPane;
     private final SnippetButton snippetBtn;
     private final IndicatorTabComponent preScriptTab;
     private final IndicatorTabComponent postScriptTab;
+
+    static {
+        AbstractTokenMakerFactory atmf = (AbstractTokenMakerFactory) TokenMakerFactory.getDefaultInstance();
+        atmf.putMapping(POSTMAN_JS_SYNTAX, PostmanJavaScriptTokenMaker.class.getName());
+        // 为自定义语法注册 FoldParser，使代码折叠功能生效
+        FoldParserManager.get().addFoldParserMapping(POSTMAN_JS_SYNTAX, new CurlyFoldParser());
+    }
 
     public ScriptPanel() {
         setLayout(new BorderLayout());
@@ -176,15 +188,22 @@ public class ScriptPanel extends JPanel {
      * 配置编辑器的通用设置
      */
     private void configureEditor(RSyntaxTextArea area) {
-        area.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT);
-        area.setCodeFoldingEnabled(true);
-        area.setAntiAliasingEnabled(true);  // 启用抗锯齿，文字更清晰
-        area.setAutoIndentEnabled(true);  // 启用自动缩进
-        area.setBracketMatchingEnabled(true);  // 启用括号匹配
-        area.setPaintTabLines(true);  // 显示缩进参考线
-        area.setMarkOccurrences(true);  // 高亮显示相同的标识符
-        area.setTabSize(4);  // 设置 Tab 为 4 个空格
-        EditorThemeUtil.loadTheme(area);  // 加载主题
+        // 设置语法高亮
+        area.setSyntaxEditingStyle(POSTMAN_JS_SYNTAX);
+
+        // 代码编辑功能
+        area.setCodeFoldingEnabled(true);           // 代码折叠
+        area.setAutoIndentEnabled(true);            // 自动缩进
+        area.setBracketMatchingEnabled(true);       // 括号匹配
+        area.setMarkOccurrences(true);              // 高亮相同标识符
+
+        // 显示设置
+        area.setAntiAliasingEnabled(true);          // 抗锯齿，文字更清晰
+        area.setPaintTabLines(true);                // 显示缩进参考线
+        area.setTabSize(4);                         // Tab = 4 个空格
+
+        // 加载主题和自动补全
+        EditorThemeUtil.loadTheme(area);
         addAutoCompletion(area);
     }
 
@@ -241,7 +260,7 @@ public class ScriptPanel extends JPanel {
         updateIndicator(postScriptTab, text);
         // 如果Pre-script为空且Post-script有内容，自动切换到Post-script标签页
         if (text != null && !text.trim().isEmpty() &&
-            (prescriptArea.getText() == null || prescriptArea.getText().trim().isEmpty())) {
+                (prescriptArea.getText() == null || prescriptArea.getText().trim().isEmpty())) {
             tabbedPane.setSelectedIndex(1);
         }
     }
@@ -336,11 +355,13 @@ public class ScriptPanel extends JPanel {
 
         // 配置自动补全
         AutoCompletion ac = new AutoCompletion(provider);
-        ac.setAutoCompleteEnabled(true); // 启用自动补全
-        ac.setAutoActivationEnabled(true); // 启用自动激活
-        ac.setAutoActivationDelay(200); // 200ms后触发自动补全
-        ac.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0)); // 使用Tab键触发补全
-        ac.setShowDescWindow(true); // 显示悬浮说明
+        ac.setAutoCompleteEnabled(true);      // 启用自动补全
+        ac.setAutoActivationEnabled(true);    // 启用自动激活
+        ac.setAutoActivationDelay(200);       // 200ms 延迟，快速响应
+        ac.setAutoCompleteSingleChoices(false); // 只有多个选项时才显示弹窗
+        ac.setShowDescWindow(true);           // 显示说明窗口
+        ac.setParameterAssistanceEnabled(false); // 禁用参数辅助（JavaScript 不需要）
+        // 安装到编辑器
         ac.install(area);
     }
 }
