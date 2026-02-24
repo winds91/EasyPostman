@@ -6,7 +6,7 @@
 
     <groupId>com.laker.tools</groupId>
     <artifactId>easy-postman</artifactId>
-    <version>4.3.26</version> <!--保证 win-upgrade-uuid 不变，app-version 每次升级时递增（就是引用的这里啦）。要不然在win无法升级-->
+    <version>4.3.29</version> <!--保证 win-upgrade-uuid 不变，app-version 每次升级时递增（就是引用的这里啦）。要不然在win无法升级-->
 
     <properties>
         <!-- 编译配置 -->
@@ -27,6 +27,7 @@
         <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
         <jackson.version>3.0.2</jackson.version>
         <lombok.version>1.18.42</lombok.version>
+        <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
     </properties>
     <dependencies>
 
@@ -191,6 +192,13 @@
             <groupId>org.benf</groupId>
             <artifactId>cfr</artifactId>
             <version>0.152</version>
+        </dependency>
+
+        <!-- TwelveMonkeys ImageIO - WebP 支持 -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>${twelvemonkeys.version}</version>
         </dependency>
     </dependencies>
 

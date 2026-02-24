@@ -1,5 +1,7 @@
 package com.laker.postman.model;
 
+import com.laker.postman.service.http.EasyHttpHeaders;
+
 import java.util.List;
 import java.util.Map;
 
@@ -22,17 +24,18 @@ public class HttpResponse {
     public long bodySize; // 响应体字节数
     public long headersSize; // 响应头字节数
     public boolean isSse = false; // 是否为SSE响应
+    public boolean isImage = false; // 是否为图片响应（用于预览）
 
     public void addHeader(String name, List<String> value) {
         if (headers == null) {
             return;
         }
-        if ("Easy-Content-Encoding".equalsIgnoreCase(name)) {
-            headers.put("Content-Encoding", value);
-            headers.remove("Easy-Content-Encoding");
-        } else if ("Easy-Content-Length".equalsIgnoreCase(name)) {
-            headers.put("Content-Length", value);
-            headers.remove("Easy-Content-Length");
+        if (EasyHttpHeaders.EASY_CONTENT_ENCODING.equalsIgnoreCase(name)) {
+            headers.put(EasyHttpHeaders.CONTENT_ENCODING, value);
+            headers.remove(EasyHttpHeaders.EASY_CONTENT_ENCODING);
+        } else if (EasyHttpHeaders.EASY_CONTENT_LENGTH.equalsIgnoreCase(name)) {
+            headers.put(EasyHttpHeaders.CONTENT_LENGTH, value);
+            headers.remove(EasyHttpHeaders.EASY_CONTENT_LENGTH);
         } else {
             headers.put(name, value);
         }

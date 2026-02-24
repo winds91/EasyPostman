@@ -13,11 +13,14 @@ import lombok.Getter;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 
@@ -56,6 +59,11 @@ public class ResponseBodyPanel extends JPanel {
     private static final String DEFAULT_FILE_NAME = "downloaded_file";
     private static final String CONTENT_TYPE_HEADER = "Content-Type";
     private static final String SKIP_AUTO_FORMAT_MESSAGE = " Skip auto-format for large response.";
+    private static final String CARD_TEXT = "TEXT";
+    private static final String CARD_IMAGE = "IMAGE";
+
+    // 图片预览组件
+    private final JLabel imagePreviewLabel;
 
 
     private final JLabel sizeWarningLabel;
@@ -78,7 +86,19 @@ public class ResponseBodyPanel extends JPanel {
 
         // 使用 SearchableTextArea 包装，禁用替换功能（仅搜索）
         searchableTextArea = new SearchableTextArea(responseBodyPane, false);
-        add(searchableTextArea, BorderLayout.CENTER);
+
+        // 图片预览组件
+        imagePreviewLabel = new JLabel();
+        imagePreviewLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        imagePreviewLabel.setVerticalAlignment(SwingConstants.CENTER);
+        JScrollPane imageScrollPane = new JScrollPane(imagePreviewLabel);
+        imageScrollPane.setBorder(BorderFactory.createEmptyBorder());
+
+        // 使用 CardLayout 在文本视图和图片视图之间切换
+        JPanel centerPanel = new JPanel(new CardLayout());
+        centerPanel.add(searchableTextArea, CARD_TEXT);
+        centerPanel.add(imageScrollPane, CARD_IMAGE);
+        add(centerPanel, BorderLayout.CENTER);
 
         JPanel toolBarPanel = new JPanel();
         toolBarPanel.setLayout(new BoxLayout(toolBarPanel, BoxLayout.X_AXIS));
@@ -254,7 +274,7 @@ public class ResponseBodyPanel extends JPanel {
 
         try {
             String formatted = null;
-            if (contentType.contains("json")) {
+            if (contentType.contains("json") || JsonUtil.isTypeJSON(text)) {
                 formatted = JsonUtil.toJsonPrettyStr(text);
             } else if (contentType.contains("xml")) {
                 formatted = XmlUtil.format(text);
@@ -327,6 +347,15 @@ public class ResponseBodyPanel extends JPanel {
         this.currentFilePath = resp.filePath;
         this.fileName = resp.fileName;
         this.lastHeaders = resp.headers;
+
+        // 图片预览
+        if (resp.isImage && resp.filePath != null && !resp.filePath.isEmpty()) {
+            showImagePreview(resp.filePath, resp.bodySize);
+            return;
+        }
+
+        // 切换回文本视图
+        switchCard(CARD_TEXT);
         String text = resp.body;
         String contentType = extractContentType(resp.headers);
 
@@ -372,6 +401,9 @@ public class ResponseBodyPanel extends JPanel {
      */
     private String detectSyntax(String text, String contentType) {
         if (contentType != null) contentType = contentType.toLowerCase();
+        if (JsonUtil.isTypeJSON(text)) {
+            return SyntaxConstants.SYNTAX_STYLE_JSON;
+        }
         if (contentType != null) {
             if (contentType.contains("json")) return SyntaxConstants.SYNTAX_STYLE_JSON;
             if (contentType.contains("xml")) return SyntaxConstants.SYNTAX_STYLE_XML;
@@ -415,7 +447,8 @@ public class ResponseBodyPanel extends JPanel {
         // 小文件直接格式化
         if (textSize < LARGE_RESPONSE_THRESHOLD) {
             try {
-                if (contentType != null && contentType.toLowerCase().contains("json")) {
+                if (contentType != null && contentType.toLowerCase().contains("json")
+                        || JsonUtil.isTypeJSON(text)) {
                     String pretty = JsonUtil.toJsonPrettyStr(text);
                     responseBodyPane.setText(pretty);
                 } else if (contentType != null && contentType.toLowerCase().contains("xml")) {
@@ -447,6 +480,85 @@ public class ResponseBodyPanel extends JPanel {
     // ========== 辅助方法 ==========
 
     /**
+     * 切换中心区域显示的卡片（文本编辑器 或 图片预览）
+     */
+    private void switchCard(String cardName) {
+        Container centerPanel = searchableTextArea.getParent();
+        if (centerPanel != null && centerPanel.getLayout() instanceof CardLayout cl) {
+            cl.show(centerPanel, cardName);
+        }
+    }
+
+    /**
+     * 加载图片并切换到图片预览卡片
+     * <p>
+     * - GIF  → ImageIcon(URL)（Swing 内置动图支持，保留动画）
+     * - WebP → TwelveMonkeys ImageIO 自动注册后 ImageIO.read() 可解码
+     * - SVG  → 降级：直接用文本编辑器显示原始 XML 内容
+     * - 其他 → ImageIO.read() + ImageIcon
+     * </p>
+     *
+     * @param filePath 临时文件路径
+     * @param bodySize 图片字节数
+     */
+    private void showImagePreview(String filePath, long bodySize) {
+        File file = new File(filePath);
+        String nameLower = file.getName().toLowerCase();
+
+        try {
+            // ── GIF 动图：使用 ImageIcon(URL) 保留动画 ──────────────────────
+            if (nameLower.endsWith(".gif")) {
+                ImageIcon gifIcon = new ImageIcon(file.toURI().toURL());
+                sizeWarningLabel.setText(String.format("  %d×%d  [%.2f KB]",
+                        gifIcon.getIconWidth(), gifIcon.getIconHeight(), bodySize / 1024.0));
+                sizeWarningLabel.setVisible(true);
+                imagePreviewLabel.setIcon(gifIcon);
+                imagePreviewLabel.setText(null);
+                switchCard(CARD_IMAGE);
+                return;
+            }
+
+            // ── WebP / PNG / JPG / BMP / 其他（含 SVG 降级）────────────────
+            // TwelveMonkeys 已通过 SPI 自动注册 WebP reader，ImageIO.read() 直接支持
+            // SVG 无法被 ImageIO 解码（返回 null），会进入 showImageError 降级处理
+            BufferedImage img = ImageIO.read(file);
+            if (img == null) {
+                // SVG 或其他无法解码的格式：读取文件文本内容显示在编辑器中
+                if (nameLower.endsWith(".svg")) {
+                    String svgText = Files.readString(file.toPath());
+                    responseBodyPane.setText(svgText);
+                    responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_XML);
+                    responseBodyPane.setCaretPosition(0);
+                    sizeWarningLabel.setText(String.format("  SVG  [%.2f KB]", bodySize / 1024.0));
+                    sizeWarningLabel.setVisible(true);
+                    switchCard(CARD_TEXT);
+                } else {
+                    showImageError("[Image cannot be decoded: " + file.getName() + "]", bodySize);
+                }
+                return;
+            }
+            sizeWarningLabel.setText(String.format("  %d×%d  [%.2f KB]",
+                    img.getWidth(), img.getHeight(), bodySize / 1024.0));
+            sizeWarningLabel.setVisible(true);
+            imagePreviewLabel.setIcon(new ImageIcon(img));
+            imagePreviewLabel.setText(null);
+            switchCard(CARD_IMAGE);
+
+        } catch (Exception e) {
+            showImageError("[Failed to load image: " + e.getMessage() + "]", bodySize);
+        }
+    }
+
+    /** 图片加载失败时回退到文本卡片显示错误信息 */
+    private void showImageError(String message, long bodySize) {
+        responseBodyPane.setText(message);
+        responseBodyPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        sizeWarningLabel.setText(String.format("  [%.2f KB]", bodySize / 1024.0));
+        sizeWarningLabel.setVisible(true);
+        switchCard(CARD_TEXT);
+    }
+
+    /**
      * 清空响应体内容
      */
     private void clearResponseBody() {
@@ -458,6 +570,9 @@ public class ResponseBodyPanel extends JPanel {
         responseBodyPane.setCaretPosition(0);
         syntaxComboBox.setSelectedIndex(SyntaxType.AUTO_DETECT.getIndex());
         sizeWarningLabel.setVisible(false);
+        imagePreviewLabel.setIcon(null);
+        imagePreviewLabel.setText(null);
+        switchCard(CARD_TEXT);
     }
 
     /**
