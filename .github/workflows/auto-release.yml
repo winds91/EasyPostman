@@ -838,9 +838,19 @@ jobs:
             echo "Tag $CLEAN_TAG does not exist, creating..."
           else
             echo "Tag $CLEAN_TAG already exists, deleting first..."
-            curl -s -X DELETE "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/git/tags/$CLEAN_TAG" \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" > /dev/null
-            sleep 2
+            # 尝试删除 tag，但不要让失败导致整个脚本退出
+            DELETE_RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/git/tags/$CLEAN_TAG" \
+              -F "access_token=${{ secrets.GITEE_TOKEN }}" )
+            
+            DELETE_HTTP_CODE=$(echo "$DELETE_RESPONSE" | tail -n1)
+            if [ "$DELETE_HTTP_CODE" -ge 200 ] && [ "$DELETE_HTTP_CODE" -lt 300 ]; then
+              echo "✅ Tag deleted successfully"
+              sleep 2
+            else
+              echo "⚠️ Tag deletion failed (HTTP $DELETE_HTTP_CODE), but continuing..."
+              # 即使删除失败，也继续尝试创建（Gitee 可能允许覆盖）
+              sleep 2
+            fi
           fi
           
           # 使用 JSON 格式提交（Gitee 更推荐）
