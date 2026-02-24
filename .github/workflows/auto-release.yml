@@ -812,7 +812,7 @@ jobs:
         id: create_release
         run: |
           set -euo pipefail
-
+          
           VERSION="${{ needs.get-version.outputs.version }}"
           RELEASE_TAG="v${VERSION}-build-${{ github.run_number }}"
           RELEASE_NAME="Auto Build #${{ github.run_number }} - v${VERSION}"
@@ -831,24 +831,9 @@ jobs:
           
           echo "Creating Gitee release: $CLEAN_TAG"
           
-          # 使用 JSON 格式提交（Gitee 更推荐）
-          PAYLOAD=$(cat <<EOF
-            {
-              "tag_name": "$CLEAN_TAG",
-              "name": "$RELEASE_NAME",
-              "body": "$RELEASE_BODY",
-              "prerelease": false,
-              "target_commitish": "${{ github.sha }}"
-            }
-            EOF
-          )
-      
-          # 先检查 tag 是否已存在
-          EXISTING_TAG=$(curl -s -X GET "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/tags/$CLEAN_TAG" \
-            -H "Content-Type: application/json" \
-            -F "access_token=${{ secrets.GITEE_TOKEN }}" )
-
-          if [ -n "$EXISTING_TAG" ] && echo "$EXISTING_TAG" | grep -q '"message":"Not Found"'; then
+          # 先检查 tag 是否已存在（使用 HEAD 请求更可靠）
+          if curl -s -o /dev/null -w "%{http_code}" -X HEAD "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/tags/$CLEAN_TAG" \
+            -F "access_token=${{ secrets.GITEE_TOKEN }}" | grep -q "404"; then
             echo "Tag $CLEAN_TAG does not exist, creating..."
           else
             echo "Tag $CLEAN_TAG already exists, deleting first..."
@@ -856,20 +841,30 @@ jobs:
               -F "access_token=${{ secrets.GITEE_TOKEN }}" > /dev/null
             sleep 2
           fi
-      
-          # 使用 JSON 方式创建 release
+          
+          # 使用 JSON 格式提交（Gitee 更推荐）
+          # 注意：这里使用 printf 避免缩进问题
+          PAYLOAD=$(printf '{
+            "tag_name": "%s",
+            "name": "%s",
+            "body": "%s",
+            "prerelease": false,
+            "target_commitish": "%s"
+          }' "$CLEAN_TAG" "$RELEASE_NAME" "EasyPostman Auto Build Release
+          Download packages: Windows/macOS/Linux/JAR" "${{ github.sha }}")
+          
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/releases" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$PAYLOAD" \
             -F "access_token=${{ secrets.GITEE_TOKEN }}" )
-      
+          
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | sed '$d')
-
+          
           echo "HTTP Status: $HTTP_CODE"
           echo "Response Body: $BODY"
-
+          
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
             # 提取 release id
             RELEASE_ID=$(echo "$BODY" | jq -r '.id // empty')
@@ -892,17 +887,16 @@ jobs:
               -F "body=$RELEASE_BODY" \
               -F "prerelease=0" \
               -F "target_commitish=${{ github.sha }}" )
-            
+          
             HTTP_CODE2=$(echo "$RESPONSE2" | tail -n1)
             echo "Fallback HTTP Status: $HTTP_CODE2"
             if [ "$HTTP_CODE2" -ge 200 ] && [ "$HTTP_CODE2" -lt 300 ]; then
               RELEASE_ID2=$(echo "$RESPONSE2" | jq -r '.id // empty')
               if [ -n "$RELEASE_ID2" ]; then
-              echo "release_id=$RELEASE_ID2" >> $GITHUB_OUTPUT
-              echo "✅ Fallback:
-                Gitee Release created with ID: $RELEASE_ID2"
+                echo "release_id=$RELEASE_ID2" >> $GITHUB_OUTPUT
+                echo "✅ Fallback: Gitee Release created with ID: $RELEASE_ID2"
               else
-              exit 1
+                exit 1
               fi
             else
               exit 1
