@@ -826,17 +826,8 @@ jobs:
           
           echo "Creating Gitee release: $CLEAN_TAG"
           
-          # 直接创建，不检查是否存在（Gitee 允许覆盖同名 tag）
-          PAYLOAD=$(cat <<EOF
-          {
-            "tag_name": "$CLEAN_TAG",
-            "name": "Auto Build #${{ github.run_number }} - v$VERSION",
-            "body": "EasyPostman Auto Build Release\n\nDownload packages: Windows/macOS/Linux/JAR",
-            "prerelease": false,
-            "target_commitish": "${{ github.sha }}"
-          }
-          EOF
-          )
+          # 使用 echo 构建 JSON，避免所有复杂语法
+          PAYLOAD=$(echo '{"tag_name":"'"$CLEAN_TAG"'","name":"Auto Build #'"${{ github.run_number }}"' - v'"$VERSION"'","body":"EasyPostman Auto Build Release\n\nDownload packages: Windows/macOS/Linux/JAR","prerelease":false,"target_commitish":"'"${{ github.sha }}"'"}')
   
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/releases" \
             -H "Content-Type: application/json" \
