@@ -814,8 +814,10 @@ jobs:
           set -euo pipefail
           
           VERSION="${{ needs.get-version.outputs.version }}"
-          RELEASE_TAG="v${VERSION}-build-${{ github.run_number }}"
+          RELEASE_TAG="v${VERSION}-build-${{ github.run_number }}-$(date -u +%Y%m%d%H%M%S)"
           RELEASE_NAME="Auto Build #${{ github.run_number }} - v${VERSION}"
+          CLEAN_TAG="$RELEASE_TAG"
+          echo "Using clean tag: $CLEAN_TAG"
           
           # 使用纯英文且符合规范的 tag 名称
           # 规则: 以字母开头，只包含字母、数字、点、下划线、连字符
