@@ -40,13 +40,18 @@ public class WorkspaceStorageUtil {
 
     /**
      * 获取默认工作区对象
+     * <p>
+     * 默认工作区路径为 {@code ~/EasyPostman/workspaces/default/}，
+     * 与其他子工作区平级，使根目录完全不参与 git 管理，
+     * 从根本上避免嵌套 git 仓库问题。
+     * </p>
      */
     public static Workspace getDefaultWorkspace() {
         Workspace ws = new Workspace();
         ws.setId(DEFAULT_WORKSPACE_ID);
         ws.setName(DEFAULT_WORKSPACE_NAME);
         ws.setType(WorkspaceType.LOCAL);
-        ws.setPath(SystemUtil.getEasyPostmanPath());
+        ws.setPath(ConfigPathConstants.DEFAULT_WORKSPACE_DIR);
         ws.setDescription(DEFAULT_WORKSPACE_DESCRIPTION);
         ws.setCreatedAt(System.currentTimeMillis());
         ws.setUpdatedAt(System.currentTimeMillis());
@@ -55,21 +60,26 @@ public class WorkspaceStorageUtil {
 
     /**
      * 保存工作区列表
+     * <p>
+     * 注意：内部操作副本，不会修改传入的原始列表。
+     * </p>
      */
     public static void saveWorkspaces(List<Workspace> workspaces) {
         synchronized (lock) {
             try {
+                // 操作副本，避免修改调用方持有的列表引用（如 WorkspaceService.workspaces 字段）
+                List<Workspace> toSave = new ArrayList<>(workspaces);
                 // 确保目录存在
                 File file = new File(WORKSPACES_PATH);
                 FileUtil.mkParentDirs(file);
                 // 保证默认工作区始终存在
-                boolean hasDefault = workspaces.stream().anyMatch(WorkspaceStorageUtil::isDefaultWorkspace);
+                boolean hasDefault = toSave.stream().anyMatch(WorkspaceStorageUtil::isDefaultWorkspace);
                 if (!hasDefault) {
-                    workspaces.add(0, getDefaultWorkspace());
+                    toSave.add(0, getDefaultWorkspace());
                 }
-                String json = JSONUtil.toJsonPrettyStr(workspaces);
+                String json = JSONUtil.toJsonPrettyStr(toSave);
                 FileUtil.writeString(json, file, StandardCharsets.UTF_8);
-                log.debug("Saved {} workspaces to {}", workspaces.size(), WORKSPACES_PATH);
+                log.debug("Saved {} workspaces to {}", toSave.size(), WORKSPACES_PATH);
             } catch (Exception e) {
                 log.error("Failed to save workspaces", e);
                 throw new RuntimeException("Failed to save workspaces", e);
@@ -101,6 +111,15 @@ public class WorkspaceStorageUtil {
                 boolean hasDefault = workspaces.stream().anyMatch(WorkspaceStorageUtil::isDefaultWorkspace);
                 if (!hasDefault) {
                     workspaces.add(0, getDefaultWorkspace());
+                    // 默认工作区缺失时立即回写文件，避免下次启动重复触发迁移逻辑
+                    try {
+                        File saveFile = new File(WORKSPACES_PATH);
+                        FileUtil.mkParentDirs(saveFile);
+                        FileUtil.writeString(JSONUtil.toJsonPrettyStr(workspaces), saveFile, StandardCharsets.UTF_8);
+                        log.info("Default workspace was missing from workspaces.json, auto-saved it back.");
+                    } catch (Exception saveEx) {
+                        log.warn("Failed to auto-save default workspace back to workspaces.json", saveEx);
+                    }
                 }
                 log.debug("Loaded {} workspaces from {}", workspaces.size(), WORKSPACES_PATH);
                 return workspaces;

@@ -4,6 +4,7 @@ import com.formdev.flatlaf.FlatLaf;
 import com.laker.postman.model.*;
 import com.laker.postman.model.script.TestResult;
 import com.laker.postman.panel.performance.model.ResultNodeInfo;
+import com.laker.postman.service.setting.SettingManager;
 import lombok.experimental.UtilityClass;
 
 import java.text.SimpleDateFormat;
@@ -11,528 +12,462 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * 统一的HTTP请求/响应HTML渲染工具类
- * 用于生成所有HTTP相关的HTML展示内容
+ * 统一的 HTTP 请求/响应 HTML 渲染工具类
  */
 @UtilityClass
 public class HttpHtmlRenderer {
 
-    // 内容大小限制常量 - 防止内存溢出
-    private static final int MAX_DISPLAY_SIZE = 2 * 1024;  // 2KB for safe display
-
-    // CSS样式常量
-    private static final String BASE_STYLE = "font-family:monospace;";
-    private static final String DETAIL_FONT_SIZE = "font-size:9px;";
+    private static final int MAX_DISPLAY_SIZE = 2 * 1024;
 
     // 颜色常量
     private static final String COLOR_PRIMARY = "#1976d2";
     private static final String COLOR_SUCCESS = "#388e3c";
-    private static final String COLOR_ERROR = "#d32f2f";
+    private static final String COLOR_ERROR   = "#d32f2f";
     private static final String COLOR_WARNING = "#ffa000";
-    private static final String COLOR_GRAY = "#888";
+    private static final String COLOR_GRAY    = "#888";
+
+    // ==================== 字号 ====================
 
     /**
-     * 检查当前是否为暗色主题
+     * JTextPane HTMLEditorKit 基于 72dpi，Swing 字号基于屏幕 DPI，
+     * 乘以 0.7 换算为视觉等效的 HTML px。
      */
-    private static boolean isDarkTheme() {
-        return FlatLaf.isLafDark();
+    private static int htmlFontSize() {
+        return Math.max(8, (int) Math.round(SettingManager.getUiFontSize() * 0.7));
     }
 
-    /**
-     * 获取主题适配的背景色
-     * 面板背景色（暗色主题）RGB(60, 63, 65) = #3c3f41
-     * 面板背景色（亮色主题）RGB(242, 242, 242) = #f2f2f2
-     */
-    private static String getThemeBackground() {
-        return isDarkTheme() ? "rgb(60, 63, 65)" : "rgb(242, 242, 242)";
-    }
+    private static String fs()      { return htmlFontSize() + "px"; }
+    private static String fsSmall() { return Math.max(8, htmlFontSize() - 1) + "px"; }
 
-    /**
-     * 获取主题适配的文字颜色
-     */
-    private static String getThemeTextColor() {
-        return isDarkTheme() ? "#e0e0e0" : "#222";
-    }
+    // ==================== 主题 ====================
 
-    /**
-     * 获取主题适配的边框颜色
-     */
-    private static String getThemeBorderColor() {
-        return isDarkTheme() ? "#4a4a4a" : "#e0e0e0";
-    }
+    private static boolean isDarkTheme() { return FlatLaf.isLafDark(); }
 
-    /**
-     * 获取主题适配的表头背景色
-     */
-    private static String getThemeHeaderBackground() {
-        return isDarkTheme() ? "rgb(50, 52, 54)" : "#f5f7fa";
-    }
+    private static String bgColor()       { return isDarkTheme() ? "#3c3f41" : "#f5f5f5"; }
+    private static String bgColorAlt()    { return isDarkTheme() ? "#45494a" : "#ececec"; } // 斑马纹
+    private static String textColor()     { return isDarkTheme() ? "#e0e0e0" : "#222";    }
+    private static String borderColor()   { return isDarkTheme() ? "#4a4a4a" : "#e0e0e0"; }
+    private static String codeBgColor()   { return isDarkTheme() ? "#2b2b2b" : "#f8f8f8"; }
 
-    // 状态码颜色映射
-    private static String getStatusColor(int code) {
+    private static String statusColor(int code) {
         if (code >= 500) return COLOR_ERROR;
         if (code >= 400) return COLOR_WARNING;
         return "#43a047";
     }
 
-    // HTML模板常量
-    private static final String HTML_TEMPLATE = "<html><body style='%s'>%s</body></html>";
-
+    // ==================== HTML 文档 ====================
 
     /**
-     * 单独渲染Timing信息
+     * 完整 HTML 文档：body 设好字体、字号、颜色，子元素直接继承，无需重复设置。
      */
+    private static String htmlDoc(String bodyContent) {
+        return "<html><body style='"
+                + "font-family:monospace;"
+                + "font-size:" + fs() + ";"
+                + "color:" + textColor() + ";"
+                + "margin:6px;"
+                + "'>" + bodyContent + "</body></html>";
+    }
+
+    // ==================== 通用 HTML 片段 ====================
+
+    /** key: value 行，支持斑马纹 */
+    private static String kvRow(String keyColor, String key, String value, boolean alt) {
+        return "<div style='padding:3px 8px;background:" + (alt ? bgColorAlt() : bgColor())
+                + ";border-radius:3px;margin-bottom:2px;word-break:break-all;'>"
+                + "<span style='color:" + keyColor + ";font-weight:bold;'>" + key + "</span>"
+                + "<span style='color:" + COLOR_GRAY + ";'> : </span>"
+                + "<span>" + value + "</span>"
+                + "</div>";
+    }
+
+    /** 节标题，带左边竖线装饰 */
+    private static String sectionTitle(String color, String title) {
+        return "<div style='margin:10px 0 4px 0;padding-left:6px;"
+                + "border-left:3px solid " + color + ";"
+                + "font-weight:bold;color:" + color + ";'>" + title + "</div>";
+    }
+
+    /** 无数据提示 */
+    private static String noData(String message) {
+        return "<div style='color:" + COLOR_GRAY + ";padding:12px;font-style:italic;'>" + message + "</div>";
+    }
+
+    /** 警告/错误提示框 */
+    private static String alertBox(String color, String title, String message) {
+        return "<div style='border-left:3px solid " + color + ";padding:8px 12px;"
+                + "margin-bottom:10px;background:" + bgColor() + ";border-radius:0 4px 4px 0;'>"
+                + "<div style='color:" + color + ";font-weight:bold;margin-bottom:4px;'>" + escapeHtml(title) + "</div>"
+                + "<div style='white-space:pre-wrap;word-break:break-all;'>" + escapeHtml(message) + "</div>"
+                + "</div>";
+    }
+
+    // ==================== 公开 API ====================
+
     public static String renderTimingInfo(HttpResponse response) {
-        if (response == null || response.httpEventInfo == null) {
-            return createNoDataDiv("No Timing Info");
-        }
-        return buildTimingHtml(response);
+        if (response == null || response.httpEventInfo == null) return htmlDoc(noData("No Timing Info"));
+        return htmlDoc(buildTimingHtml(response));
     }
 
-    /**
-     * 单独渲染Event信息
-     */
     public static String renderEventInfo(HttpResponse response) {
-        if (response == null || response.httpEventInfo == null) {
-            return createNoDataDiv("No Event Info");
-        }
-        return buildEventInfoHtml(response.httpEventInfo);
+        if (response == null || response.httpEventInfo == null) return htmlDoc(noData("No Event Info"));
+        return htmlDoc(buildEventInfoHtml(response.httpEventInfo));
     }
 
-    /**
-     * 渲染请求信息HTML
-     */
+    /** 渲染请求信息 */
     public static String renderRequest(PreparedRequest req) {
-        if (req == null) {
-            return createHtmlDocument(DETAIL_FONT_SIZE, "<div style='color:#888;padding:16px;'>无请求信息</div>");
-        }
-
-        String bgColor = getThemeBackground();
-        String textColor = getThemeTextColor();
-
+        if (req == null) return htmlDoc(noData("无请求信息"));
         StringBuilder sb = new StringBuilder();
-        // 添加强制换行和宽度控制
-        sb.append("<div style='background:").append(bgColor).append(";border-radius:4px;padding:12px 16px;margin-bottom:12px;font-size:9px;width:100%;max-width:100%;overflow-wrap:break-word;word-break:break-all;box-sizing:border-box;'>");
-        sb.append("<div style='margin-bottom:8px;word-break:break-all;'><b style='color:#1976d2;'>URL</b>: <span style='color:").append(textColor).append(";'>").append(escapeHtml(safeString(req.url))).append("</span></div>");
-        sb.append("<div style='margin-bottom:8px;word-break:break-all;'><b style='color:#1976d2;'>Method</b>: <span style='color:").append(textColor).append(";'>").append(escapeHtml(safeString(req.method))).append("</span></div>");
+
+        sb.append(kvRow(COLOR_PRIMARY, "URL",    escapeHtml(safeStr(req.url)),    false));
+        sb.append(kvRow(COLOR_PRIMARY, "Method", escapeHtml(safeStr(req.method)), true));
+
         if (req.okHttpHeaders != null && req.okHttpHeaders.size() > 0) {
-            sb.append("<div style='margin-bottom:8px;'><b style='color:#1976d2;'>Headers</b></div>");
-            // 改用div块格式，不再使用表格
-            sb.append("<div style='width:100%;max-width:100%;overflow:hidden;'>");
+            sb.append(sectionTitle(COLOR_PRIMARY, "Headers"));
             for (int i = 0; i < req.okHttpHeaders.size(); i++) {
-                sb.append("<div style='margin-bottom:4px;padding:4px 8px;background:").append(bgColor).append(";border-radius:3px;word-break:break-all;overflow-wrap:break-word;'>");
-                sb.append("<strong style='color:#1976d2;'>").append(escapeHtml(req.okHttpHeaders.name(i))).append(":</strong> ");
-                sb.append("<span style='color:").append(textColor).append(";'>").append(escapeHtml(req.okHttpHeaders.value(i))).append("</span>");
-                sb.append("</div>");
+                sb.append(kvRow(COLOR_PRIMARY,
+                        escapeHtml(req.okHttpHeaders.name(i)),
+                        escapeHtml(req.okHttpHeaders.value(i)), i % 2 != 0));
             }
-            sb.append("</div>");
         }
+
         if (req.formDataList != null && !req.formDataList.isEmpty()) {
             boolean hasText = req.formDataList.stream().anyMatch(d -> d.isEnabled() && d.isText());
             boolean hasFile = req.formDataList.stream().anyMatch(d -> d.isEnabled() && d.isFile());
-
             if (hasText) {
-                sb.append("<div style='margin-bottom:8px;'><b style='color:#1976d2;'>Form Data</b></div>");
-                sb.append("<div style='width:100%;max-width:100%;overflow:hidden;'>");
-                req.formDataList.stream()
-                        .filter(d -> d.isEnabled() && d.isText())
-                        .forEach(data -> {
-                            sb.append("<div style='margin-bottom:4px;padding:4px 8px;background:").append(bgColor).append(";border-radius:3px;word-break:break-all;overflow-wrap:break-word;'>");
-                            sb.append("<strong style='color:#1976d2;'>").append(escapeHtml(data.getKey())).append(":</strong> ");
-                            sb.append("<span style='color:").append(textColor).append(";'>").append(escapeHtml(data.getValue())).append("</span>");
-                            sb.append("</div>");
-                        });
-                sb.append("</div>");
+                sb.append(sectionTitle(COLOR_PRIMARY, "Form Data"));
+                int[] idx = {0};
+                req.formDataList.stream().filter(d -> d.isEnabled() && d.isText()).forEach(d ->
+                        sb.append(kvRow(COLOR_PRIMARY, escapeHtml(d.getKey()), escapeHtml(d.getValue()), idx[0]++ % 2 != 0)));
             }
-
             if (hasFile) {
-                sb.append("<div style='margin-bottom:8px;'><b style='color:#1976d2;'>Form Files</b></div>");
-                sb.append("<div style='width:100%;max-width:100%;overflow:hidden;'>");
-                req.formDataList.stream()
-                        .filter(d -> d.isEnabled() && d.isFile())
-                        .forEach(data -> {
-                            sb.append("<div style='margin-bottom:4px;padding:4px 8px;background:").append(bgColor).append(";border-radius:3px;word-break:break-all;overflow-wrap:break-word;'>");
-                            sb.append("<strong style='color:#1976d2;'>").append(escapeHtml(data.getKey())).append(":</strong> ");
-                            sb.append("<span style='color:").append(textColor).append(";'>").append(escapeHtml(data.getValue())).append("</span>");
-                            sb.append("</div>");
-                        });
-                sb.append("</div>");
+                sb.append(sectionTitle(COLOR_PRIMARY, "Form Files"));
+                int[] idx = {0};
+                req.formDataList.stream().filter(d -> d.isEnabled() && d.isFile()).forEach(d ->
+                        sb.append(kvRow(COLOR_PRIMARY, escapeHtml(d.getKey()), escapeHtml(d.getValue()), idx[0]++ % 2 != 0)));
             }
         }
+
         if (req.urlencodedList != null && !req.urlencodedList.isEmpty()) {
-            sb.append("<div style='margin-bottom:8px;'><b style='color:#1976d2;'>x-www-form-urlencoded</b></div>");
-            sb.append("<div style='width:100%;max-width:100%;overflow:hidden;'>");
-            req.urlencodedList.stream()
-                    .filter(HttpFormUrlencoded::isEnabled)
-                    .forEach(encoded -> {
-                        sb.append("<div style='margin-bottom:4px;padding:4px 8px;background:").append(bgColor).append(";border-radius:3px;word-break:break-all;overflow-wrap:break-word;'>");
-                        sb.append("<strong style='color:#1976d2;'>").append(escapeHtml(encoded.getKey())).append(":</strong> ");
-                        sb.append("<span style='color:").append(textColor).append(";'>").append(escapeHtml(encoded.getValue())).append("</span>");
-                        sb.append("</div>");
-                    });
-            sb.append("</div>");
+            sb.append(sectionTitle(COLOR_PRIMARY, "x-www-form-urlencoded"));
+            int[] idx = {0};
+            req.urlencodedList.stream().filter(HttpFormUrlencoded::isEnabled).forEach(e ->
+                    sb.append(kvRow(COLOR_PRIMARY, escapeHtml(e.getKey()), escapeHtml(e.getValue()), idx[0]++ % 2 != 0)));
         }
+
         if (isNotEmpty(req.okHttpRequestBody)) {
-            sb.append("<div style='margin-bottom:8px;'><b style='color:#1976d2;'>Body</b></div>");
-            String requestBody = safeTruncateContent(req.okHttpRequestBody);
-            sb.append("<pre style='background:").append(bgColor).append(";padding:8px;border-radius:4px;font-size:9px;color:").append(textColor).append(";white-space:pre-wrap;word-break:break-all;overflow-wrap:break-word;width:100%;max-width:100%;margin:0;box-sizing:border-box;overflow:hidden;'>").append(escapeHtml(requestBody)).append("</pre>");
+            sb.append(sectionTitle(COLOR_PRIMARY, "Body"));
+            sb.append(codeBlock(truncate(req.okHttpRequestBody)));
         }
-        sb.append("</div>");
-        return createHtmlDocument(DETAIL_FONT_SIZE, sb.toString());
+
+        return htmlDoc(sb.toString());
     }
 
-    /**
-     * 渲染响应信息HTML
-     */
+    /** 渲染响应信息 */
     public static String renderResponse(HttpResponse resp) {
-        if (resp == null) {
-            return createHtmlDocument(DETAIL_FONT_SIZE, "<div style='color:#888;padding:16px;'>无响应信息</div>");
-        }
-
-        String bgColor = getThemeBackground();
-        String textColor = getThemeTextColor();
-
+        if (resp == null) return htmlDoc(noData("无响应信息"));
         StringBuilder sb = new StringBuilder();
-        // 使用更强制的宽度控制和换行策略
-        sb.append("<div style='background:").append(bgColor).append(";border-radius:4px;padding:12px 16px;margin-bottom:12px;font-size:9px;width:100%;max-width:100%;overflow-wrap:break-word;word-break:break-all;box-sizing:border-box;'>");
-        sb.append("<div style='margin-bottom:8px;word-break:break-all;'><b style='color:#388e3c;'>Status</b>: <span style='color:").append(getStatusColor(resp.code)).append(";font-weight:bold;'>").append(escapeHtml(String.valueOf(resp.code))).append("</span></div>");
-        sb.append("<div style='margin-bottom:8px;word-break:break-all;'><b style='color:#1976d2;'>Protocol</b>: <span style='color:").append(textColor).append(";'>").append(escapeHtml(safeString(resp.protocol))).append("</span></div>");
-        sb.append("<div style='margin-bottom:8px;word-break:break-all;'><b style='color:#1976d2;'>Thread</b>: <span style='color:").append(textColor).append(";'>").append(escapeHtml(safeString(resp.threadName))).append("</span></div>");
+
+        int code = resp.code;
+        String statusBadge = "<span style='color:" + statusColor(code) + ";font-weight:bold;padding:1px 6px;"
+                + "border:1px solid " + statusColor(code) + ";border-radius:3px;'>" + code + "</span>";
+        sb.append(kvRow(COLOR_SUCCESS, "Status",   statusBadge, false));
+        sb.append(kvRow(COLOR_PRIMARY, "Protocol", escapeHtml(safeStr(resp.protocol)),   true));
+        sb.append(kvRow(COLOR_PRIMARY, "Thread",   escapeHtml(safeStr(resp.threadName)), false));
         if (resp.httpEventInfo != null) {
-            sb.append("<div style='margin-bottom:8px;word-break:break-all;overflow-wrap:break-word;'><b style='color:#1976d2;'>Connection</b>: <span style='color:").append(textColor).append(";'>").append(escapeHtml(safeString(resp.httpEventInfo.getLocalAddress()))).append(" → ").append(escapeHtml(safeString(resp.httpEventInfo.getRemoteAddress()))).append("</span></div>");
+            sb.append(kvRow(COLOR_PRIMARY, "Connection",
+                    escapeHtml(safeStr(resp.httpEventInfo.getLocalAddress()))
+                            + " <span style='color:" + COLOR_GRAY + ";'>→</span> "
+                            + escapeHtml(safeStr(resp.httpEventInfo.getRemoteAddress())), true));
         }
+
         if (resp.headers != null && !resp.headers.isEmpty()) {
-            sb.append("<div style='margin-bottom:8px;'><b style='color:#388e3c;'>Headers</b></div>");
-            // 简化表格设计，使用更直接的换行控制
-            sb.append("<div style='width:100%;max-width:100%;overflow:hidden;'>");
-            resp.headers.forEach((key, values) -> {
-                String valueStr = values != null ? String.join(", ", values) : "";
-                sb.append("<div style='margin-bottom:4px;padding:4px 8px;background:").append(bgColor).append(";border-radius:3px;word-break:break-all;overflow-wrap:break-word;'>");
-                sb.append("<strong style='color:#1976d2;'>").append(escapeHtml(key)).append(":</strong> ");
-                sb.append("<span style='color:").append(textColor).append(";'>").append(escapeHtml(valueStr)).append("</span>");
-                sb.append("</div>");
-            });
-            sb.append("</div>");
+            sb.append(sectionTitle(COLOR_SUCCESS, "Headers"));
+            int[] idx = {0};
+            resp.headers.forEach((key, values) ->
+                    sb.append(kvRow(COLOR_PRIMARY, escapeHtml(key),
+                            escapeHtml(values != null ? String.join(", ", values) : ""),
+                            idx[0]++ % 2 != 0)));
         }
-        sb.append("<div style='margin-bottom:8px;'><b style='color:#388e3c;'>Body</b></div>");
-        String responseBody = safeTruncateContent(resp.body);
-        // 使用更简单但更有效的换行控制
-        sb.append("<pre style='background:").append(bgColor).append(";padding:8px;border-radius:4px;font-size:9px;color:").append(textColor).append(";white-space:pre-wrap;word-break:break-all;overflow-wrap:break-word;width:100%;max-width:100%;margin:0;box-sizing:border-box;overflow:hidden;'>").append(escapeHtml(responseBody)).append("</pre>");
-        sb.append("</div>");
-        return createHtmlDocument(DETAIL_FONT_SIZE, sb.toString());
+
+        sb.append(sectionTitle(COLOR_SUCCESS, "Body"));
+        sb.append(codeBlock(truncate(resp.body)));
+
+        return htmlDoc(sb.toString());
     }
 
-    /**
-     * 渲染响应信息（整合错误信息 - 扁平化设计）
-     * 当有错误时，在响应内容上方显示简洁的错误提示条
-     */
     public static String renderResponseWithError(ResultNodeInfo info) {
-        if (info == null) {
-            return renderResponse(null);
-        }
-        return buildResponseWithError(info.errorMsg, info.testResults,
+        if (info == null) return renderResponse(null);
+        return buildResponseWithError(info.errorMsg,
                 info.resp != null ? info.resp.httpEventInfo : null, info.resp);
     }
 
-    /**
-     * 渲染响应信息（整合错误信息 - 针对 RequestResult）
-     * 当有错误时，在响应内容上方显示简洁的错误提示条
-     */
     public static String renderResponseWithError(RequestResult request) {
-        if (request == null) {
-            return renderResponse(null);
-        }
-        return buildResponseWithError(request.getErrorMessage(), request.getTestResults(),
+        if (request == null) return renderResponse(null);
+        return buildResponseWithError(request.getErrorMessage(),
                 request.getResponse() != null ? request.getResponse().httpEventInfo : null,
                 request.getResponse());
     }
 
+    /** 渲染测试结果 */
+    public static String renderTestResults(List<TestResult> testResults) {
+        if (testResults == null || testResults.isEmpty()) return htmlDoc(noData("No test results"));
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<table style='border-collapse:collapse;width:100%;'>")
+                .append("<tr style='font-weight:bold;border-bottom:2px solid ").append(borderColor()).append(";'>")
+                .append("<th style='padding:5px 10px;text-align:left;'>Name</th>")
+                .append("<th style='padding:5px 10px;text-align:center;width:60px;'>Result</th>")
+                .append("<th style='padding:5px 10px;text-align:left;'>Message</th>")
+                .append("</tr>");
+        int[] idx = {0};
+        for (TestResult r : testResults) {
+            if (r != null) sb.append(testResultRow(r, idx[0]++ % 2 != 0));
+        }
+        sb.append("</table>");
+        return htmlDoc(sb.toString());
+    }
+
+    // ==================== 私有实现 ====================
+
+    /** 代码块（请求/响应 body） */
+    private static String codeBlock(String content) {
+        return "<pre style='background:" + codeBgColor()
+                + ";color:" + textColor()
+                + ";padding:8px;border-radius:4px;margin:2px 0 6px 0;"
+                + "white-space:pre-wrap;word-break:break-all;'>"
+                + escapeHtml(content) + "</pre>";
+    }
+
     /**
-     * 构建包含错误信息的响应HTML（核心实现）
-     *
-     * @param errorMessage 错误消息
-     * @param testResults  测试结果列表
-     * @param eventInfo    HTTP事件信息（用于获取网络错误）
-     * @param response     HTTP响应对象
-     * @return 完整的HTML文档
+     * 构建包含错误信息的响应内容（不做字符串截取，直接复用 renderResponseBody）
      */
-    private static String buildResponseWithError(String errorMessage, List<TestResult> testResults,
-                                                 HttpEventInfo eventInfo, HttpResponse response) {
-        String bgColor = getThemeBackground();
-        String textColor = getThemeTextColor();
+    private static String buildResponseWithError(String errorMsg, HttpEventInfo eventInfo, HttpResponse response) {
+        StringBuilder sb = new StringBuilder();
+        if (isNotEmpty(errorMsg)) {
+            sb.append(alertBox(COLOR_ERROR, "⚠ Error", errorMsg));
+        }
+        if (eventInfo != null && isNotEmpty(eventInfo.getErrorMessage())) {
+            sb.append(alertBox(COLOR_WARNING, "⚠ Network Error", eventInfo.getErrorMessage()));
+        }
+        // 直接拼响应内容片段，不包装外层 htmlDoc（由最后统一包装）
+        sb.append(renderResponseBody(response));
+        return htmlDoc(sb.toString());
+    }
+
+    /**
+     * 只输出响应内容片段（无 htmlDoc 包装），供 buildResponseWithError 复用
+     */
+    private static String renderResponseBody(HttpResponse resp) {
+        if (resp == null) return noData("No Response");
         StringBuilder sb = new StringBuilder();
 
-        // === 错误信息区域 ===
-        appendErrorSection(sb, errorMessage, bgColor, textColor);
-
-        // === 网络错误 ===
-        appendNetworkErrorSection(sb, eventInfo, bgColor, textColor);
-
-        // === 标准响应信息 ===
-        appendResponseContent(sb, response);
-
-        return createHtmlDocument(DETAIL_FONT_SIZE, sb.toString());
-    }
-
-    /**
-     * 添加错误信息区域
-     */
-    private static void appendErrorSection(StringBuilder sb, String errorMessage,
-                                           String bgColor, String textColor) {
-        if (errorMessage != null && !errorMessage.isEmpty()) {
-            sb.append("<div style='background:").append(bgColor)
-                    .append(";border-left:3px solid ").append(COLOR_ERROR)
-                    .append(";padding:10px;margin-bottom:12px;'>");
-            sb.append("<div style='color:").append(COLOR_ERROR)
-                    .append(";font-weight:bold;font-size:10px;margin-bottom:6px;'>⚠ Error</div>");
-            sb.append("<div style='color:").append(textColor)
-                    .append(";font-size:9px;white-space:pre-wrap;word-break:break-all;'>")
-                    .append(escapeHtml(errorMessage)).append("</div>");
-            sb.append("</div>");
+        int code = resp.code;
+        String statusBadge = "<span style='color:" + statusColor(code) + ";font-weight:bold;padding:1px 6px;"
+                + "border:1px solid " + statusColor(code) + ";border-radius:3px;'>" + code + "</span>";
+        sb.append(kvRow(COLOR_SUCCESS, "Status",   statusBadge, false));
+        sb.append(kvRow(COLOR_PRIMARY, "Protocol", escapeHtml(safeStr(resp.protocol)),   true));
+        sb.append(kvRow(COLOR_PRIMARY, "Thread",   escapeHtml(safeStr(resp.threadName)), false));
+        if (resp.httpEventInfo != null) {
+            sb.append(kvRow(COLOR_PRIMARY, "Connection",
+                    escapeHtml(safeStr(resp.httpEventInfo.getLocalAddress()))
+                            + " <span style='color:" + COLOR_GRAY + ";'>→</span> "
+                            + escapeHtml(safeStr(resp.httpEventInfo.getRemoteAddress())), true));
         }
-    }
-
-    /**
-     * 添加网络错误信息区域
-     */
-    private static void appendNetworkErrorSection(StringBuilder sb, HttpEventInfo eventInfo,
-                                                  String bgColor, String textColor) {
-        if (eventInfo == null || eventInfo.getErrorMessage() == null || eventInfo.getErrorMessage().isEmpty()) {
-            return;
+        if (resp.headers != null && !resp.headers.isEmpty()) {
+            sb.append(sectionTitle(COLOR_SUCCESS, "Headers"));
+            int[] idx = {0};
+            resp.headers.forEach((key, values) ->
+                    sb.append(kvRow(COLOR_PRIMARY, escapeHtml(key),
+                            escapeHtml(values != null ? String.join(", ", values) : ""),
+                            idx[0]++ % 2 != 0)));
         }
-
-        sb.append("<div style='background:").append(bgColor)
-                .append(";border-left:3px solid ").append(COLOR_WARNING)
-                .append(";padding:10px;margin-bottom:12px;'>");
-        sb.append("<div style='color:").append(COLOR_WARNING)
-                .append(";font-weight:bold;font-size:10px;margin-bottom:6px;'>⚠ Network Error</div>");
-        sb.append("<div style='color:").append(textColor)
-                .append(";font-size:9px;white-space:pre-wrap;word-break:break-all;'>")
-                .append(escapeHtml(eventInfo.getErrorMessage())).append("</div>");
-        sb.append("</div>");
+        sb.append(sectionTitle(COLOR_SUCCESS, "Body"));
+        sb.append(codeBlock(truncate(resp.body)));
+        return sb.toString();
     }
 
-    /**
-     * 添加标准响应内容区域
-     */
-    private static void appendResponseContent(StringBuilder sb, HttpResponse response) {
-        if (response != null) {
-            String responseHtml = renderResponse(response);
-            int bodyStart = responseHtml.indexOf("<body");
-            int bodyEnd = responseHtml.lastIndexOf("</body>");
-            if (bodyStart >= 0 && bodyEnd > bodyStart) {
-                int contentStart = responseHtml.indexOf('>', bodyStart) + 1;
-                sb.append(responseHtml, contentStart, bodyEnd);
-            } else {
-                sb.append(responseHtml);
-            }
-        } else {
-            sb.append("<div style='color:#888;padding:16px;'>No Response</div>");
-        }
-    }
-
-    /**
-     * 渲染测试结果HTML（支持主题适配）
-     */
-    public static String renderTestResults(List<TestResult> testResults) {
-        if (testResults == null || testResults.isEmpty()) {
-            return createHtmlDocument("font-size:9px;", "<div style='color:#888;padding:16px;'>No test results</div>");
-        }
-
-        String bgColor = getThemeBackground();
-        String textColor = getThemeTextColor();
-        String borderColor = getThemeBorderColor();
-
-        StringBuilder table = new StringBuilder()
-                .append("<table style='border-collapse:collapse;width:100%;background:").append(bgColor).append(";font-size:9px;border-radius:4px;'>")
-                .append("<tr style='").append("color:").append(textColor).append(";font-weight:500;font-size:9px;border-bottom:1px solid ").append(borderColor).append(";'>")
-                .append("<th style='padding:8px 12px;text-align:left;'>Name</th>")
-                .append("<th style='padding:8px 12px;text-align:center;'>Result</th>")
-                .append("<th style='padding:8px 12px;text-align:left;'>Error Message</th>")
-                .append("</tr>");
-        for (TestResult testResult : testResults) {
-            if (testResult != null) {
-                table.append(buildTestResultRow(testResult));
-            }
-        }
-        table.append("</table>");
-        return createHtmlDocument("font-size:9px;", table.toString());
-    }
-
-    // ==================== 私有辅助方法 ====================
-
-    private static String createHtmlDocument(String fontSize, String content) {
-        return String.format(HTML_TEMPLATE, BASE_STYLE + fontSize, content);
-    }
-
-    private static String createNoDataDiv(String message) {
-        return "<div style='color:" + COLOR_GRAY + ";'>" + message + "</div>";
-    }
-
-    private static String safeString(String str) {
-        return str != null ? str : "-";
-    }
-
-
-    private static String buildTestResultRow(TestResult testResult) {
-        String bgColor = getThemeBackground();
-        String textColor = getThemeTextColor();
-        String borderColor = getThemeBorderColor();
-
-        String rowBg = "background:" + bgColor + ";";
-        String icon = testResult.passed ? "<span style='color:#4CAF50;font-size:9px;'>&#10003;</span>" : "<span style='color:#F44336;font-size:9px;'>&#10007;</span>";
-        String message = testResult.message != null && !testResult.message.isEmpty() ?
-                "<div style='color:#F44336;font-size:9px;white-space:pre-wrap;word-break:break-all;'>" + escapeHtml(testResult.message) + "</div>"
+    private static String testResultRow(TestResult r, boolean alt) {
+        String icon = r.passed
+                ? "<span style='color:#4CAF50;font-size:" + (htmlFontSize() + 1) + "px;'>&#10003;</span>"
+                : "<span style='color:#F44336;font-size:" + (htmlFontSize() + 1) + "px;'>&#10007;</span>";
+        String msg = isNotEmpty(r.message)
+                ? "<span style='color:#F44336;white-space:pre-wrap;word-break:break-all;'>" + escapeHtml(r.message) + "</span>"
                 : "";
-
-        return "<tr style='" + rowBg + "border-bottom:1px solid " + borderColor + ";'>" +
-                "<td style='padding:8px 12px;color:" + textColor + ";font-size:9px;'>" + escapeHtml(testResult.name) + "</td>" +
-                "<td style='padding:8px 12px;text-align:center;vertical-align:middle;'>" + icon + "</td>" +
-                "<td style='padding:8px 12px;'>" + message + "</td>" +
-                "</tr>";
+        String bg = alt ? bgColorAlt() : bgColor();
+        return "<tr style='background:" + bg + ";border-bottom:1px solid " + borderColor() + ";'>"
+                + "<td style='padding:5px 10px;'>" + escapeHtml(r.name) + "</td>"
+                + "<td style='padding:5px 10px;text-align:center;'>" + icon + "</td>"
+                + "<td style='padding:5px 10px;'>" + msg + "</td>"
+                + "</tr>";
     }
+
+    // Timeline 各阶段语义色（参考 Chrome DevTools Network 面板配色）
+    private static final String COLOR_T_QUEUE    = "#9e9e9e"; // 灰   - 排队/阻塞
+    private static final String COLOR_T_DNS      = "#009688"; // 青绿 - DNS 解析
+    private static final String COLOR_T_TCP      = "#e67c00"; // 深橙 - TCP 连接
+    private static final String COLOR_T_SSL      = "#8e24aa"; // 紫   - SSL/TLS
+    private static final String COLOR_T_REQUEST  = "#1565c0"; // 深蓝 - 发送请求
+    private static final String COLOR_T_TTFB     = "#2e7d32"; // 深绿 - 等待响应(TTFB)
+    private static final String COLOR_T_DOWNLOAD = "#00838f"; // 青   - 下载响应体
 
     private static String buildTimingHtml(HttpResponse response) {
         HttpEventInfo info = response.httpEventInfo;
         TimingCalculator calc = new TimingCalculator(info);
+        long total = calc.getTotal();
 
-        // 改回表格格式，但添加强制换行控制
-        return "<div style='width:100%;max-width:100%;overflow-wrap:break-word;box-sizing:border-box;'>" +
-                "<div style='font-size:9px;margin-bottom:8px;'><b style='color:" + COLOR_PRIMARY + ";'>[Timeline]</b></div>" +
-                "<table style='border-collapse:collapse;margin:4px 0;width:100%;table-layout:fixed;'>" +
+        StringBuilder sb = new StringBuilder();
+        sb.append(sectionTitle(COLOR_PRIMARY, "Timeline"));
+        sb.append("<table style='border-collapse:collapse;width:100%;table-layout:fixed;'>");
+        sb.append("<tr style='font-weight:bold;border-bottom:2px solid ").append(borderColor()).append(";color:").append(COLOR_GRAY).append(";'>")
+                .append("<th style='padding:4px 6px;text-align:left;width:30%;'>Phase</th>")
+                .append("<th style='padding:4px 6px;text-align:right;width:16%;'>Time</th>")
+                .append("<th style='padding:4px 6px;width:54%;'>Bar</th>")
+                .append("</tr>");
 
-                // 添加时序表格行
-                createTimingRow("Total", calc.getTotal(), COLOR_ERROR, true, "Total time (CallStart→CallEnd, the whole request lifecycle)") +
-                createTimingRow("Queueing", calc.getQueueing(), null, false, "Waiting in queue (QueueStart→CallStart, waiting for scheduling)") +
-                createTimingRow("Stalled", calc.getStalled(), null, false, "Blocked (CallStart→ConnectStart, includes DNS lookup)") +
-                createTimingRow("DNS Lookup", calc.getDns(), null, false, "Domain name lookup (DnsStart→DnsEnd, part of Stalled)") +
-                createTimingRow("Initial Connection (TCP)", calc.getConnect(), null, false, "TCP connection setup (ConnectStart→ConnectEnd, includes SSL/TLS)") +
-                createTimingRow("SSL/TLS", calc.getTls(), null, false, "SSL/TLS handshake (SecureConnectStart→SecureConnectEnd, part of TCP connection)") +
-                createTimingRow("Request Sent", calc.getRequestSent(), null, false, "Sending request headers and body (RequestHeadersStart/RequestBodyStart→RequestHeadersEnd/RequestBodyEnd)") +
-                createTimingRow("Waiting (TTFB)", calc.getServerCost(), COLOR_SUCCESS, true, "Server processing time (RequestBodyEnd/RequestHeadersEnd→ResponseHeadersStart)") +
-                createTimingRow("Content Download", calc.getResponseBody(), null, false, "Downloading response body (ResponseBodyStart→ResponseBodyEnd)") +
-                createTimingRowString("Connection Reused", calc.getConnectionReused() ? "Yes" : "No", null, false, "Was the connection reused for this request?") +
-                createTimingRowString("OkHttp Idle Connections", String.valueOf(response.idleConnectionCount), null, false, "Number of idle OkHttp connections (snapshot)") +
-                createTimingRowString("OkHttp Total Connections", String.valueOf(response.connectionCount), null, false, "Total number of OkHttp connections (snapshot)") +
-                "</table>" +
-                "</div>";
+        // Total 行不显示 bar（它是基准，显示 100% bar 没意义）
+        timingRow(sb, "Total",               calc.getTotal(),        COLOR_ERROR,    true,  total, true);
+        timingRow(sb, "Queueing",            calc.getQueueing(),     COLOR_T_QUEUE,  false, total, false);
+        timingRow(sb, "Stalled",             calc.getStalled(),      COLOR_T_QUEUE,  false, total, false);
+        timingRow(sb, "  ↳ DNS Lookup",      calc.getDns(),          COLOR_T_DNS,    false, total, false);
+        timingRow(sb, "TCP Connection",      calc.getConnect(),      COLOR_T_TCP,    false, total, false);
+        timingRow(sb, "  ↳ SSL/TLS",         calc.getTls(),          COLOR_T_SSL,    false, total, false);
+        timingRow(sb, "Request Sent",        calc.getRequestSent(),  COLOR_T_REQUEST,false, total, false);
+        timingRow(sb, "Waiting (TTFB)",      calc.getServerCost(),   COLOR_T_TTFB,   true,  total, false);
+        timingRow(sb, "Content Download",    calc.getResponseBody(), COLOR_T_DOWNLOAD,false,total, false);
+
+        sb.append("<tr><td colspan='3'><hr style='border:0;border-top:1px dashed ").append(borderColor()).append(";margin:4px 0'/></td></tr>");
+        appendTimingRow(sb, "Connection Reused", calc.getConnectionReused() ? "Yes" : "No", null, false, -1, total);
+        appendTimingRow(sb, "Idle Connections",  String.valueOf(response.idleConnectionCount), null, false, -1, total);
+        appendTimingRow(sb, "Total Connections", String.valueOf(response.connectionCount),     null, false, -1, total);
+
+        sb.append("</table>");
+        return sb.toString();
     }
 
-    private static String createTimingRow(String name, long value, String color, boolean bold, String description) {
-        return createTimingRowString(name, value >= 0 ? value + " ms" : "-", color, bold, description);
+    private static void timingRow(StringBuilder sb, String name, long val, String color, boolean bold, long total, boolean hideBar) {
+        appendTimingRow(sb, name, val >= 0 ? val + " ms" : "-", color, bold,
+                hideBar ? -1 : (val > 0 ? val : -1), total);
     }
 
-    private static String createTimingRowString(String name, String value, String color, boolean bold, String description) {
-        String nameStyle = bold ? "font-weight:bold;" : "";
-        String valueStyle = "";
+    /**
+     * Timeline 行：名称列 + 时间列 + 进度条列
+     * 用 table 实现进度条——JTextPane HTML 渲染器对嵌套 div 的 width:% 支持很差，
+     * 而 table 的 width 属性支持可靠。
+     */
+    private static void appendTimingRow(StringBuilder sb, String name, String val,
+                                        String color, boolean bold, long barVal, long total) {
+        String nameStyle = (bold ? "font-weight:bold;" : "")
+                + (color != null ? "color:" + color + ";" : "color:" + textColor() + ";");
+        String valStyle = (color != null ? "color:" + color + ";" : "color:" + textColor() + ";")
+                + (bold ? "font-weight:bold;" : "");
 
-        if (color != null) {
-            nameStyle += "color:" + color + ";";
-            valueStyle = "color:" + color + ";" + (bold ? "font-weight:bold;" : "");
+        // 进度条：用 table 实现，两列：filled + empty，宽度用整数 px 近似
+        String bar = "";
+        if (barVal > 0 && total > 0) {
+            int pct = (int) Math.min(100, Math.round(barVal * 100.0 / total));
+            int emptyPct = 100 - pct;
+            String barColor = color != null ? color : COLOR_PRIMARY;
+            // 用 table 宽度百分比：JTextPane 对 table width=% 支持良好
+            bar = "<table style='border-collapse:collapse;width:100%;' cellpadding='0' cellspacing='0'><tr>"
+                    + "<td width='" + pct + "%' style='background:" + barColor
+                    + ";height:8px;border-radius:2px 0 0 2px;'></td>"
+                    + (emptyPct > 0 ? "<td width='" + emptyPct + "%' style='background:" + borderColor() + ";height:8px;'></td>" : "")
+                    + "</tr></table>"
+                    + "<span style='color:" + COLOR_GRAY + ";font-size:" + fsSmall() + ";'>" + pct + "%</span>";
         }
 
-        return "<tr>" +
-                "<td style='padding:2px 8px 2px 0;" + nameStyle + "width:25%;word-wrap:break-word;overflow-wrap:break-word;'>" + (bold ? "<b>" + name + "</b>" : name) + "</td>" +
-                "<td style='" + valueStyle + "width:15%;word-wrap:break-word;overflow-wrap:break-word;'>" + value + "</td>" +
-                "<td style='color:" + COLOR_GRAY + ";font-size:9px;width:60%;word-wrap:break-word;overflow-wrap:break-word;'>" + description + "</td>" +
-                "</tr>";
+        sb.append("<tr style='border-bottom:1px solid ").append(borderColor()).append(";'>")
+                .append("<td style='padding:3px 6px;").append(nameStyle).append("'>").append(name).append("</td>")
+                .append("<td style='padding:3px 6px;text-align:right;").append(valStyle).append("'>").append(val).append("</td>")
+                .append("<td style='padding:3px 6px;'>").append(bar).append("</td>")
+                .append("</tr>");
     }
 
     private static String buildEventInfoHtml(HttpEventInfo info) {
-        String bgColor = getThemeBackground();
-        String textColor = getThemeTextColor();
-        String borderColor = getThemeBorderColor();
+        StringBuilder sb = new StringBuilder();
+        sb.append(sectionTitle(COLOR_PRIMARY, "Summary"));
+        sb.append("<table style='border-collapse:collapse;width:100%;margin-bottom:8px;'>");
+        eventRow(sb, "Local Address",  escapeHtml(info.getLocalAddress()),  false);
+        eventRow(sb, "Remote Address", escapeHtml(info.getRemoteAddress()),  true);
+        eventRow(sb, "Protocol",       info.getProtocol() != null ? info.getProtocol().toString() : "-", false);
+        eventRow(sb, "TLS Version",    safeStr(info.getTlsVersion()),        true);
+        eventRow(sb, "Thread",         safeStr(info.getThreadName()),        false);
+        if (isNotEmpty(info.getErrorMessage())) {
+            eventRow(sb, "Error", "<span style='color:" + COLOR_ERROR + ";'>" + escapeHtml(info.getErrorMessage()) + "</span>", true);
+        }
+        sb.append("</table>");
 
-        // 改回表格格式，但添加强制换行控制
-        return "<div style='width:100%;max-width:100%;overflow-wrap:break-word;box-sizing:border-box;'>" +
-                "<div style='font-size:9px;margin-bottom:8px;'><b style='color:" + COLOR_PRIMARY + ";'>[Event Info]</b></div>" +
-                // 设置背景色和列间距，添加强制换行
-                "<table style='border-collapse:collapse;background:" + bgColor + ";border-radius:4px;padding:3px 4px;color:" + textColor + ";margin:4px 0;width:100%;table-layout:fixed;'>" +
-                createEventRow("QueueStart", formatMillis(info.getQueueStart())) +
-                createEventRow("Local", escapeHtml(info.getLocalAddress())) +
-                createEventRow("Remote", escapeHtml(info.getRemoteAddress())) +
-                createEventRow("Protocol", info.getProtocol() != null ? info.getProtocol().toString() : "-") +
-                createEventRow("TLS", safeString(info.getTlsVersion())) +
-                createEventRow("Thread", safeString(info.getThreadName())) +
-                createEventRow("Error", info.getErrorMessage() != null ? escapeHtml(info.getErrorMessage()) : "-") +
-                "<tr><td colspan='2'><hr style='border:0;border-top:1px dashed " + borderColor + ";margin:4px 0'></td></tr>" +
-                createEventTimingRows(info) +
-                "</table>" +
-                "</div>";
+        sb.append(sectionTitle(COLOR_PRIMARY, "Event Timestamps"));
+        sb.append("<table style='border-collapse:collapse;width:100%;'>");
+        sb.append("<tr style='font-weight:bold;border-bottom:2px solid ").append(borderColor()).append(";color:").append(COLOR_GRAY).append(";'>")
+                .append("<th style='padding:3px 8px;text-align:left;width:40%;'>Event</th>")
+                .append("<th style='padding:3px 8px;text-align:left;'>Time</th>")
+                .append("</tr>");
+
+        // 只显示非空（>0）的时间戳，减少噪音
+        appendEventTimingRowIfSet(sb, "QueueStart",          info.getQueueStart(),          COLOR_GRAY,    false);
+        appendEventTimingRowIfSet(sb, "CallStart",            info.getCallStart(),            COLOR_PRIMARY, true);
+        appendEventTimingRowIfSet(sb, "DnsStart",             info.getDnsStart(),             null,          false);
+        appendEventTimingRowIfSet(sb, "DnsEnd",               info.getDnsEnd(),               null,          true);
+        appendEventTimingRowIfSet(sb, "ConnectStart",         info.getConnectStart(),         null,          false);
+        appendEventTimingRowIfSet(sb, "SecureConnectStart",   info.getSecureConnectStart(),   null,          true);
+        appendEventTimingRowIfSet(sb, "SecureConnectEnd",     info.getSecureConnectEnd(),     null,          false);
+        appendEventTimingRowIfSet(sb, "ConnectEnd",           info.getConnectEnd(),           null,          true);
+        appendEventTimingRowIfSet(sb, "ConnectionAcquired",   info.getConnectionAcquired(),   COLOR_PRIMARY, false);
+        appendEventTimingRowIfSet(sb, "RequestHeadersStart",  info.getRequestHeadersStart(),  null,          true);
+        appendEventTimingRowIfSet(sb, "RequestHeadersEnd",    info.getRequestHeadersEnd(),    null,          false);
+        appendEventTimingRowIfSet(sb, "RequestBodyStart",     info.getRequestBodyStart(),     null,          true);
+        appendEventTimingRowIfSet(sb, "RequestBodyEnd",       info.getRequestBodyEnd(),       null,          false);
+        appendEventTimingRowIfSet(sb, "ResponseHeadersStart", info.getResponseHeadersStart(), COLOR_SUCCESS, true);
+        appendEventTimingRowIfSet(sb, "ResponseHeadersEnd",   info.getResponseHeadersEnd(),   null,          false);
+        appendEventTimingRowIfSet(sb, "ResponseBodyStart",    info.getResponseBodyStart(),    null,          true);
+        appendEventTimingRowIfSet(sb, "ResponseBodyEnd",      info.getResponseBodyEnd(),      null,          false);
+        appendEventTimingRowIfSet(sb, "ConnectionReleased",   info.getConnectionReleased(),   null,          true);
+        appendEventTimingRowIfSet(sb, "CallEnd",              info.getCallEnd(),              COLOR_PRIMARY, false);
+        appendEventTimingRowIfSet(sb, "CallFailed",           info.getCallFailed(),           COLOR_ERROR,   true);
+        appendEventTimingRowIfSet(sb, "Canceled",             info.getCanceled(),             COLOR_ERROR,   false);
+
+        sb.append("</table>");
+        return sb.toString();
     }
 
-    private static String createEventRow(String label, String value) {
-        // 增加换行控制和固定列宽
-        return "<tr><td style='min-width:80px;padding:2px 120px 2px 0;color:" + COLOR_GRAY
-                + ";width:30%;word-wrap:break-word;overflow-wrap:break-word;'>"
-                + label + "</td><td style='width:70%;word-wrap:break-word;overflow-wrap:break-word;'>" + value + "</td></tr>";
+    private static void eventRow(StringBuilder sb, String label, String value, boolean alt) {
+        sb.append("<tr style='background:").append(alt ? bgColorAlt() : bgColor()).append(";'>")
+                .append("<td style='width:35%;color:").append(COLOR_GRAY).append(";padding:3px 8px;'>").append(label).append("</td>")
+                .append("<td style='width:65%;padding:3px 8px;word-break:break-all;'>").append(value).append("</td>")
+                .append("</tr>");
     }
 
-    private static String createEventTimingRows(HttpEventInfo info) {
-
-        // 重要的时间点用特殊颜色标记
-
-        return createEventTimingRow("QueueStart", info.getQueueStart(), COLOR_PRIMARY) +
-                createEventTimingRow("CallStart", info.getCallStart(), COLOR_PRIMARY) +
-                createEventTimingRow("DnsStart", info.getDnsStart(), COLOR_PRIMARY) +
-                createEventTimingRow("DnsEnd", info.getDnsEnd(), COLOR_PRIMARY) +
-                createEventTimingRow("ConnectStart", info.getConnectStart(), COLOR_PRIMARY) +
-                createEventTimingRow("SecureConnectStart", info.getSecureConnectStart(), COLOR_PRIMARY) +
-                createEventTimingRow("SecureConnectEnd", info.getSecureConnectEnd(), COLOR_PRIMARY) +
-                createEventTimingRow("ConnectEnd", info.getConnectEnd(), COLOR_PRIMARY) +
-                createEventTimingRow("ConnectionAcquired", info.getConnectionAcquired(), COLOR_PRIMARY) +
-                createEventTimingRow("RequestHeadersStart", info.getRequestHeadersStart(), null) +
-                createEventTimingRow("RequestHeadersEnd", info.getRequestHeadersEnd(), null) +
-                createEventTimingRow("RequestBodyStart", info.getRequestBodyStart(), null) +
-                createEventTimingRow("RequestBodyEnd", info.getRequestBodyEnd(), null) +
-                createEventTimingRow("ResponseHeadersStart", info.getResponseHeadersStart(), null) +
-                createEventTimingRow("ResponseHeadersEnd", info.getResponseHeadersEnd(), null) +
-                createEventTimingRow("ResponseBodyStart", info.getResponseBodyStart(), null) +
-                createEventTimingRow("ResponseBodyEnd", info.getResponseBodyEnd(), null) +
-                createEventTimingRow("ConnectionReleased", info.getConnectionReleased(), null) +
-                createEventTimingRow("CallEnd", info.getCallEnd(), COLOR_PRIMARY) +
-                createEventTimingRow("CallFailed", info.getCallFailed(), COLOR_ERROR) +
-                createEventTimingRow("Canceled", info.getCanceled(), COLOR_ERROR);
-    }
-
-    private static String createEventTimingRow(String label, long millis, String color) {
+    /** 只在时间戳 > 0 时才输出行，避免大量 "-" 噪音 */
+    private static void appendEventTimingRowIfSet(StringBuilder sb, String label, long millis, String color, boolean alt) {
+        if (millis <= 0) return;
         String style = color != null ? "color:" + color + ";" : "";
-        return "<tr><td style='padding:2px 8px 2px 0;" + style + "width:30%;word-wrap:break-word;overflow-wrap:break-word;'>"
-                + label + "</td><td style='width:70%;word-wrap:break-word;overflow-wrap:break-word;'>"
-                + formatMillis(millis) + "</td></tr>";
+        sb.append("<tr style='background:").append(alt ? bgColorAlt() : bgColor()).append(";border-bottom:1px solid ").append(borderColor()).append(";'>")
+                .append("<td style='padding:3px 8px;").append(style).append("width:40%;'>").append(label).append("</td>")
+                .append("<td style='padding:3px 8px;width:60%;'>").append(formatMillis(millis)).append("</td>")
+                .append("</tr>");
     }
+
+    // ==================== 工具方法 ====================
+
+    private static String safeStr(String s) { return s != null ? s : "-"; }
+    private static boolean isNotEmpty(String s) { return s != null && !s.isEmpty(); }
 
     private static String formatMillis(long millis) {
         return millis <= 0 ? "-" : new SimpleDateFormat("HH:mm:ss.SSS").format(new Date(millis));
     }
 
-    private static boolean isNotEmpty(String str) {
-        return str != null && !str.isEmpty();
+    private static String truncate(String content) {
+        if (content == null) return "";
+        if (content.length() <= MAX_DISPLAY_SIZE) return content;
+        return content.substring(0, MAX_DISPLAY_SIZE)
+                + "\n\n[Truncated: " + content.length() + " chars, showing first " + (MAX_DISPLAY_SIZE / 1024) + "KB]";
     }
 
     public static String escapeHtml(String s) {
         if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;");
-    }
-
-    /**
-     * Safely truncate content to prevent memory overflow
-     */
-    private static String safeTruncateContent(String content) {
-        if (content == null) {
-            return "";
-        }
-
-        if (content.length() > MAX_DISPLAY_SIZE) {
-            String truncated = content.substring(0, MAX_DISPLAY_SIZE);
-            return truncated + "......\n\n[Content too large, truncated for display. Original length: "
-                    + content.length() + " characters, max displayed: " + (MAX_DISPLAY_SIZE / 1024) + "KB]";
-        }
-
-        return content;
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;").replace("'", "&#39;");
     }
 }
