@@ -8,6 +8,7 @@ import com.laker.postman.model.HttpResponse;
 import com.laker.postman.model.PreparedRequest;
 import com.laker.postman.model.RequestItemProtocolEnum;
 import com.laker.postman.model.script.TestResult;
+import com.laker.postman.service.http.EasyHttpHeaders;
 import com.laker.postman.service.http.HttpUtil;
 import com.laker.postman.service.render.HttpHtmlRenderer;
 import com.laker.postman.service.setting.SettingManager;
@@ -18,9 +19,6 @@ import com.laker.postman.util.TimeDisplayUtil;
 import lombok.Getter;
 
 import javax.swing.*;
-import javax.swing.border.CompoundBorder;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -96,15 +94,22 @@ public class ResponsePanel extends JPanel {
             // 初始化第一个可见tab为选中状态
             initializeFirstSelectedTab(tabButtons);
 
-            statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
-            // 现代扁平风格：紧凑布局，状态码带彩色背景框
+            statusBar = new JPanel();
+            statusBar.setLayout(new BoxLayout(statusBar, BoxLayout.X_AXIS));
+            statusBar.setOpaque(false);
+            statusBar.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 10));
             statusBar.add(statusCodeLabel);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(separator1);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(responseTimeLabel);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(separator2);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(responseSizeLabel);
 
             topResponseBar = new JPanel(new BorderLayout());
+            topResponseBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, ModernColors.getDividerBorderColor()));
             topResponseBar.add(tabBar, BorderLayout.WEST);
             topResponseBar.add(statusBar, BorderLayout.EAST);
             cardPanel = new JPanel(new CardLayout());
@@ -126,14 +131,21 @@ public class ResponsePanel extends JPanel {
             // 初始化第一个可见tab为选中状态
             initializeFirstSelectedTab(tabButtons);
 
-            statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 3));
-            // 现代扁平风格：添加适当间距和分隔符
+            statusBar = new JPanel();
+            statusBar.setLayout(new BoxLayout(statusBar, BoxLayout.X_AXIS));
+            statusBar.setOpaque(false);
+            statusBar.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 10));
             statusBar.add(statusCodeLabel);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(separator1);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(responseTimeLabel);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(separator2);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(responseSizeLabel);
             topResponseBar = new JPanel(new BorderLayout());
+            topResponseBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, ModernColors.getDividerBorderColor()));
             topResponseBar.add(tabBar, BorderLayout.WEST);
             topResponseBar.add(statusBar, BorderLayout.EAST);
             cardPanel = new JPanel(new CardLayout());
@@ -155,15 +167,22 @@ public class ResponsePanel extends JPanel {
             // 初始化第一个可见tab为选中状态
             initializeFirstSelectedTab(tabButtons);
 
-            statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 3));
-            // 现代扁平风格：添加适当间距和分隔符
+            statusBar = new JPanel();
+            statusBar.setLayout(new BoxLayout(statusBar, BoxLayout.X_AXIS));
+            statusBar.setOpaque(false);
+            statusBar.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 10));
             statusBar.add(statusCodeLabel);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(separator1);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(responseTimeLabel);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(separator2);
+            statusBar.add(Box.createHorizontalStrut(6));
             statusBar.add(responseSizeLabel);
 
             topResponseBar = new JPanel(new BorderLayout());
+            topResponseBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, ModernColors.getDividerBorderColor()));
             topResponseBar.add(tabBar, BorderLayout.WEST);
             topResponseBar.add(statusBar, BorderLayout.EAST);
             cardPanel = new JPanel(new CardLayout());
@@ -362,96 +381,69 @@ public class ResponsePanel extends JPanel {
     }
 
     /**
-     * 创建现代化的状态码Label - 带彩色圆角边框背景
+     * 创建状态码标签 —— 胶囊/pill 样式，实色细边框
      */
     private JLabel createModernStatusLabel() {
         JLabel label = new JLabel() {
             @Override
             protected void paintComponent(Graphics g) {
-                if (getText() != null && !getText().isEmpty() && !getText().equals("...")) {
-                    Graphics2D g2d = (Graphics2D) g.create();
-                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                    // 根据状态码确定背景色
-                    Color bgColor = getStatusBackgroundColor(getText());
-                    g2d.setColor(bgColor);
-
-                    // 绘制圆角矩形背景
-                    g2d.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 4, 4);
-                    g2d.dispose();
+                String text = getText();
+                if (text != null && !text.isEmpty()) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    int w = getWidth(), h = getHeight();
+                    Color c = getForeground();
+                    // 极淡填充（5% opacity）
+                    g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 22));
+                    g2.fillRoundRect(0, 0, w - 1, h - 1, h, h);
+                    // 1px 实色细边框（同前景色，30% opacity）
+                    g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 80));
+                    g2.setStroke(new BasicStroke(1f));
+                    g2.drawRoundRect(0, 0, w - 1, h - 1, h, h);
+                    g2.dispose();
                 }
                 super.paintComponent(g);
             }
-
-            private Color getStatusBackgroundColor(String statusText) {
-                if (statusText.startsWith("2")) {
-                    // 2xx 成功 - 绿色背景
-                    return ModernColors.isDarkTheme()
-                            ? new Color(34, 197, 94, 30)  // 半透明绿色
-                            : new Color(34, 197, 94, 20);
-                } else if (statusText.startsWith("3")) {
-                    // 3xx 重定向 - 蓝色背景
-                    return ModernColors.isDarkTheme()
-                            ? new Color(59, 130, 246, 30)
-                            : new Color(59, 130, 246, 20);
-                } else if (statusText.startsWith("4")) {
-                    // 4xx 客户端错误 - 橙色背景
-                    return ModernColors.isDarkTheme()
-                            ? new Color(245, 158, 11, 30)
-                            : new Color(245, 158, 11, 20);
-                } else if (statusText.startsWith("5")) {
-                    // 5xx 服务器错误 - 红色背景
-                    return ModernColors.isDarkTheme()
-                            ? new Color(239, 68, 68, 30)
-                            : new Color(239, 68, 68, 20);
-                } else {
-                    // 其他状态 - 灰色背景
-                    return ModernColors.isDarkTheme()
-                            ? new Color(100, 116, 139, 30)
-                            : new Color(100, 116, 139, 20);
-                }
-            }
         };
-
         label.setFont(FontsUtil.getDefaultFont(Font.BOLD));
         label.setOpaque(false);
-        // 添加内边距
-        label.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
-        label.setToolTipText("Response Status Code");
+        label.setBorder(BorderFactory.createEmptyBorder(1, 8, 1, 8));
+        label.setToolTipText("HTTP Status Code");
         return label;
     }
 
     /**
-     * 创建现代化的响应时间Label - 带时钟图标，紧凑样式
+     * 创建响应时间标签 —— 带时钟图标前缀
      */
     private JLabel createModernTimeLabel() {
         JLabel label = new JLabel();
-        label.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
-        label.setForeground(ModernColors.getTextSecondary());
+        label.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        label.setForeground(ModernColors.getTextHint());
         label.setToolTipText("Response Time");
         return label;
     }
 
     /**
-     * 创建现代化的响应大小Label - 紧凑样式
+     * 创建响应大小标签 —— 带大小图标前缀
      */
     private JLabel createModernSizeLabel() {
         JLabel label = new JLabel();
-        label.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
-        label.setForeground(ModernColors.getTextSecondary());
+        label.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+        label.setForeground(ModernColors.getTextHint());
         label.setToolTipText("Response Size");
         label.setCursor(new Cursor(Cursor.HAND_CURSOR));
         return label;
     }
 
     /**
-     * 创建状态栏项之间的分隔符 - 竖线样式，更紧凑
+     * 分隔符 —— 细竖线，更轻盈
      */
     private JLabel createSeparator() {
-        JLabel separator = new JLabel("•");
-        separator.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-        separator.setForeground(ModernColors.getTextPrimary());
-        return separator;
+        JLabel sep = new JLabel("|");
+        sep.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        sep.setForeground(ModernColors.getBorderMediumColor());
+        sep.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 2));
+        return sep;
     }
 
     public void setResponseTabButtonsEnable(boolean enable) {
@@ -524,28 +516,25 @@ public class ResponsePanel extends JPanel {
     }
 
     public void setResponseTime(long ms) {
-        // 现代扁平风格：直接显示时间值，无需 "耗时:" 前缀
         responseTimeLabel.setText(TimeDisplayUtil.formatElapsedTime(ms));
-        // 使用主题适配的次要文本颜色
         responseTimeLabel.setForeground(ModernColors.getTextSecondary());
-
-        // 如果响应时间有效，显示后续的分隔符
-        boolean hasTime = ms >= 0;
-        separator2.setVisible(hasTime);
+        separator2.setVisible(ms >= 0);
     }
 
     /**
-     * 设置响应大小显示
-     * 重构后使用Helper类简化代码逻辑
+     * 设置响应大小显示（带完整响应对象，可读取 Content-Encoding）
      */
-    public void setResponseSize(long bytes, HttpEventInfo httpEventInfo) {
-        // 使用Helper类计算大小信息
-        ResponseSizeCalculator.SizeInfo sizeInfo = ResponseSizeCalculator.calculate(bytes, httpEventInfo);
-
-        // 更新标签显示
+    public void setResponseSize(long bytes, HttpResponse httpResponse) {
+        String encoding = null;
+        HttpEventInfo httpEventInfo = httpResponse != null ? httpResponse.httpEventInfo : null;
+        if (httpResponse != null && httpResponse.headers != null) {
+            List<String> enc = httpResponse.headers.get(EasyHttpHeaders.CONTENT_ENCODING);
+            if (enc != null && !enc.isEmpty()) {
+                encoding = enc.get(0);
+            }
+        }
+        ResponseSizeCalculator.SizeInfo sizeInfo = ResponseSizeCalculator.calculate(bytes, httpEventInfo, encoding);
         updateSizeLabel(sizeInfo);
-
-        // 添加tooltip（如果有httpEventInfo）
         if (httpEventInfo != null) {
             attachSizeTooltip(bytes, httpEventInfo, sizeInfo);
         }
@@ -570,37 +559,26 @@ public class ResponsePanel extends JPanel {
      * 添加响应大小的tooltip和鼠标悬停效果
      */
     private void attachSizeTooltip(long bytes, HttpEventInfo httpEventInfo, ResponseSizeCalculator.SizeInfo sizeInfo) {
-        // 使用Helper类生成tooltip HTML
-        String tooltip = ResponseTooltipBuilder.buildSizeTooltip(bytes, httpEventInfo, sizeInfo);
-
-        // 添加鼠标监听器实现悬停效果
         responseSizeLabel.addMouseListener(new MouseAdapter() {
             private Timer showTimer;
             private Timer hideTimer;
 
             @Override
             public void mouseEntered(MouseEvent e) {
-                // 悬停时改变颜色
                 responseSizeLabel.setForeground(sizeInfo.getHoverColor());
-
-                if (hideTimer != null) {
-                    hideTimer.stop();
-                }
-
-                showTimer = new Timer(400, evt -> EasyPostmanStyleTooltip.showTooltip(responseSizeLabel, tooltip));
+                if (hideTimer != null) hideTimer.stop();
+                showTimer = new Timer(350, evt -> {
+                    JPanel panel = ResponseTooltipBuilder.buildSizeTooltipPanel(bytes, httpEventInfo, sizeInfo);
+                    EasyPostmanStyleTooltip.showTooltip(responseSizeLabel, panel);
+                });
                 showTimer.setRepeats(false);
                 showTimer.start();
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
-                // 恢复原色
                 responseSizeLabel.setForeground(sizeInfo.getNormalColor());
-
-                if (showTimer != null) {
-                    showTimer.stop();
-                }
-
+                if (showTimer != null) showTimer.stop();
                 hideTimer = new Timer(200, evt -> EasyPostmanStyleTooltip.hideTooltip());
                 hideTimer.setRepeats(false);
                 hideTimer.start();
@@ -707,7 +685,7 @@ public class ResponsePanel extends JPanel {
         }
     }
 
-    // Enhanced tooltip component matching EasyPostman styling
+    // ── Swing 原生 Tooltip 窗口 ────────────────────────────────────────
     private static class EasyPostmanStyleTooltip extends JWindow {
         private static EasyPostmanStyleTooltip instance;
         private static Timer autoHideTimer;
@@ -718,113 +696,87 @@ public class ResponsePanel extends JPanel {
             setType(Window.Type.POPUP);
         }
 
-        public static void showTooltip(Component parent, String html) {
+        /**
+         * 显示 Swing Panel 内容的 Tooltip
+         */
+        public static void showTooltip(Component anchor, JPanel content) {
             hideTooltip();
 
-            Window parentWindow = SwingUtilities.getWindowAncestor(parent);
+            Window parentWindow = SwingUtilities.getWindowAncestor(anchor);
             instance = new EasyPostmanStyleTooltip(parentWindow);
 
-            JLabel content = new JLabel(html);
-            content.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-            content.setOpaque(true);
-            // 使用 ModernColors 主题自适应背景色和边框色
-            content.setBackground(ModernColors.getCardBackgroundColor()); // 卡片背景色
-            content.setForeground(ModernColors.getTextPrimary()); // 主要文本颜色
-            content.setBorder(new CompoundBorder(
-                    new LineBorder(ModernColors.getBorderMediumColor(), 1), // 主题适配边框
-                    new EmptyBorder(6, 8, 6, 8) // 减少内边距
-            ));
+            // 外层加边框，设置最小宽度 220px
+            JPanel wrapper = new JPanel(new BorderLayout()) {
+                @Override
+                public Dimension getPreferredSize() {
+                    Dimension d = super.getPreferredSize();
+                    d.width = Math.max(220, d.width);
+                    return d;
+                }
+            };
+            wrapper.setBackground(ModernColors.getCardBackgroundColor());
+            wrapper.setBorder(BorderFactory.createLineBorder(ModernColors.getBorderMediumColor(), 1));
+            wrapper.add(content, BorderLayout.CENTER);
 
-            instance.add(content);
+            instance.setContentPane(wrapper);
             instance.pack();
 
-            // Smart positioning - above the component, centered
-            Point screenLocation = parent.getLocationOnScreen();
-            int tooltipWidth = instance.getWidth();
-            int tooltipHeight = instance.getHeight();
+            // 定位：anchor 正上方居中，屏幕边界修正
+            Point loc = anchor.getLocationOnScreen();
+            int tw = instance.getWidth(), th = instance.getHeight();
+            int x = loc.x + (anchor.getWidth() - tw) / 2;
+            int y = loc.y - th - 6;
 
-            // Center horizontally on the component
-            int x = screenLocation.x + (parent.getWidth() - tooltipWidth) / 2;
-            int y = screenLocation.y - tooltipHeight - 6; // 6px gap above
-
-            // Screen bounds checking
-            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-            Insets screenInsets = Toolkit.getDefaultToolkit().getScreenInsets(
-                    GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDefaultConfiguration()
-            );
-
-            int screenWidth = screenSize.width - screenInsets.right;
-
-            // Adjust horizontal position if needed
-            if (x + tooltipWidth > screenWidth) {
-                x = screenWidth - tooltipWidth - 10;
-            }
-            if (x < screenInsets.left) {
-                x = screenInsets.left + 10;
-            }
-
-            // If tooltip doesn't fit above, show below
-            if (y < screenInsets.top) {
-                y = screenLocation.y + parent.getHeight() + 6;
-            }
+            Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+            Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(
+                    GraphicsEnvironment.getLocalGraphicsEnvironment()
+                            .getDefaultScreenDevice().getDefaultConfiguration());
+            x = Math.max(insets.left + 4, Math.min(x, screen.width - insets.right - tw - 4));
+            if (y < insets.top) y = loc.y + anchor.getHeight() + 6;
 
             instance.setLocation(x, y);
-
-            // Subtle appearance with soft shadow effect
-            instance.setOpacity(0.0f);
+            instance.setOpacity(0f);
             instance.setVisible(true);
 
-            // Gentle fade-in animation with null check
-            Timer fadeIn = new Timer(30, null);
+            // 淡入
+            Timer fadeIn = new Timer(20, null);
             fadeIn.addActionListener(e -> {
-                if (instance != null) { // 添加null检查
-                    float opacity = instance.getOpacity() + 0.08f;
-                    if (opacity >= 0.96f) {
-                        instance.setOpacity(0.96f); // Slightly transparent for elegance
-                        fadeIn.stop();
-                    } else {
-                        instance.setOpacity(opacity);
-                    }
-                } else {
-                    fadeIn.stop(); // 如果instance为null，停止动画
+                if (instance == null) {
+                    ((Timer) e.getSource()).stop();
+                    return;
                 }
+                float op = Math.min(1f, instance.getOpacity() + 0.1f);
+                instance.setOpacity(op);
+                if (op >= 1f) ((Timer) e.getSource()).stop();
             });
             fadeIn.start();
 
-            // Auto-hide after 10 seconds (balanced timing)
-            if (autoHideTimer != null) {
-                autoHideTimer.stop();
-            }
+            // 10s 后自动隐藏
+            if (autoHideTimer != null) autoHideTimer.stop();
             autoHideTimer = new Timer(10000, e -> hideTooltip());
             autoHideTimer.setRepeats(false);
             autoHideTimer.start();
         }
 
         public static void hideTooltip() {
-            if (instance != null) {
-                // Gentle fade-out animation with null check
-                Timer fadeOut = new Timer(30, null);
-                fadeOut.addActionListener(e -> {
-                    if (instance != null) { // 添加null检查
-                        float opacity = instance.getOpacity() - 0.12f;
-                        if (opacity <= 0.0f) {
-                            instance.setVisible(false);
-                            instance.dispose();
-                            instance = null;
-                            fadeOut.stop();
-                        } else {
-                            instance.setOpacity(opacity);
-                        }
-                    } else {
-                        fadeOut.stop(); // 如果instance为null，停止动画
-                    }
-                });
-                fadeOut.start();
-            }
             if (autoHideTimer != null) {
                 autoHideTimer.stop();
                 autoHideTimer = null;
             }
+            if (instance == null) return;
+            final EasyPostmanStyleTooltip target = instance;
+            instance = null;
+            Timer fadeOut = new Timer(20, null);
+            fadeOut.addActionListener(e -> {
+                float op = Math.max(0f, target.getOpacity() - 0.12f);
+                target.setOpacity(op);
+                if (op <= 0f) {
+                    ((Timer) e.getSource()).stop();
+                    target.setVisible(false);
+                    target.dispose();
+                }
+            });
+            fadeOut.start();
         }
     }
 

@@ -1,6 +1,6 @@
 package com.laker.postman.panel.topmenu;
 
-import com.formdev.flatlaf.extras.FlatAnimatedLafChange;
+import com.formdev.flatlaf.FlatClientProperties;
 import com.formdev.flatlaf.extras.FlatDesktop;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import com.formdev.flatlaf.util.SystemInfo;
@@ -120,7 +120,36 @@ public class TopMenuBar extends SingletonBaseMenuBar implements IRefreshable {
     protected void registerListeners() {
         FlatDesktop.setAboutHandler(this::aboutActionPerformed);
         FlatDesktop.setQuitHandler(e -> BeanFactory.getBean(ExitService.class).exit());
+
+        // macOS Full Window Content 模式下，JMenuBar 空白区域不属于原生标题栏，
+        // 双击不会触发系统的最大化/恢复。需要手动监听双击事件来模拟该行为。
+        if (SystemInfo.isMacFullWindowContentSupported) {
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e) && e.getSource() == TopMenuBar.this) {
+                        toggleMaximize();
+                    }
+                }
+            });
+        }
     }
+
+    /**
+     * macOS 双击菜单栏空白处时切换最大化/还原窗口状态。
+     */
+    private void toggleMaximize() {
+        Window window = SwingUtilities.getWindowAncestor(this);
+        if (window instanceof Frame frame) {
+            int state = frame.getExtendedState();
+            if ((state & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                frame.setExtendedState(state & ~Frame.MAXIMIZED_BOTH);
+            } else {
+                frame.setExtendedState(state | Frame.MAXIMIZED_BOTH);
+            }
+        }
+    }
+
 
     /**
      * 刷新菜单栏（实现 IRefreshable 接口）
@@ -239,29 +268,14 @@ public class TopMenuBar extends SingletonBaseMenuBar implements IRefreshable {
         }
 
         // 使用动画效果切换主题
-        lightItem.addActionListener(e -> switchThemeWithAnimation(SimpleThemeManager::switchToLightTheme));
-        darkItem.addActionListener(e -> switchThemeWithAnimation(SimpleThemeManager::switchToDarkTheme));
+        lightItem.addActionListener(e -> SimpleThemeManager.switchToLightTheme());
+        darkItem.addActionListener(e -> SimpleThemeManager.switchToDarkTheme());
 
         themeMenu.add(lightItem);
         themeMenu.add(darkItem);
         add(themeMenu);
     }
 
-    /**
-     * 使用动画效果切换主题
-     *
-     * @param themeSwitch 主题切换逻辑
-     */
-    private void switchThemeWithAnimation(Runnable themeSwitch) {
-        // 开始动画切换
-        FlatAnimatedLafChange.showSnapshot();
-
-        // 执行主题切换
-        themeSwitch.run();
-
-        // 隐藏快照，显示动画过渡效果
-        FlatAnimatedLafChange.hideSnapshotWithAnimation();
-    }
 
     private void addSettingMenu() {
         JMenu settingMenu = new JMenu(I18nUtil.getMessage(MessageKeys.MENU_SETTINGS));
@@ -586,24 +600,9 @@ public class TopMenuBar extends SingletonBaseMenuBar implements IRefreshable {
         button.setIcon(icon);
         button.setToolTipText(tooltip);
         button.setFocusable(false);
-        button.setBorderPainted(false);
-        button.setContentAreaFilled(false);
         button.setPreferredSize(new Dimension(24, 24));
         button.addActionListener(action);
-
-        // 添加鼠标悬停效果
-        button.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                button.setContentAreaFilled(true);
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                button.setContentAreaFilled(false);
-            }
-        });
-
+        button.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
         return button;
     }
 

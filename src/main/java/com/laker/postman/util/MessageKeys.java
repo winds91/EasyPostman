@@ -42,6 +42,7 @@ public final class MessageKeys {
     // ============ 更新相关 ============
     public static final String UPDATE_NEW_VERSION_AVAILABLE = "update.new_version_available";
     public static final String UPDATE_LATER = "update.later";
+    public static final String UPDATE_NOW = "update.now";
     public static final String UPDATE_VIEW_DETAILS = "update.view_details";
     public static final String UPDATE_MANUAL_DOWNLOAD = "update.manual_download";
     public static final String UPDATE_DOWNLOADING = "update.downloading";
@@ -50,6 +51,13 @@ public final class MessageKeys {
     public static final String UPDATE_DOWNLOAD_CANCELLED = "update.download_cancelled";
     public static final String UPDATE_DOWNLOAD_FAILED = "update.download_failed";
     public static final String UPDATE_NO_INSTALLER_FOUND = "update.no_installer_found";
+    public static final String UPDATE_WHATS_NEW = "update.whats_new";
+    public static final String UPDATE_SAVE_TIP = "update.save_tip";
+    public static final String UPDATE_NO_CHANGELOG = "update.no_changelog";
+    public static final String UPDATE_DEFAULT_CHANGELOG = "update.default_changelog";
+    public static final String UPDATE_CODE_EXAMPLE = "update.code_example";
+    public static final String UPDATE_DOWNLOADED = "update.downloaded";
+    public static final String UPDATE_SPEED = "update.speed";
 
     // ============ 全量静默更新相关 ============
     public static final String UPDATE_INSTALLER_INSTALL_PROMPT = "update.installer.install.prompt";
@@ -126,19 +134,6 @@ public final class MessageKeys {
     public static final String MARKDOWN_VIEW_SPLIT = "markdown.view_split";
     public static final String MARKDOWN_VIEW_EDIT_ONLY = "markdown.view_edit_only";
     public static final String MARKDOWN_VIEW_PREVIEW_ONLY = "markdown.view_preview_only";
-    public static final String MARKDOWN_FIND = "markdown.find";
-    public static final String MARKDOWN_FIND_TITLE = "markdown.find_title";
-    public static final String MARKDOWN_FIND_LABEL = "markdown.find_label";
-    public static final String MARKDOWN_REPLACE_LABEL = "markdown.replace_label";
-    public static final String MARKDOWN_FIND_NEXT = "markdown.find_next";
-    public static final String MARKDOWN_FIND_PREV = "markdown.find_prev";
-    public static final String MARKDOWN_CASE_SENSITIVE = "markdown.case_sensitive";
-    public static final String MARKDOWN_WRAP_SEARCH = "markdown.wrap_search";
-    public static final String MARKDOWN_REPLACE = "markdown.replace";
-    public static final String MARKDOWN_REPLACE_ALL = "markdown.replace_all";
-    public static final String MARKDOWN_CLOSE = "markdown.close";
-    public static final String MARKDOWN_NOT_FOUND = "markdown.not_found";
-    public static final String MARKDOWN_REPLACE_COMPLETE = "markdown.replace_complete";
     public static final String MARKDOWN_EXPORT_HTML = "markdown.export_html";
     public static final String MARKDOWN_COPY_HTML = "markdown.copy_html";
     public static final String MARKDOWN_EXPORT_SUCCESS = "markdown.export_success";
@@ -214,6 +209,7 @@ public final class MessageKeys {
     public static final String TAB_RESPONSE_BODY = "tab.response_body";
     public static final String TAB_CLOSE_OTHERS = "tab.close_others";
     public static final String TAB_CLOSE_ALL = "tab.close_all";
+    public static final String TAB_CLOSE_RIGHT = "tab.close_right";
     public static final String TAB_UNSAVED_CHANGES_SAVE_CURRENT = "tab.unsaved_changes.save_current";
     public static final String TAB_UNSAVED_CHANGES_SAVE_OTHERS = "tab.unsaved_changes.save_others";
     public static final String TAB_UNSAVED_CHANGES_SAVE_ALL = "tab.unsaved_changes.save_all";
@@ -1034,9 +1030,6 @@ public final class MessageKeys {
     public static final String AUTOCOMPLETE_PM_REQUEST_METHOD = "autocomplete.pm.request.method";
     public static final String AUTOCOMPLETE_PM_REQUEST_HEADERS = "autocomplete.pm.request.headers";
     public static final String AUTOCOMPLETE_PM_REQUEST_BODY = "autocomplete.pm.request.body";
-    public static final String AUTOCOMPLETE_PM_REQUEST_PARAMS = "autocomplete.pm.request.params";
-    public static final String AUTOCOMPLETE_PM_REQUEST_FORMDATA = "autocomplete.pm.request.formData";
-    public static final String AUTOCOMPLETE_PM_REQUEST_URLENCODED = "autocomplete.pm.request.urlencoded";
 
     // ========== pm.response 方法 ==========
     public static final String AUTOCOMPLETE_PM_RESPONSE_CODE = "autocomplete.pm.response.code";
@@ -1147,19 +1140,9 @@ public final class MessageKeys {
     public static final String AUTOCOMPLETE_MOMENT_START_OF = "autocomplete.moment.startOf";
     public static final String AUTOCOMPLETE_MOMENT_END_OF = "autocomplete.moment.endOf";
 
-    // ========== JavaScript 内置对象扩展 ==========
-    public static final String AUTOCOMPLETE_JSON = "autocomplete.json";
-    public static final String AUTOCOMPLETE_DATE = "autocomplete.date";
-    public static final String AUTOCOMPLETE_MATH = "autocomplete.math";
-    public static final String AUTOCOMPLETE_MATH_FLOOR = "autocomplete.math.floor";
-    public static final String AUTOCOMPLETE_MATH_CEIL = "autocomplete.math.ceil";
-    public static final String AUTOCOMPLETE_MATH_ROUND = "autocomplete.math.round";
-
     // ========== JavaScript 内置对象 ==========
     public static final String AUTOCOMPLETE_JSON_PARSE = "autocomplete.json.parse";
     public static final String AUTOCOMPLETE_JSON_STRINGIFY = "autocomplete.json.stringify";
-    public static final String AUTOCOMPLETE_DATE_NOW = "autocomplete.date.now";
-    public static final String AUTOCOMPLETE_MATH_RANDOM = "autocomplete.math.random";
 
     // ========== 编码/解码函数 ==========
     public static final String AUTOCOMPLETE_BTOA = "autocomplete.btoa";
@@ -1813,15 +1796,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_CRON_NEXT_EXECUTIONS = "toolbox.cron.next_executions";
     public static final String TOOLBOX_CRON_TAB_PARSE = "toolbox.cron.tab.parse";
     public static final String TOOLBOX_CRON_TAB_GENERATE = "toolbox.cron.tab.generate";
-    public static final String TOOLBOX_CRON_PLACEHOLDER = "toolbox.cron.placeholder";
     public static final String TOOLBOX_CRON_EXECUTION_TIME = "toolbox.cron.execution_time";
-    public static final String TOOLBOX_CRON_FORMAT = "toolbox.cron.format";
-    public static final String TOOLBOX_CRON_SECOND = "toolbox.cron.second";
-    public static final String TOOLBOX_CRON_MINUTE = "toolbox.cron.minute";
-    public static final String TOOLBOX_CRON_HOUR = "toolbox.cron.hour";
-    public static final String TOOLBOX_CRON_DAY = "toolbox.cron.day";
-    public static final String TOOLBOX_CRON_MONTH = "toolbox.cron.month";
-    public static final String TOOLBOX_CRON_WEEK = "toolbox.cron.week";
     public static final String TOOLBOX_CRON_YEAR = "toolbox.cron.year";
     public static final String TOOLBOX_CRON_YEAR_OPTIONAL = "toolbox.cron.year.optional";
     public static final String TOOLBOX_CRON_YEAR_PLACEHOLDER = "toolbox.cron.year.placeholder";
@@ -1829,7 +1804,15 @@ public final class MessageKeys {
     public static final String TOOLBOX_CRON_QUICK_PRESETS = "toolbox.cron.quick_presets";
     public static final String TOOLBOX_CRON_COMMON_PRESETS = "toolbox.cron.common_presets";
     public static final String TOOLBOX_CRON_SPECIAL_CHARS = "toolbox.cron.special_chars";
-    public static final String TOOLBOX_CRON_COMMON_EXPRESSIONS = "toolbox.cron.common_expressions";
+    public static final String TOOLBOX_CRON_COPIED = "toolbox.cron.copied";
+    public static final String TOOLBOX_CRON_SPECIAL_WILDCARD = "toolbox.cron.special.wildcard";
+    public static final String TOOLBOX_CRON_SPECIAL_QUESTION = "toolbox.cron.special.question";
+    public static final String TOOLBOX_CRON_SPECIAL_LAST = "toolbox.cron.special.last";
+    public static final String TOOLBOX_CRON_SPECIAL_WEEKDAY = "toolbox.cron.special.weekday";
+    public static final String TOOLBOX_CRON_SPECIAL_HASH = "toolbox.cron.special.hash";
+    public static final String TOOLBOX_CRON_SPECIAL_RANGE = "toolbox.cron.special.range";
+    public static final String TOOLBOX_CRON_SPECIAL_LIST = "toolbox.cron.special.list";
+    public static final String TOOLBOX_CRON_SPECIAL_STEP = "toolbox.cron.special.step";
     public static final String TOOLBOX_CRON_PRESET_EVERY_SECOND = "toolbox.cron.preset.every_second";
     public static final String TOOLBOX_CRON_PRESET_EVERY_MINUTE = "toolbox.cron.preset.every_minute";
     public static final String TOOLBOX_CRON_PRESET_EVERY_5MIN = "toolbox.cron.preset.every_5min";
@@ -1844,11 +1827,55 @@ public final class MessageKeys {
     public static final String TOOLBOX_CRON_PRESET_FIRST_DAY_MONTH = "toolbox.cron.preset.first_day_month";
     public static final String TOOLBOX_CRON_PRESET_LAST_DAY_MONTH = "toolbox.cron.preset.last_day_month";
     public static final String TOOLBOX_CRON_ERROR_EMPTY = "toolbox.cron.error.empty";
-    public static final String TOOLBOX_CRON_ERROR_INVALID = "toolbox.cron.error.invalid";
     public static final String TOOLBOX_CRON_ERROR_PARSE = "toolbox.cron.error.parse";
     public static final String TOOLBOX_CRON_ANALYSIS = "toolbox.cron.analysis";
     public static final String TOOLBOX_CRON_FIELDS = "toolbox.cron.fields";
     public static final String TOOLBOX_CRON_UNABLE_CALCULATE = "toolbox.cron.unable_calculate";
+    public static final String TOOLBOX_CRON_MODE_LABEL = "toolbox.cron.mode.label";
+    public static final String TOOLBOX_CRON_MODE_SPRING = "toolbox.cron.mode.spring";
+    public static final String TOOLBOX_CRON_MODE_LINUX = "toolbox.cron.mode.linux";
+    public static final String TOOLBOX_CRON_MODE_TOOLTIP_SPRING = "toolbox.cron.mode.tooltip.spring";
+    public static final String TOOLBOX_CRON_MODE_TOOLTIP_LINUX = "toolbox.cron.mode.tooltip.linux";
+    public static final String TOOLBOX_CRON_FORMAT_SPRING = "toolbox.cron.format.spring";
+    public static final String TOOLBOX_CRON_FORMAT_LINUX = "toolbox.cron.format.linux";
+    public static final String TOOLBOX_CRON_PLACEHOLDER_SPRING = "toolbox.cron.placeholder.spring";
+    public static final String TOOLBOX_CRON_PLACEHOLDER_LINUX = "toolbox.cron.placeholder.linux";
+    public static final String TOOLBOX_CRON_ERROR_INVALID_SPRING = "toolbox.cron.error.invalid.spring";
+    public static final String TOOLBOX_CRON_ERROR_INVALID_LINUX = "toolbox.cron.error.invalid.linux";
+    public static final String TOOLBOX_CRON_FIELD_SECOND = "toolbox.cron.field.second";
+    public static final String TOOLBOX_CRON_FIELD_MINUTE = "toolbox.cron.field.minute";
+    public static final String TOOLBOX_CRON_FIELD_HOUR = "toolbox.cron.field.hour";
+    public static final String TOOLBOX_CRON_FIELD_DAY = "toolbox.cron.field.day";
+    public static final String TOOLBOX_CRON_FIELD_MONTH = "toolbox.cron.field.month";
+    public static final String TOOLBOX_CRON_FIELD_WEEK = "toolbox.cron.field.week";
+    public static final String TOOLBOX_CRON_FIELD_WEEK_SPRING = "toolbox.cron.field.week.spring";
+    public static final String TOOLBOX_CRON_NEXT_COUNT = "toolbox.cron.next_count";
+    public static final String TOOLBOX_CRON_DESC_EVERY_SECOND = "toolbox.cron.desc.every_second";
+    public static final String TOOLBOX_CRON_DESC_EVERY_MINUTE = "toolbox.cron.desc.every_minute";
+    public static final String TOOLBOX_CRON_DESC_EVERY_MINUTE_AT_SECOND = "toolbox.cron.desc.every_minute_at_second";
+    public static final String TOOLBOX_CRON_DESC_EVERY_HOUR_AT = "toolbox.cron.desc.every_hour_at";
+    public static final String TOOLBOX_CRON_DESC_EVERY_HOUR_AT_MINUTE = "toolbox.cron.desc.every_hour_at_minute";
+    public static final String TOOLBOX_CRON_DESC_AT = "toolbox.cron.desc.at";
+    public static final String TOOLBOX_CRON_DESC_ON_DAY = "toolbox.cron.desc.on_day";
+    public static final String TOOLBOX_CRON_DESC_ON_WEEKDAY = "toolbox.cron.desc.on_weekday";
+    public static final String TOOLBOX_CRON_DESC_IN_MONTH = "toolbox.cron.desc.in_month";
+    public static final String TOOLBOX_CRON_DESC_IN_YEAR = "toolbox.cron.desc.in_year";
+    public static final String TOOLBOX_CRON_DESC_EVERY_N_MONTHS = "toolbox.cron.desc.every_n_months";
+    public static final String TOOLBOX_CRON_DESC_WEEK_WEEKDAYS = "toolbox.cron.desc.week.weekdays";
+    // month names
+    public static final String[] TOOLBOX_CRON_DESC_MONTHS = {
+        null,
+        "toolbox.cron.desc.month.1",  "toolbox.cron.desc.month.2",  "toolbox.cron.desc.month.3",
+        "toolbox.cron.desc.month.4",  "toolbox.cron.desc.month.5",  "toolbox.cron.desc.month.6",
+        "toolbox.cron.desc.month.7",  "toolbox.cron.desc.month.8",  "toolbox.cron.desc.month.9",
+        "toolbox.cron.desc.month.10", "toolbox.cron.desc.month.11", "toolbox.cron.desc.month.12"
+    };
+    // weekday names (index 0=Sun, 1=Mon … 6=Sat)
+    public static final String[] TOOLBOX_CRON_DESC_WEEKDAYS = {
+        "toolbox.cron.desc.week.sun", "toolbox.cron.desc.week.mon", "toolbox.cron.desc.week.tue",
+        "toolbox.cron.desc.week.wed", "toolbox.cron.desc.week.thu", "toolbox.cron.desc.week.fri",
+        "toolbox.cron.desc.week.sat"
+    };
 
     // ============ 客户端证书相关 ============
     public static final String CERT_TITLE = "cert.title";
@@ -1896,5 +1923,13 @@ public final class MessageKeys {
     public static final String CERT_CONSOLE_LOAD_FAILED = "cert.console.load_failed";
     public static final String CERT_CONSOLE_VALIDATION_FAILED = "cert.console.validation_failed";
     public static final String CERT_CONSOLE_FILE_NOT_FOUND = "cert.console.file_not_found";
+
+    // ==================== Notification Toast ====================
+    public static final String NOTIFICATION_TYPE_SUCCESS = "notification.type.success";
+    public static final String NOTIFICATION_TYPE_INFO = "notification.type.info";
+    public static final String NOTIFICATION_TYPE_WARNING = "notification.type.warning";
+    public static final String NOTIFICATION_TYPE_ERROR = "notification.type.error";
+    public static final String NOTIFICATION_EXPAND = "notification.expand";
+    public static final String NOTIFICATION_COLLAPSE = "notification.collapse";
 
 }
