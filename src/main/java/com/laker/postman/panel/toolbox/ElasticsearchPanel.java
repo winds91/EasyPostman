@@ -14,12 +14,14 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 import tools.jackson.databind.JsonNode;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -48,11 +50,9 @@ public class ElasticsearchPanel extends JPanel {
     private JTextField pathField;
     private RSyntaxTextArea dslEditor;
     private RSyntaxTextArea resultArea;
-    private JLabel statusLabel;
 
     // ===== 结果表格 =====
-    private DefaultTableModel tableModel;
-    private JTable resultTable;
+    private com.laker.postman.common.component.table.EnhancedTablePanel enhancedTable;
     private JTabbedPane resultTabs;
 
     // ===== HTTP 客户端 =====
@@ -123,12 +123,6 @@ public class ElasticsearchPanel extends JPanel {
         mainSplit.setDividerSize(5);
         mainSplit.setContinuousLayout(true);
         add(mainSplit, BorderLayout.CENTER);
-
-        // 底部状态栏
-        statusLabel = new JLabel(" " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_READY));
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(3, 5, 3, 5));
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
-        add(statusLabel, BorderLayout.SOUTH);
     }
 
     // ===== 连接面板 =====
@@ -361,7 +355,6 @@ public class ElasticsearchPanel extends JPanel {
             dslEditor.setText("");
             resultArea.setText("");
             clearTable();
-            setStatus(" " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CLEARED));
         });
 
         toolBar.add(templateCombo);
@@ -423,37 +416,16 @@ public class ElasticsearchPanel extends JPanel {
                 BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
         resultTabs = new JTabbedPane(SwingConstants.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
-        tableModel = new DefaultTableModel() {
-            @Override
-            public boolean isCellEditable(int row, int col) {
-                return false;
-            }
-        };
-        resultTable = new JTable(tableModel);
-        resultTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        resultTable.setFillsViewportHeight(true);
-        resultTable.setRowHeight(22);
-        JPopupMenu tablePopup = new JPopupMenu();
-        JMenuItem copyCell = new JMenuItem(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_COPY_CELL));
-        copyCell.addActionListener(e -> {
-            int row = resultTable.getSelectedRow();
-            int col = resultTable.getSelectedColumn();
-            if (row >= 0 && col >= 0) {
-                Object val = resultTable.getValueAt(row, col);
-                if (val != null)
-                    Toolkit.getDefaultToolkit().getSystemClipboard()
-                            .setContents(new StringSelection(val.toString()), null);
-            }
-        });
-        tablePopup.add(copyCell);
-        resultTable.setComponentPopupMenu(tablePopup);
+
+        // 增强表格（搜索/分页/排序/自动铺满）
+        enhancedTable = new com.laker.postman.common.component.table.EnhancedTablePanel(new String[]{});
 
         resultArea = createJsonEditor(false);
         RTextScrollPane resultScroll = new RTextScrollPane(resultArea);
         resultScroll.setLineNumbersEnabled(true);
         resultScroll.setBorder(BorderFactory.createEmptyBorder());
 
-        resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_TABLE), new JScrollPane(resultTable));
+        resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_TABLE), enhancedTable);
         resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_RAW), resultScroll);
 
         resultPanel.add(respLabel, BorderLayout.NORTH);
@@ -505,13 +477,11 @@ public class ElasticsearchPanel extends JPanel {
             authHeader = null;
         }
         connectBtn.setEnabled(false);
-        setStatus(" " + MessageFormat.format(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CONNECTING), baseUrl));
         final String finalUrl = baseUrl;
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() throws Exception {
-                return doGet("/_cluster/health");
+                return doGet("/_cluster/health", "");
             }
 
             @Override
@@ -523,8 +493,6 @@ public class ElasticsearchPanel extends JPanel {
                     connectionStatusLabel.setForeground(new Color(0, 180, 0));
                     connectionStatusLabel.setToolTipText(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CONNECTED), finalUrl));
-                    setStatus(" ✅ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CONNECTED), finalUrl));
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     loadIndices();
@@ -533,9 +501,6 @@ public class ElasticsearchPanel extends JPanel {
                     connectionStatusLabel.setForeground(Color.RED);
                     connectionStatusLabel.setToolTipText(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_NOT_CONNECTED));
-                    setStatus(" ❌ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CONNECT_FAILED),
-                            ex.getMessage()));
                     showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_CONNECT_FAILED),
                             ex.getMessage()));
@@ -547,13 +512,12 @@ public class ElasticsearchPanel extends JPanel {
 
     private void loadIndices() {
         if (!connected) {
-            setStatus(" " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_NOT_CONNECTED));
             return;
         }
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() throws Exception {
-                return doGet("/_cat/indices?v&format=json&s=index");
+                return doGet("/_cat/indices?v&format=json&s=index", "");
             }
 
             @Override
@@ -569,14 +533,9 @@ public class ElasticsearchPanel extends JPanel {
                                 indexListModel.addElement(idx.toString().replace("\"", ""));
                         }
                     }
-                    filterIndices(""); // 刷新后重置过滤，显示全部
-                    setStatus(" ✅ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_LOADED),
-                            indexListModel.size()));
+                    filterIndices("");
                 } catch (Exception ex) {
-                    setStatus(" ❌ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_LOAD_FAILED),
-                            ex.getMessage()));
+                    log.warn("Failed to load indices: {}", ex.getMessage());
                 }
             }
         };
@@ -609,14 +568,9 @@ public class ElasticsearchPanel extends JPanel {
                     String resp = get();
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
-                    setStatus(" ✅ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATED), name));
                     newIndexField.setText("");
                     loadIndices();
                 } catch (Exception ex) {
-                    setStatus(" ❌ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_LOAD_FAILED),
-                            ex.getMessage()));
                     showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE_FAILED),
                             ex.getMessage()));
@@ -654,13 +608,8 @@ public class ElasticsearchPanel extends JPanel {
                     String resp = get();
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
-                    setStatus(" ✅ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETED), sel));
                     loadIndices();
                 } catch (Exception ex) {
-                    setStatus(" ❌ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_FAILED),
-                            ex.getMessage()));
                     showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_FAILED),
                             ex.getMessage()));
@@ -669,7 +618,6 @@ public class ElasticsearchPanel extends JPanel {
         };
         worker.execute();
     }
-
 
     private void executeRequest() {
         if (!connected) {
@@ -684,19 +632,17 @@ public class ElasticsearchPanel extends JPanel {
             return;
         }
         String body = dslEditor.getText().trim();
-        setStatus(" ⏳ " + MessageFormat.format(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_EXECUTING), method, path));
         clearTable();
         long start = System.currentTimeMillis();
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() throws Exception {
                 return switch (method) {
-                    case "POST" -> doPost(path, body);
-                    case "PUT" -> doPut(path, body);
+                    case "POST"   -> doPost(path, body);
+                    case "PUT"    -> doPut(path, body);
                     case "DELETE" -> doDelete(path, body);
-                    case "HEAD" -> doHead(path);
-                    default -> doGet(path);
+                    case "HEAD"   -> doHead(path);
+                    default       -> doGet(path, body);
                 };
             }
 
@@ -711,20 +657,20 @@ public class ElasticsearchPanel extends JPanel {
                     if (JsonUtil.isTypeJSON(resp)) {
                         populateTable(resp);
                     }
-                    // 根据实际情况切换 tab：有表格数据切 Table，否则切 Raw JSON
-                    if (tableModel.getRowCount() > 0) {
-                        resultTabs.setSelectedIndex(0); // 表格视图
+                    if (enhancedTable.getTable().getRowCount() > 0) {
+                        resultTabs.setSelectedIndex(0);
                     } else {
-                        resultTabs.setSelectedIndex(1); // 原始 JSON
+                        resultTabs.setSelectedIndex(1);
                     }
-                    setStatus(" ✅ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_SUCCESS),
-                            method, path, elapsed, resp.length()));
+                    // ES 总命中提示：仅 log，不显示在 UI
+                    Object totalHits = enhancedTable.getClientProperty("es.totalHits");
+                    if (totalHits instanceof Long th) {
+                        log.debug("ES totalHits={}, returned={}, elapsed={}ms",
+                                th, enhancedTable.getTotalRowCount(), elapsed);
+                    }
                 } catch (Exception ex) {
                     String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
                     resultArea.setText("Error: " + msg);
-                    setStatus(" ❌ " + MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_REQUEST_FAILED), msg));
                 }
             }
         };
@@ -732,52 +678,88 @@ public class ElasticsearchPanel extends JPanel {
     }
 
     private void populateTable(String json) {
-        tableModel.setRowCount(0);
-        tableModel.setColumnCount(0);
         try {
             JsonNode root = JsonUtil.readTree(json);
             if (root.has("hits")) {
                 populateHitsTable(root);
-            } else if (root.has("indices") || root.has("_all")) {
-                tableModel.addColumn("Key");
-                tableModel.addColumn("Value");
-                flattenJson("", root);
             } else if (json.trim().startsWith("[")) {
                 populateArrayTable(json);
+            } else {
+                // 扁平 key-value 展示（_cluster/health、_stats 等）
+                List<Object[]> rows = new ArrayList<>();
+                flattenJson("", root, rows);
+                if (!rows.isEmpty()) {
+                    rebuildEnhancedTable(new String[]{"Key", "Value"}, rows);
+                } else {
+                    enhancedTable.clearData();
+                }
             }
         } catch (Exception e) {
             log.debug("populateTable error (non-fatal): {}", e.getMessage());
+            enhancedTable.clearData();
         }
     }
 
     private void populateHitsTable(JsonNode root) {
-        JsonNode hits = root.get("hits");
+        JsonNode hits    = root.get("hits");
         JsonNode hitsArr = hits.get("hits");
-        if (hitsArr == null || !hitsArr.isArray() || hitsArr.isEmpty()) return;
-        JsonNode first = hitsArr.get(0);
-        tableModel.addColumn("_index");
-        tableModel.addColumn("_id");
-        tableModel.addColumn("_score");
-        JsonNode source0 = first.get("_source");
-        if (source0 != null) {
-            for (java.util.Map.Entry<String, JsonNode> e : source0.properties()) {
-                tableModel.addColumn(e.getKey());
+        if (hitsArr == null || !hitsArr.isArray() || hitsArr.isEmpty()) {
+            enhancedTable.clearData();
+            return;
+        }
+
+        // 读取 ES 端实际命中总数（hits.total.value 或 hits.total）
+        long totalHits = -1;
+        JsonNode totalNode = hits.get("total");
+        if (totalNode != null) {
+            if (totalNode.isNumber()) {
+                totalHits = totalNode.longValue();
+            } else if (totalNode.isObject() && totalNode.has("value")) {
+                totalHits = totalNode.get("value").longValue();
             }
         }
+
+        // 构建列名（扫描所有行的 _source，合并字段）
+        List<String> colNames = new ArrayList<>();
+        colNames.add("_index");
+        colNames.add("_id");
+        colNames.add("_score");
+        // 合并所有行的字段，避免第一行字段不全
+        LinkedHashSet<String> srcCols = new LinkedHashSet<>();
         for (JsonNode hit : hitsArr) {
             JsonNode src = hit.get("_source");
-            java.util.List<Object> row = new java.util.ArrayList<>();
-            row.add(nodeText(hit.get("_index")));
-            row.add(nodeText(hit.get("_id")));
-            row.add(nodeText(hit.get("_score")));
             if (src != null) {
-                for (int c = 3; c < tableModel.getColumnCount(); c++) {
-                    row.add(nodeText(src.get(tableModel.getColumnName(c))));
+                for (java.util.Map.Entry<String, JsonNode> e : src.properties()) srcCols.add(e.getKey());
+            }
+        }
+        colNames.addAll(srcCols);
+
+        // 构建行数据
+        List<Object[]> rows = new ArrayList<>();
+        for (JsonNode hit : hitsArr) {
+            JsonNode src = hit.get("_source");
+            Object[] row = new Object[colNames.size()];
+            row[0] = nodeText(hit.get("_index"));
+            row[1] = nodeText(hit.get("_id"));
+            row[2] = nodeText(hit.get("_score"));
+            if (src != null) {
+                for (int c = 3; c < colNames.size(); c++) {
+                    row[c] = nodeText(src.get(colNames.get(c)));
                 }
             }
-            tableModel.addRow(row.toArray());
+            rows.add(row);
         }
-        autoResizeColumns();
+
+        rebuildEnhancedTable(colNames.toArray(new String[0]), rows);
+
+        // 若 ES total > 返回行数，在 hintLabel 追加提示
+        if (totalHits > rows.size()) {
+            // 通过 getTable() 拿到父组件后更新 hintLabel 不可达，直接在状态栏追加
+            // 让调用方在 done() 里处理，这里把 total 写入 client property
+            enhancedTable.putClientProperty("es.totalHits", totalHits);
+        } else {
+            enhancedTable.putClientProperty("es.totalHits", null);
+        }
     }
 
     private void populateArrayTable(String json) {
@@ -785,62 +767,45 @@ public class ElasticsearchPanel extends JPanel {
             JsonNode arr = JsonUtil.readTree(json);
             if (!arr.isArray() || arr.isEmpty()) return;
             JsonNode first = arr.get(0);
-            for (java.util.Map.Entry<String, JsonNode> e : first.properties()) {
-                tableModel.addColumn(e.getKey());
-            }
+            List<String> colNames = new ArrayList<>();
+            for (java.util.Map.Entry<String, JsonNode> e : first.properties()) colNames.add(e.getKey());
+
+            List<Object[]> rows = new ArrayList<>();
             for (JsonNode obj : arr) {
-                java.util.List<Object> row = new java.util.ArrayList<>();
-                for (int c = 0; c < tableModel.getColumnCount(); c++) {
-                    row.add(nodeText(obj.get(tableModel.getColumnName(c))));
-                }
-                tableModel.addRow(row.toArray());
+                Object[] row = new Object[colNames.size()];
+                for (int c = 0; c < colNames.size(); c++) row[c] = nodeText(obj.get(colNames.get(c)));
+                rows.add(row);
             }
-            autoResizeColumns();
+            rebuildEnhancedTable(colNames.toArray(new String[0]), rows);
         } catch (Exception e) {
             log.debug("populateArrayTable error: {}", e.getMessage());
         }
     }
 
-    private void flattenJson(String prefix, JsonNode obj) {
+    private void flattenJson(String prefix, JsonNode obj, List<Object[]> rows) {
         for (java.util.Map.Entry<String, JsonNode> entry : obj.properties()) {
             String fullKey = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
             JsonNode v = entry.getValue();
-            if (v.isObject()) {
-                flattenJson(fullKey, v);
-            } else {
-                tableModel.addRow(new Object[]{fullKey, nodeText(v)});
-            }
+            if (v.isObject()) flattenJson(fullKey, v, rows);
+            else rows.add(new Object[]{fullKey, nodeText(v)});
         }
     }
 
-    /**
-     * 安全地将 JsonNode 转为字符串，null 返回空串
-     */
+    /** 重置 EnhancedTablePanel 的列结构并填入数据（复用同一实例，不重建组件） */
+    private void rebuildEnhancedTable(String[] cols, List<Object[]> rows) {
+        enhancedTable.resetAndSetData(cols, rows);
+    }
+
+    private void clearTable() {
+        enhancedTable.clearData();
+    }
+
+    /** 安全地将 JsonNode 转为字符串，null 返回空串 */
     private static String nodeText(JsonNode node) {
         if (node == null || node.isNull()) return "";
         return node.isValueNode() ? node.toString().replace("\"", "") : node.toString();
     }
 
-    private void autoResizeColumns() {
-        for (int col = 0; col < resultTable.getColumnCount(); col++) {
-            int width = 80;
-            for (int row = 0; row < Math.min(resultTable.getRowCount(), 50); row++) {
-                Object val = resultTable.getValueAt(row, col);
-                if (val != null) {
-                    int w = resultTable.getFontMetrics(resultTable.getFont())
-                            .stringWidth(val.toString()) + 16;
-                    width = Math.max(width, w);
-                }
-            }
-            resultTable.getColumnModel().getColumn(col)
-                    .setPreferredWidth(Math.min(width, 300));
-        }
-    }
-
-    private void clearTable() {
-        tableModel.setRowCount(0);
-        tableModel.setColumnCount(0);
-    }
 
     private void formatDsl() {
         String txt = dslEditor.getText().trim();
@@ -848,9 +813,6 @@ public class ElasticsearchPanel extends JPanel {
         if (JsonUtil.isTypeJSON(txt)) {
             dslEditor.setText(JsonUtil.toJsonPrettyStr(txt));
             dslEditor.setCaretPosition(0);
-            setStatus(" ✅ " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_FORMATTED));
-        } else {
-            setStatus(" ⚠️ " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_NOT_JSON));
         }
     }
 
@@ -859,13 +821,23 @@ public class ElasticsearchPanel extends JPanel {
         if (txt != null && !txt.isEmpty()) {
             Toolkit.getDefaultToolkit().getSystemClipboard()
                     .setContents(new StringSelection(txt), null);
-            setStatus(" ✅ " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_COPIED));
         }
     }
 
     // ===== HTTP 方法封装 =====
 
-    private String doGet(String path) throws IOException {
+    /**
+     * GET 请求。
+     * ES 的 DSL 查询通过 body 传递（如 _search、_count 等）。
+     * OkHttp 不允许 GET 带 body，因此有 body 时改用 POST 发送——ES 完全支持 POST _search。
+     * 无 body 时发普通 GET（适用于 _cluster/health、_cat/indices 等）。
+     */
+    private String doGet(String path, String body) throws IOException {
+        if (body != null && !body.isEmpty()) {
+            // ES: GET _search with body → POST _search（语义等价，ES 官方两者都支持）
+            RequestBody rb = RequestBody.create(body, MediaType.get("application/json; charset=utf-8"));
+            return executeHttp(buildRequest("POST", path, rb));
+        }
         return executeHttp(buildRequest("GET", path, null));
     }
 
@@ -931,14 +903,9 @@ public class ElasticsearchPanel extends JPanel {
         return area;
     }
 
-    private void setStatus(String msg) {
-        SwingUtilities.invokeLater(() -> statusLabel.setText(msg));
-    }
-
     private void showError(String msg) {
         JOptionPane.showMessageDialog(this, msg,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TITLE),
                 JOptionPane.ERROR_MESSAGE);
     }
 }
-
