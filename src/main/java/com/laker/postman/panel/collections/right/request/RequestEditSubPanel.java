@@ -571,7 +571,8 @@ public class RequestEditSubPanel extends JPanel {
      */
     public boolean isModified() {
         if (originalRequestItem == null) return false;
-        HttpRequestItem current = getCurrentRequest();
+        // 使用 FromModel 版本读取数据，避免触发 stopCellEditing 打断用户正在进行的单元格编辑
+        HttpRequestItem current = getCurrentRequestFromModel();
 
         // 使用字段级别比较，排除 response（优化性能，避免JSON序列化）
         boolean isModified = !equalsIgnoringResponse(originalRequestItem, current);
@@ -580,6 +581,52 @@ public class RequestEditSubPanel extends JPanel {
             log.debug("Request form has been modified, Request Name: {}", current.getName());
         }
         return isModified;
+    }
+
+    /**
+     * 从 tableModel 直接读取数据构建 HttpRequestItem，不调用 stopCellEditing。
+     * 专供 isModified() / updateTabDirty() 等后台比较场景使用，
+     * 避免在 TableModelListener 回调中打断用户正在进行的单元格编辑。
+     */
+    private HttpRequestItem getCurrentRequestFromModel() {
+        HttpRequestItem item = new HttpRequestItem();
+        item.setId(this.id);
+        item.setName(this.name);
+        item.setDescription(descriptionEditor.getText());
+        item.setUrl(urlField.getText().trim());
+        item.setMethod((String) methodBox.getSelectedItem());
+        item.setProtocol(protocol);
+        // 使用 FromModel 变体：直接读 tableModel，不停止单元格编辑
+        item.setHeadersList(headersPanel.getHeadersListFromModel());
+        item.setParamsList(paramsPanel.getParamsListFromModel());
+        item.setBody(requestBodyPanel.getBodyArea().getText().trim());
+        item.setBodyType(Objects.requireNonNull(requestBodyPanel.getBodyTypeComboBox().getSelectedItem()).toString());
+        String bodyType = requestBodyPanel.getBodyType();
+        if (RequestBodyPanel.BODY_TYPE_FORM_DATA.equals(bodyType)) {
+            FormDataTablePanel formDataTablePanel = requestBodyPanel.getFormDataTablePanel();
+            item.setFormDataList(formDataTablePanel.getFormDataListFromModel());
+            item.setBody("");
+            item.setUrlencodedList(new ArrayList<>());
+        } else if (RequestBodyPanel.BODY_TYPE_FORM_URLENCODED.equals(bodyType)) {
+            item.setBody("");
+            item.setFormDataList(new ArrayList<>());
+            FormUrlencodedTablePanel urlencodedTablePanel = requestBodyPanel.getFormUrlencodedTablePanel();
+            item.setUrlencodedList(urlencodedTablePanel.getFormDataListFromModel());
+        } else if (RequestBodyPanel.BODY_TYPE_RAW.equals(bodyType)) {
+            item.setBody(requestBodyPanel.getRawBody());
+            item.setFormDataList(new ArrayList<>());
+            item.setUrlencodedList(new ArrayList<>());
+        }
+        item.setAuthType(authTabPanel.getAuthType());
+        item.setAuthUsername(authTabPanel.getUsername());
+        item.setAuthPassword(authTabPanel.getPassword());
+        item.setAuthToken(authTabPanel.getToken());
+        item.setPrescript(scriptPanel.getPrescript());
+        item.setPostscript(scriptPanel.getPostscript());
+        if (originalRequestItem != null && originalRequestItem.getResponse() != null) {
+            item.setResponse(originalRequestItem.getResponse());
+        }
+        return item;
     }
 
     /**
