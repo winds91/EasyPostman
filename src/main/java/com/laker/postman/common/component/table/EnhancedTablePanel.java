@@ -349,19 +349,22 @@ public class EnhancedTablePanel extends JPanel {
      * 更新列筛选按钮文字 + 搜索框 placeholder
      */
     private void updateColFilterBtnLabel() {
-        String base = I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN);
         if (filterCols == null) {
-            colFilterBtn.setText(base);
+            // 默认：搜索全部列
+            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN));
             colFilterBtn.setForeground(null);
             searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                     I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_ALL));
         } else if (filterCols.isEmpty()) {
-            colFilterBtn.setText(base + " (0)");
+            // 全不选：置灰提示用户未指定范围
+            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN_N, "0"));
             colFilterBtn.setForeground(UIManager.getColor(LABEL_DISABLED));
             searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                     I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_NONE));
         } else {
-            colFilterBtn.setText(base + " (" + filterCols.size() + ")");
+            // 已选部分列：高亮显示数量，placeholder 显示列名
+            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN_N,
+                    String.valueOf(filterCols.size())));
             colFilterBtn.setForeground(UIManager.getColor("Component.accentColor"));
             searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                     I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_COLS,
