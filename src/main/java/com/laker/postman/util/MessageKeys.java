@@ -1793,7 +1793,6 @@ public final class MessageKeys {
     public static final String TOOLBOX_ELASTICSEARCH = "toolbox.elasticsearch";
 
     // 连接面板
-    public static final String TOOLBOX_ES_CONNECTION = "toolbox.es.connection";
     public static final String TOOLBOX_ES_HOST = "toolbox.es.host";
     public static final String TOOLBOX_ES_HOST_PLACEHOLDER = "toolbox.es.host.placeholder";
     public static final String TOOLBOX_ES_USER = "toolbox.es.user";
@@ -1805,16 +1804,12 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_STATUS_CONNECTED = "toolbox.es.status.connected";
     public static final String TOOLBOX_ES_STATUS_CONNECTING = "toolbox.es.status.connecting";
     public static final String TOOLBOX_ES_STATUS_CONNECT_FAILED = "toolbox.es.status.connect_failed";
-    public static final String TOOLBOX_ES_STATUS_CONNECTION_FAILED = "toolbox.es.status.connection_failed";
     public static final String TOOLBOX_ES_STATUS_READY = "toolbox.es.status.ready";
 
     // 索引管理
     public static final String TOOLBOX_ES_INDEX_MANAGEMENT = "toolbox.es.index.management";
-    public static final String TOOLBOX_ES_INDEX_REFRESH = "toolbox.es.index.refresh";
     public static final String TOOLBOX_ES_INDEX_DELETE = "toolbox.es.index.delete";
-    public static final String TOOLBOX_ES_INDEX_STATS = "toolbox.es.index.stats";
     public static final String TOOLBOX_ES_INDEX_CREATE = "toolbox.es.index.create";
-    public static final String TOOLBOX_ES_INDEX_CREATE_TITLE = "toolbox.es.index.create.title";
     public static final String TOOLBOX_ES_INDEX_NAME = "toolbox.es.index.name";
     public static final String TOOLBOX_ES_INDEX_NAME_PLACEHOLDER = "toolbox.es.index.name.placeholder";
     public static final String TOOLBOX_ES_INDEX_SHARDS = "toolbox.es.index.shards";
@@ -1828,11 +1823,9 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM = "toolbox.es.index.delete.confirm";
     public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM_TITLE = "toolbox.es.index.delete.confirm.title";
     public static final String TOOLBOX_ES_INDEX_SELECT_TO_DELETE = "toolbox.es.index.select_to_delete";
-    public static final String TOOLBOX_ES_INDEX_SELECT_FOR_STATS = "toolbox.es.index.select_for_stats";
     public static final String TOOLBOX_ES_INDEX_NAME_REQUIRED = "toolbox.es.index.name_required";
 
     // DSL 编辑器
-    public static final String TOOLBOX_ES_TEMPLATE_LABEL = "toolbox.es.template.label";
     public static final String TOOLBOX_ES_LOAD_TEMPLATE = "toolbox.es.load_template";
     public static final String TOOLBOX_ES_FORMAT_JSON = "toolbox.es.format_json";
     public static final String TOOLBOX_ES_COPY_RESULT = "toolbox.es.copy_result";

@@ -1,10 +1,10 @@
 package com.laker.postman.panel.toolbox;
 
-import com.laker.postman.util.JsonUtil;
 import com.formdev.flatlaf.FlatClientProperties;
 import com.laker.postman.common.component.button.*;
 import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.I18nUtil;
+import com.laker.postman.util.JsonUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
@@ -63,36 +63,36 @@ public class ElasticsearchPanel extends JPanel {
 
     // ===== 内置 DSL 模板（名称走 i18n，DSL body 保持英文原样）=====
     private static final String[][] DSL_TEMPLATES = {
-            {"toolbox.es.tpl.match_all",   "GET",    "/{index}/_search",
+            {"toolbox.es.tpl.match_all", "GET", "/{index}/_search",
                     "{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 20\n}"},
-            {"toolbox.es.tpl.match",       "GET",    "/{index}/_search",
+            {"toolbox.es.tpl.match", "GET", "/{index}/_search",
                     "{\n  \"query\": {\n    \"match\": {\n      \"field\": \"value\"\n    }\n  }\n}"},
-            {"toolbox.es.tpl.term",        "GET",    "/{index}/_search",
+            {"toolbox.es.tpl.term", "GET", "/{index}/_search",
                     "{\n  \"query\": {\n    \"term\": {\n      \"field.keyword\": \"exact_value\"\n    }\n  }\n}"},
-            {"toolbox.es.tpl.range",       "GET",    "/{index}/_search",
+            {"toolbox.es.tpl.range", "GET", "/{index}/_search",
                     "{\n  \"query\": {\n    \"range\": {\n      \"timestamp\": {\n        \"gte\": \"2024-01-01\",\n        \"lte\": \"2024-12-31\"\n      }\n    }\n  }\n}"},
-            {"toolbox.es.tpl.bool",        "GET",    "/{index}/_search",
+            {"toolbox.es.tpl.bool", "GET", "/{index}/_search",
                     "{\n  \"query\": {\n    \"bool\": {\n      \"must\": [\n        { \"match\": { \"title\": \"elasticsearch\" } }\n      ],\n      \"filter\": [\n        { \"term\": { \"status\": \"active\" } }\n      ],\n      \"must_not\": [],\n      \"should\": []\n    }\n  }\n}"},
-            {"toolbox.es.tpl.agg",         "GET",    "/{index}/_search",
+            {"toolbox.es.tpl.agg", "GET", "/{index}/_search",
                     "{\n  \"size\": 0,\n  \"aggs\": {\n    \"group_by_status\": {\n      \"terms\": {\n        \"field\": \"status.keyword\",\n        \"size\": 10\n      }\n    }\n  }\n}"},
-            {"toolbox.es.tpl.index_doc",   "POST",   "/{index}/_doc",
+            {"toolbox.es.tpl.index_doc", "POST", "/{index}/_doc",
                     "{\n  \"field1\": \"value1\",\n  \"field2\": \"value2\",\n  \"timestamp\": \"2024-01-01T00:00:00Z\"\n}"},
-            {"toolbox.es.tpl.update_doc",  "POST",   "/{index}/_update/{id}",
+            {"toolbox.es.tpl.update_doc", "POST", "/{index}/_update/{id}",
                     "{\n  \"doc\": {\n    \"field\": \"new_value\"\n  }\n}"},
-            {"toolbox.es.tpl.delete_doc",  "DELETE", "/{index}/_doc/{id}", ""},
-            {"toolbox.es.tpl.get_doc",     "GET",    "/{index}/_doc/{id}", ""},
-            {"toolbox.es.tpl.mapping",     "GET",    "/{index}/_mapping", ""},
-            {"toolbox.es.tpl.settings",    "GET",    "/{index}/_settings", ""},
-            {"toolbox.es.tpl.health",      "GET",    "/_cluster/health", ""},
-            {"toolbox.es.tpl.cluster_stats","GET",   "/_cluster/stats", ""},
-            {"toolbox.es.tpl.list_indices","GET",    "/_cat/indices?v&format=json", ""},
-            {"toolbox.es.tpl.create_index","PUT",    "/{index}",
+            {"toolbox.es.tpl.delete_doc", "DELETE", "/{index}/_doc/{id}", ""},
+            {"toolbox.es.tpl.get_doc", "GET", "/{index}/_doc/{id}", ""},
+            {"toolbox.es.tpl.mapping", "GET", "/{index}/_mapping", ""},
+            {"toolbox.es.tpl.settings", "GET", "/{index}/_settings", ""},
+            {"toolbox.es.tpl.health", "GET", "/_cluster/health", ""},
+            {"toolbox.es.tpl.cluster_stats", "GET", "/_cluster/stats", ""},
+            {"toolbox.es.tpl.list_indices", "GET", "/_cat/indices?v&format=json", ""},
+            {"toolbox.es.tpl.create_index", "PUT", "/{index}",
                     "{\n  \"settings\": {\n    \"number_of_shards\": 1,\n    \"number_of_replicas\": 1\n  },\n  \"mappings\": {\n    \"properties\": {\n      \"title\": { \"type\": \"text\" },\n      \"status\": { \"type\": \"keyword\" },\n      \"timestamp\": { \"type\": \"date\" }\n    }\n  }\n}"},
-            {"toolbox.es.tpl.reindex",     "POST",   "/_reindex",
+            {"toolbox.es.tpl.reindex", "POST", "/_reindex",
                     "{\n  \"source\": {\n    \"index\": \"source_index\"\n  },\n  \"dest\": {\n    \"index\": \"dest_index\"\n  }\n}"},
-            {"toolbox.es.tpl.delete_by_query","POST","/{index}/_delete_by_query",
+            {"toolbox.es.tpl.delete_by_query", "POST", "/{index}/_delete_by_query",
                     "{\n  \"query\": {\n    \"match\": {\n      \"field\": \"value\"\n    }\n  }\n}"},
-            {"toolbox.es.tpl.update_by_query","POST","/{index}/_update_by_query",
+            {"toolbox.es.tpl.update_by_query", "POST", "/{index}/_update_by_query",
                     "{\n  \"script\": {\n    \"source\": \"ctx._source.status = 'updated'\"\n  },\n  \"query\": {\n    \"match_all\": {}\n  }\n}"},
     };
 
@@ -189,7 +189,6 @@ public class ElasticsearchPanel extends JPanel {
         JLabel titleLbl = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_MANAGEMENT));
         titleLbl.setFont(titleLbl.getFont().deriveFont(Font.BOLD, 12f));
         RefreshButton refreshBtn = new RefreshButton();
-        refreshBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_REFRESH));
         refreshBtn.addActionListener(e -> loadIndices());
         titleBar.add(titleLbl, BorderLayout.CENTER);
         titleBar.add(refreshBtn, BorderLayout.EAST);
@@ -203,7 +202,7 @@ public class ElasticsearchPanel extends JPanel {
         searchBox.add(indexSearchField, BorderLayout.CENTER);
 
         // 索引列表（使用过滤 model）
-        indexListModel    = new DefaultListModel<>();
+        indexListModel = new DefaultListModel<>();
         indexFilteredModel = new DefaultListModel<>();
         indexList = new JList<>(indexFilteredModel);
         indexList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -232,24 +231,28 @@ public class ElasticsearchPanel extends JPanel {
 
         // 搜索监听：实时过滤
         indexSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e)  { filterIndices(indexSearchField.getText()); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e)  { filterIndices(indexSearchField.getText()); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { filterIndices(indexSearchField.getText()); }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                filterIndices(indexSearchField.getText());
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                filterIndices(indexSearchField.getText());
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                filterIndices(indexSearchField.getText());
+            }
         });
 
-        // 操作按钮行
-        JPanel actionBar = new JPanel(new GridLayout(1, 2, 4, 0));
+        // 操作按钮行（仅保留删除）
+        JPanel actionBar = new JPanel(new GridLayout(1, 1, 4, 0));
         actionBar.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(1, 0, 1, 0, UIManager.getColor("Separator.foreground")),
                 BorderFactory.createEmptyBorder(4, 6, 4, 6)));
         SecondaryButton deleteBtn = new SecondaryButton(
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE), "icons/delete.svg");
-        SecondaryButton statsBtn = new SecondaryButton(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_STATS), "icons/performance.svg");
         deleteBtn.addActionListener(e -> deleteSelectedIndex());
-        statsBtn.addActionListener(e -> showIndexStats());
         actionBar.add(deleteBtn);
-        actionBar.add(statsBtn);
 
         // 创建索引面板
         JPanel createPanel = new JPanel(new GridBagLayout());
@@ -261,25 +264,37 @@ public class ElasticsearchPanel extends JPanel {
         newIndexField = new JTextField();
         newIndexField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_NAME_PLACEHOLDER));
-        shardSpinner   = new JSpinner(new SpinnerNumberModel(1, 1, 100, 1));
+        shardSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 100, 1));
         replicaSpinner = new JSpinner(new SpinnerNumberModel(1, 0, 10, 1));
         PrimaryButton createBtn = new PrimaryButton(
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE), "icons/plus.svg");
         createBtn.addActionListener(e -> createIndex());
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0;
         createPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_NAME)), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
+        gbc.gridx = 1;
+        gbc.weightx = 1;
         createPanel.add(newIndexField, gbc);
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0;
         createPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_SHARDS)), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
+        gbc.gridx = 1;
+        gbc.weightx = 1;
         createPanel.add(shardSpinner, gbc);
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.weightx = 0;
         createPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_REPLICAS)), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
+        gbc.gridx = 1;
+        gbc.weightx = 1;
         createPanel.add(replicaSpinner, gbc);
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.weightx = 1;
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1;
         createPanel.add(createBtn, gbc);
 
         JPanel topArea = new JPanel(new BorderLayout());
@@ -296,7 +311,9 @@ public class ElasticsearchPanel extends JPanel {
         return panel;
     }
 
-    /** 根据关键词过滤索引列表 */
+    /**
+     * 根据关键词过滤索引列表
+     */
     private void filterIndices(String kw) {
         String lower = kw == null ? "" : kw.trim().toLowerCase();
         indexFilteredModel.clear();
@@ -407,7 +424,10 @@ public class ElasticsearchPanel extends JPanel {
 
         resultTabs = new JTabbedPane(SwingConstants.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
         tableModel = new DefaultTableModel() {
-            @Override public boolean isCellEditable(int row, int col) { return false; }
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
         };
         resultTable = new JTable(tableModel);
         resultTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
@@ -446,7 +466,9 @@ public class ElasticsearchPanel extends JPanel {
         return panel;
     }
 
-    /** 注册 Ctrl+Enter 快捷键 */
+    /**
+     * 注册 Ctrl+Enter 快捷键
+     */
     private void registerCtrlEnterShortcut(JButton executeBtn) {
         SwingUtilities.invokeLater(() -> {
             if (dslEditor != null) {
@@ -571,7 +593,7 @@ public class ElasticsearchPanel extends JPanel {
             showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_NAME_REQUIRED));
             return;
         }
-        int shards   = (int) shardSpinner.getValue();
+        int shards = (int) shardSpinner.getValue();
         int replicas = (int) replicaSpinner.getValue();
         String body = "{\n  \"settings\": {\n    \"number_of_shards\": " + shards
                 + ",\n    \"number_of_replicas\": " + replicas + "\n  }\n}";
@@ -648,21 +670,6 @@ public class ElasticsearchPanel extends JPanel {
         worker.execute();
     }
 
-    private void showIndexStats() {
-        if (!connected) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_NOT_CONNECTED));
-            return;
-        }
-        String sel = indexList.getSelectedValue();
-        if (sel == null) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_SELECT_FOR_STATS));
-            return;
-        }
-        pathField.setText("/" + sel + "/_stats");
-        methodCombo.setSelectedItem("GET");
-        dslEditor.setText("");
-        executeRequest();
-    }
 
     private void executeRequest() {
         if (!connected) {
@@ -685,11 +692,11 @@ public class ElasticsearchPanel extends JPanel {
             @Override
             protected String doInBackground() throws Exception {
                 return switch (method) {
-                    case "POST"   -> doPost(path, body);
-                    case "PUT"    -> doPut(path, body);
+                    case "POST" -> doPost(path, body);
+                    case "PUT" -> doPut(path, body);
                     case "DELETE" -> doDelete(path, body);
-                    case "HEAD"   -> doHead(path);
-                    default       -> doGet(path);
+                    case "HEAD" -> doHead(path);
+                    default -> doGet(path);
                 };
             }
 
@@ -806,7 +813,9 @@ public class ElasticsearchPanel extends JPanel {
         }
     }
 
-    /** 安全地将 JsonNode 转为字符串，null 返回空串 */
+    /**
+     * 安全地将 JsonNode 转为字符串，null 返回空串
+     */
     private static String nodeText(JsonNode node) {
         if (node == null || node.isNull()) return "";
         return node.isValueNode() ? node.toString().replace("\"", "") : node.toString();
@@ -881,7 +890,8 @@ public class ElasticsearchPanel extends JPanel {
         Request.Builder builder = new Request.Builder().url(baseUrl + path);
         if (authHeader != null) builder.header("Authorization", authHeader);
         builder.header("Content-Type", "application/json");
-        if (rb != null) builder.delete(rb); else builder.delete();
+        if (rb != null) builder.delete(rb);
+        else builder.delete();
         return executeHttp(builder.build());
     }
 
