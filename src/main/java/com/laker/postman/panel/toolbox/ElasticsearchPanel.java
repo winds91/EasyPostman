@@ -6,6 +6,7 @@ import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.JsonUtil;
 import com.laker.postman.util.MessageKeys;
+import com.laker.postman.util.NotificationUtil;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -54,6 +55,8 @@ public class ElasticsearchPanel extends JPanel {
     // ===== 结果表格 =====
     private com.laker.postman.common.component.table.EnhancedTablePanel enhancedTable;
     private JTabbedPane resultTabs;
+    private JLabel respStatusLabel;   // 响应行：状态码 + 耗时
+    private PrimaryButton executeBtn; // 保存引用以控制 loading 状态
 
     // ===== HTTP 客户端 =====
     private transient OkHttpClient httpClient;
@@ -68,8 +71,9 @@ public class ElasticsearchPanel extends JPanel {
     private static final String CLUSTER_HEALTH_PATH  = "/_cluster/health";
     private static final String JSON_UTF8            = "application/json; charset=utf-8";
     private static final String JSON_MIME            = "application/json";
-    private static final String HEADER_AUTHORIZATION = "Authorization";
+    private static final String HEADER_AUTHORIZATION  = "Authorization";
     private static final String CLIENT_PROP_TOTAL_HITS = "es.totalHits";
+    private static final String LABEL_DISABLED_FG      = "Label.disabledForeground";
 
     // ===== 内置 DSL 模板（名称走 i18n，DSL body 保持英文原样）=====
     private static final String[][] DSL_TEMPLATES = {
@@ -146,6 +150,8 @@ public class ElasticsearchPanel extends JPanel {
         hostField = new JTextField("http://localhost:9200", 26);
         hostField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_HOST_PLACEHOLDER));
+        // 回车直接触发连接
+        hostField.addActionListener(e -> doConnect());
 
         usernameField = new JTextField("", 10);
         usernameField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
@@ -154,9 +160,11 @@ public class ElasticsearchPanel extends JPanel {
         passwordField = new JPasswordField("", 10);
         passwordField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_PASS_PLACEHOLDER));
+        // 密码框回车也触发连接
+        passwordField.addActionListener(e -> doConnect());
 
         connectionStatusLabel = new JLabel("●");
-        connectionStatusLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        connectionStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
         connectionStatusLabel.setFont(connectionStatusLabel.getFont().deriveFont(Font.BOLD, 14f));
         connectionStatusLabel.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_NOT_CONNECTED));
 
@@ -360,6 +368,23 @@ public class ElasticsearchPanel extends JPanel {
         }
     }
 
+    /** 解析 _cat/indices JSON 并填充索引列表 Model */
+    private void parseAndFillIndexList(String json) {
+        try {
+            indexListModel.clear();
+            JsonNode arr = JsonUtil.readTree(json);
+            if (!arr.isArray()) return;
+            for (JsonNode node : arr) {
+                JsonNode idx = node.get("index");
+                if (idx != null && !idx.isNull()) {
+                    indexListModel.addElement(idx.toString().replace("\"", ""));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("parseAndFillIndexList error: {}", e.getMessage());
+        }
+    }
+
     // ===== DSL 编辑 + 结果面板 =====
     private JPanel buildDslPanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 4));
@@ -378,8 +403,13 @@ public class ElasticsearchPanel extends JPanel {
         loadTplBtn.addActionListener(e -> {
             int idx = templateCombo.getSelectedIndex();
             if (idx >= 0 && idx < DSL_TEMPLATES.length) {
+                String selectedIndex = indexList.getSelectedValue();
+                String path = DSL_TEMPLATES[idx][2];
+                if (selectedIndex != null && !selectedIndex.isBlank()) {
+                    path = path.replace("{index}", selectedIndex);
+                }
                 methodCombo.setSelectedItem(DSL_TEMPLATES[idx][1]);
-                pathField.setText(DSL_TEMPLATES[idx][2]);
+                pathField.setText(path);
                 dslEditor.setText(DSL_TEMPLATES[idx][3]);
                 dslEditor.setCaretPosition(0);
             }
@@ -389,13 +419,17 @@ public class ElasticsearchPanel extends JPanel {
         formatBtn.addActionListener(e -> formatDsl());
         CopyButton copyBtn = new CopyButton();
         copyBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_COPY_RESULT));
-        copyBtn.addActionListener(e -> copyResult());
+        copyBtn.addActionListener(e -> {
+            copyResult();
+            NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_RESULT_COPIED));
+        });
         ClearButton clearBtn = new ClearButton();
         clearBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CLEAR));
         clearBtn.addActionListener(e -> {
             dslEditor.setText("");
             resultArea.setText("");
             clearTable();
+            respStatusLabel.setText("");
         });
 
         toolBar.add(templateCombo);
@@ -413,7 +447,7 @@ public class ElasticsearchPanel extends JPanel {
         pathField = new JTextField(CLUSTER_HEALTH_PATH);
         pathField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_PATH_PLACEHOLDER));
-        PrimaryButton executeBtn = new PrimaryButton(
+        executeBtn = new PrimaryButton(
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_EXECUTE), "icons/send.svg");
         executeBtn.addActionListener(e -> executeRequest());
         registerCtrlEnterShortcut(executeBtn);
@@ -450,17 +484,22 @@ public class ElasticsearchPanel extends JPanel {
 
         // 结果区（Tab: 表格 + 原始 JSON）
         JPanel resultPanel = new JPanel(new BorderLayout());
-        JLabel respLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_RESPONSE_TITLE));
-        respLabel.setFont(respLabel.getFont().deriveFont(Font.BOLD, 11f));
-        respLabel.setBorder(BorderFactory.createCompoundBorder(
+
+        // 响应标题栏：左侧标签 + 右侧状态码/耗时
+        JPanel respHeader = new JPanel(new BorderLayout());
+        respHeader.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+        JLabel respLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_RESPONSE_TITLE));
+        respLabel.setFont(respLabel.getFont().deriveFont(Font.BOLD, 11f));
+        respStatusLabel = new JLabel("");
+        respStatusLabel.setFont(respStatusLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        respStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
+        respHeader.add(respLabel,       BorderLayout.WEST);
+        respHeader.add(respStatusLabel, BorderLayout.EAST);
 
         resultTabs = new JTabbedPane(SwingConstants.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
-
-        // 增强表格（搜索/分页/排序/自动铺满）
         enhancedTable = new com.laker.postman.common.component.table.EnhancedTablePanel(new String[]{});
-
         resultArea = createJsonEditor(false);
         RTextScrollPane resultScroll = new RTextScrollPane(resultArea);
         resultScroll.setLineNumbersEnabled(true);
@@ -469,8 +508,8 @@ public class ElasticsearchPanel extends JPanel {
         resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_TABLE), enhancedTable);
         resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_RAW), resultScroll);
 
-        resultPanel.add(respLabel, BorderLayout.NORTH);
-        resultPanel.add(resultTabs, BorderLayout.CENTER);
+        resultPanel.add(respHeader,  BorderLayout.NORTH);
+        resultPanel.add(resultTabs,  BorderLayout.CENTER);
 
         editorSplit.setTopComponent(editorPanel);
         editorSplit.setBottomComponent(resultPanel);
@@ -520,11 +559,13 @@ public class ElasticsearchPanel extends JPanel {
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     loadIndices();
+                    NotificationUtil.showSuccess(
+                            MessageFormat.format(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_SUCCESS), indexName));
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("deleteIndex interrupted", ex);
                 } catch (Exception ex) {
-                    showError(MessageFormat.format(
+                    NotificationUtil.showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_FAILED),
                             ex.getMessage()));
                 }
@@ -551,11 +592,13 @@ public class ElasticsearchPanel extends JPanel {
                     String resp = get();
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
+                    NotificationUtil.showSuccess(
+                            MessageFormat.format(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR_SUCCESS), indexName));
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("clearIndex interrupted", ex);
                 } catch (Exception ex) {
-                    showError(MessageFormat.format(
+                    NotificationUtil.showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR_FAILED),
                             ex.getMessage()));
                 }
@@ -566,7 +609,7 @@ public class ElasticsearchPanel extends JPanel {
     private void doConnect() {
         String url = hostField.getText().trim();
         if (url.isEmpty()) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_HOST_REQUIRED));
+            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_HOST_REQUIRED));
             return;
         }
         if (url.endsWith("/")) url = url.substring(0, url.length() - 1);
@@ -599,6 +642,8 @@ public class ElasticsearchPanel extends JPanel {
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     loadIndices();
+                    NotificationUtil.showSuccess(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CONNECT_SUCCESS), finalUrl));
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("doConnect interrupted", ex);
@@ -607,7 +652,7 @@ public class ElasticsearchPanel extends JPanel {
                     connectionStatusLabel.setForeground(Color.RED);
                     connectionStatusLabel.setToolTipText(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_NOT_CONNECTED));
-                    showError(MessageFormat.format(
+                    NotificationUtil.showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_CONNECT_FAILED),
                             ex.getMessage()));
                 }
@@ -617,9 +662,7 @@ public class ElasticsearchPanel extends JPanel {
     }
 
     private void loadIndices() {
-        if (!connected) {
-            return;
-        }
+        if (!connected) return;
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() throws Exception {
@@ -629,17 +672,11 @@ public class ElasticsearchPanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    String json = get();
-                    indexListModel.clear();
-                    JsonNode arr = JsonUtil.readTree(json);
-                    if (arr.isArray()) {
-                        for (JsonNode node : arr) {
-                            JsonNode idx = node.get("index");
-                            if (idx != null && !idx.isNull())
-                                indexListModel.addElement(idx.toString().replace("\"", ""));
-                        }
-                    }
+                    parseAndFillIndexList(get());
                     filterIndices("");
+                    if (indexListModel.isEmpty()) {
+                        NotificationUtil.showInfo(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_LIST_EMPTY));
+                    }
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("loadIndices interrupted", ex);
@@ -653,12 +690,12 @@ public class ElasticsearchPanel extends JPanel {
 
     private void createIndex() {
         if (!connected) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_NOT_CONNECTED));
+            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_NOT_CONNECTED));
             return;
         }
         String name = newIndexField.getText().trim();
         if (name.isEmpty()) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_NAME_REQUIRED));
+            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_NAME_REQUIRED));
             return;
         }
         int shards = (int) shardSpinner.getValue();
@@ -679,11 +716,13 @@ public class ElasticsearchPanel extends JPanel {
                     resultArea.setCaretPosition(0);
                     newIndexField.setText("");
                     loadIndices();
+                    NotificationUtil.showSuccess(
+                            MessageFormat.format(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE_SUCCESS), name));
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("createIndex interrupted", ex);
                 } catch (Exception ex) {
-                    showError(MessageFormat.format(
+                    NotificationUtil.showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE_FAILED),
                             ex.getMessage()));
                 }
@@ -695,18 +734,21 @@ public class ElasticsearchPanel extends JPanel {
 
     private void executeRequest() {
         if (!connected) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_NOT_CONNECTED));
+            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_NOT_CONNECTED));
             return;
         }
         String selectedMethod = (String) methodCombo.getSelectedItem();
         final String method = (selectedMethod == null) ? "GET" : selectedMethod;
         String path = pathField.getText().trim();
         if (path.isEmpty()) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_PATH_REQUIRED));
+            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_PATH_REQUIRED));
             return;
         }
         String body = dslEditor.getText().trim();
         clearTable();
+        respStatusLabel.setText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_REQUESTING));
+        respStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
+        executeBtn.setEnabled(false);
         long start = System.currentTimeMillis();
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
@@ -723,14 +765,19 @@ public class ElasticsearchPanel extends JPanel {
             @Override
             protected void done() {
                 long elapsed = System.currentTimeMillis() - start;
+                executeBtn.setEnabled(true);
                 try {
                     handleRequestResult(get(), elapsed);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     log.warn("executeRequest interrupted", ex);
+                    respStatusLabel.setText("");
                 } catch (Exception ex) {
                     String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
                     resultArea.setText("Error: " + msg);
+                    respStatusLabel.setText(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_ERROR), elapsed));
+                    respStatusLabel.setForeground(UIManager.getColor("Actions.Red"));
                 }
             }
         };
@@ -745,6 +792,11 @@ public class ElasticsearchPanel extends JPanel {
             populateTable(resp);
         }
         resultTabs.setSelectedIndex(enhancedTable.getTable().getRowCount() > 0 ? 0 : 1);
+        // 显示耗时
+        respStatusLabel.setText(MessageFormat.format(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_OK), elapsed));
+        respStatusLabel.setForeground(new Color(0, 160, 0));
+        // totalHits 日志
         Object totalHits = enhancedTable.getClientProperty(CLIENT_PROP_TOTAL_HITS);
         if (totalHits instanceof Long th) {
             log.debug("ES totalHits={}, returned={}, elapsed={}ms",
@@ -973,11 +1025,5 @@ public class ElasticsearchPanel extends JPanel {
         area.setEditable(editable);
         EditorThemeUtil.loadTheme(area);
         return area;
-    }
-
-    private void showError(String msg) {
-        JOptionPane.showMessageDialog(this, msg,
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TITLE),
-                JOptionPane.ERROR_MESSAGE);
     }
 }

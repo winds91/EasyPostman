@@ -1802,6 +1802,12 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_CONNECT = "toolbox.es.connect";
     public static final String TOOLBOX_ES_STATUS_NOT_CONNECTED = "toolbox.es.status.not_connected";
     public static final String TOOLBOX_ES_STATUS_CONNECTED = "toolbox.es.status.connected";
+    public static final String TOOLBOX_ES_CONNECT_SUCCESS = "toolbox.es.connect.success";
+    public static final String TOOLBOX_ES_STATUS_REQUESTING = "toolbox.es.status.requesting";
+    public static final String TOOLBOX_ES_STATUS_OK = "toolbox.es.status.ok";
+    public static final String TOOLBOX_ES_STATUS_ERROR = "toolbox.es.status.error";
+    public static final String TOOLBOX_ES_RESULT_COPIED = "toolbox.es.result.copied";
+    public static final String TOOLBOX_ES_INDEX_LIST_EMPTY = "toolbox.es.index.list_empty";
     // 索引管理
     public static final String TOOLBOX_ES_INDEX_MANAGEMENT = "toolbox.es.index.management";
     public static final String TOOLBOX_ES_INDEX_DELETE = "toolbox.es.index.delete";
@@ -1811,7 +1817,9 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_INDEX_SHARDS = "toolbox.es.index.shards";
     public static final String TOOLBOX_ES_INDEX_REPLICAS = "toolbox.es.index.replicas";
     public static final String TOOLBOX_ES_INDEX_CREATE_FAILED = "toolbox.es.index.create_failed";
+    public static final String TOOLBOX_ES_INDEX_CREATE_SUCCESS = "toolbox.es.index.create_success";
     public static final String TOOLBOX_ES_INDEX_DELETE_FAILED = "toolbox.es.index.delete_failed";
+    public static final String TOOLBOX_ES_INDEX_DELETE_SUCCESS = "toolbox.es.index.delete_success";
     public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM = "toolbox.es.index.delete.confirm";
     public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM_TITLE = "toolbox.es.index.delete.confirm.title";
     public static final String TOOLBOX_ES_INDEX_NAME_REQUIRED = "toolbox.es.index.name_required";
@@ -1819,6 +1827,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_INDEX_CLEAR_CONFIRM = "toolbox.es.index.clear.confirm";
     public static final String TOOLBOX_ES_INDEX_CLEAR_CONFIRM_TITLE = "toolbox.es.index.clear.confirm.title";
     public static final String TOOLBOX_ES_INDEX_CLEAR_FAILED = "toolbox.es.index.clear_failed";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_SUCCESS = "toolbox.es.index.clear_success";
     public static final String TOOLBOX_ES_INDEX_VIEW_MAPPING = "toolbox.es.index.view_mapping";
     public static final String TOOLBOX_ES_INDEX_VIEW_SETTINGS = "toolbox.es.index.view_settings";
 
