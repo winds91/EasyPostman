@@ -346,6 +346,17 @@ public class EasySmartValueCellEditor extends AbstractCellEditor implements Tabl
         return super.stopCellEditing();
     }
 
+    /**
+     * 强制停止编辑，忽略 ignoreFocusLost 保护。
+     * 用于 Tab/Enter 键导航：用户明确意图切换单元格，必须提交当前编辑值。
+     */
+    public boolean forceStopCellEditing() {
+        log.debug("[forceStopCellEditing] ignoreFocusLost={}", ignoreFocusLost);
+        ignoreFocusLost = false;
+        restoreRowHeight();
+        return super.stopCellEditing();
+    }
+
     @Override
     public void cancelCellEditing() {
         log.debug("[cancelCellEditing] ignoreFocusLost={} rowHeightExpanded={}", ignoreFocusLost, rowHeightExpanded);

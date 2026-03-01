@@ -204,8 +204,9 @@ public class EnvironmentPanel extends SingletonBasePanel {
         if (currentEnvironment == null) return;
 
         try {
-            variablesTablePanel.stopCellEditing();
-            List<Variable> variableList = variablesTablePanel.getVariableList();
+            // 直接从 model 读取，不停止单元格编辑，避免打断用户正在进行的输入（如 Tab 导航）。
+            // 此方法由 TableModelListener（invokeLater）触发，model 中已经是最新已提交的值。
+            List<Variable> variableList = variablesTablePanel.getVariableListFromModel();
             currentEnvironment.setVariableList(new ArrayList<>(variableList)); // 使用副本避免并发修改
             EnvironmentService.saveEnvironment(currentEnvironment);
             // 保存后更新快照
@@ -895,7 +896,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
 
     // 判断当前表格内容和快照是否一致，使用JSON序列化比较
     private boolean isVariablesChanged() {
-        String curJson = JSONUtil.toJsonStr(variablesTablePanel.getVariableList());
+        String curJson = JSONUtil.toJsonStr(variablesTablePanel.getVariableListFromModel());
         boolean isVariablesChanged = !CharSequenceUtil.equals(curJson, originalVariablesSnapshot);
         if (isVariablesChanged) {
             log.debug("env name: {}", currentEnvironment != null ? currentEnvironment.getName() : "null");

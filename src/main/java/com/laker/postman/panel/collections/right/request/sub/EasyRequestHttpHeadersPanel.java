@@ -240,6 +240,13 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
         }
     }
 
+    /** 提交当前正在编辑的单元格（用于手动保存前确保最新输入被提交）。 */
+    public void stopCellEditing() {
+        if (tablePanel != null) {
+            tablePanel.stopCellEditing();
+        }
+    }
+
     /**
      * Get all headers as a list (including enabled state) for persistence
      */
@@ -268,6 +275,31 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
             }
         }
 
+        return headersList;
+    }
+
+    /**
+     * 从 tableModel 直接读取 headers，不停止当前单元格编辑。
+     * 用于自动保存 / tab 指示器等后台场景，避免打断用户正在进行的输入（如 Tab 导航）。
+     */
+    public List<HttpHeader> getHeadersListFromModel() {
+        List<HttpHeader> headersList = new ArrayList<>();
+        if (tablePanel == null) return headersList;
+
+        List<Map<String, Object>> allRows = tablePanel.getRowsFromModel();
+        for (Map<String, Object> row : allRows) {
+            Object enabledObj = row.get("Enabled");
+            Object keyObj    = row.get("Key");
+            Object valueObj  = row.get("Value");
+
+            boolean enabled = !(enabledObj instanceof Boolean b) || b;
+            String key   = keyObj   == null ? "" : keyObj.toString().trim();
+            String value = valueObj == null ? "" : valueObj.toString().trim();
+
+            if (!key.isEmpty()) {
+                headersList.add(new HttpHeader(enabled, key, value));
+            }
+        }
         return headersList;
     }
 

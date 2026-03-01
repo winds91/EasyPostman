@@ -445,7 +445,7 @@ public class RequestEditSubPanel extends JPanel {
      * 检查Params tab是否有内容
      */
     private boolean hasParamsContent() {
-        List<HttpParam> params = paramsPanel.getParamsList();
+        List<HttpParam> params = paramsPanel.getParamsListFromModel();
         if (params == null || params.isEmpty()) {
             return false;
         }
@@ -470,7 +470,7 @@ public class RequestEditSubPanel extends JPanel {
      * 检查Headers tab是否有内容
      */
     private boolean hasHeadersContent() {
-        List<HttpHeader> headers = headersPanel.getHeadersList();
+        List<HttpHeader> headers = headersPanel.getHeadersListFromModel();
         if (headers == null || headers.isEmpty()) {
             return false;
         }
@@ -503,7 +503,7 @@ public class RequestEditSubPanel extends JPanel {
             case "form-data":
                 FormDataTablePanel formDataPanel = requestBodyPanel.getFormDataTablePanel();
                 if (formDataPanel != null) {
-                    List<HttpFormData> items = formDataPanel.getFormDataList();
+                    List<HttpFormData> items = formDataPanel.getFormDataListFromModel();
                     return items != null && items.stream().anyMatch(item ->
                             item.getKey() != null && !item.getKey().trim().isEmpty()
                     );
@@ -512,7 +512,7 @@ public class RequestEditSubPanel extends JPanel {
             case "x-www-form-urlencoded":
                 FormUrlencodedTablePanel urlencodedPanel = requestBodyPanel.getFormUrlencodedTablePanel();
                 if (urlencodedPanel != null) {
-                    List<HttpFormUrlencoded> items = urlencodedPanel.getFormDataList();
+                    List<HttpFormUrlencoded> items = urlencodedPanel.getFormDataListFromModel();
                     return items != null && items.stream().anyMatch(item ->
                             item.getKey() != null && !item.getKey().trim().isEmpty()
                     );

@@ -190,7 +190,18 @@ public class EasyHttpHeadersTablePanel extends AbstractTablePanel<Map<String, Ob
         }
         // 默认 Header 的 Key 列不可编辑（不参与 Tab/Enter 导航）
         if (column == COL_KEY) {
-            Object keyObj = tableModel.getValueAt(row, COL_KEY);
+            // row 是视图行索引（Tab 导航传入的是 editingRow，即视图行），
+            // tableModel.getValueAt 需要模型行索引——必须转换。
+            int modelRow = row;
+            if (table.getRowSorter() != null) {
+                try {
+                    modelRow = table.getRowSorter().convertRowIndexToModel(row);
+                } catch (IndexOutOfBoundsException e) {
+                    return false;
+                }
+            }
+            if (modelRow < 0 || modelRow >= tableModel.getRowCount()) return false;
+            Object keyObj = tableModel.getValueAt(modelRow, COL_KEY);
             return keyObj == null || !DEFAULT_HEADER_KEYS.contains(keyObj.toString().trim());
         }
         return true;
@@ -335,6 +346,22 @@ public class EasyHttpHeadersTablePanel extends AbstractTablePanel<Map<String, Ob
             rows.add(row);
         }
 
+        return rows;
+    }
+
+    /**
+     * 从 tableModel 直接读取行数据，不停止当前单元格编辑。
+     * 用于自动保存 / tab 指示器等后台场景，避免打断用户正在进行的输入。
+     */
+    public List<Map<String, Object>> getRowsFromModel() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("Enabled", getBooleanValue(i, COL_ENABLED));
+            row.put("Key", getStringValue(i, COL_KEY));
+            row.put("Value", getStringValue(i, COL_VALUE));
+            rows.add(row);
+        }
         return rows;
     }
 

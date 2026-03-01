@@ -214,6 +214,14 @@ public class EasyVariablesPanel extends JPanel {
         return tablePanel.getVariableList();
     }
 
+    /**
+     * 从 model 直接读取，不停止单元格编辑。
+     * 用于自动保存 / tab 指示器等后台场景，避免打断用户正在进行的输入。
+     */
+    public List<Variable> getVariableListFromModel() {
+        return tablePanel.getVariableListFromModel();
+    }
+
     public void setVariableList(List<Variable> variableList) {
         tablePanel.setVariableList(variableList);
     }

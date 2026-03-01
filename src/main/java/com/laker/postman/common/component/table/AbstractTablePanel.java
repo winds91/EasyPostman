@@ -982,8 +982,10 @@ public abstract class AbstractTablePanel<T> extends JPanel {
      * @param reverse true 表示向后移动（Shift+Tab），false 表示向前移动（Tab）
      */
     protected void moveToNextEditableCell(boolean reverse) {
-        int currentRow    = table.getSelectedRow();
-        int currentColumn = table.getSelectedColumn();
+        // 优先使用编辑中的行列（比 selectedRow/Col 更准确），
+        // 因为单击直接进入编辑时不一定同时更新 selection。
+        int currentRow    = table.isEditing() ? table.getEditingRow()    : table.getSelectedRow();
+        int currentColumn = table.isEditing() ? table.getEditingColumn() : table.getSelectedColumn();
 
         if (currentRow < 0 || currentColumn < 0) {
             startEditAt(0, getFirstEditableColumnIndex());
@@ -991,8 +993,21 @@ public abstract class AbstractTablePanel<T> extends JPanel {
         }
 
         // 先提交当前编辑，再寻找目标单元格
+        // stopCellEditing() 可能返回 false（例如 EasySmartValueCellEditor 的 ignoreFocusLost 保护），
+        // 此时使用 forceStop（对智能编辑器）或 cancelCellEditing() 强制退出，确保 Tab 导航始终能继续。
         if (table.isEditing()) {
-            table.getCellEditor().stopCellEditing();
+            TableCellEditor currentEditor = table.getCellEditor();
+            if (currentEditor != null) {
+                boolean stopped = false;
+                if (currentEditor instanceof EasySmartValueCellEditor smartEditor) {
+                    stopped = smartEditor.forceStopCellEditing();
+                } else {
+                    stopped = currentEditor.stopCellEditing();
+                }
+                if (!stopped) {
+                    currentEditor.cancelCellEditing();
+                }
+            }
         }
 
         if (!reverse) {

@@ -96,7 +96,7 @@ public class GroupEditPanel extends JPanel {
     private void initAutoSaveTimer() {
         // 创建防抖定时器，避免频繁保存
         autoSaveTimer = new Timer(AUTO_SAVE_DELAY, e -> {
-            autoSaveGroupData();
+            autoSaveGroupData(false);  // 定时器自动触发，不停止编辑
             autoSaveTimer.stop();
         });
         autoSaveTimer.setRepeats(false);
@@ -376,7 +376,7 @@ public class GroupEditPanel extends JPanel {
      * 检查 Headers tab 是否有内容
      */
     private boolean hasHeadersContent() {
-        List<HttpHeader> headers = headersPanel.getHeadersList();
+        List<HttpHeader> headers = headersPanel.getHeadersListFromModel();
         if (headers == null || headers.isEmpty()) {
             return false;
         }
@@ -390,7 +390,7 @@ public class GroupEditPanel extends JPanel {
      * 检查 Variables tab 是否有内容
      */
     private boolean hasVariablesContent() {
-        List<Variable> variables = variablesPanel.getVariableList();
+        List<Variable> variables = variablesPanel.getVariableListFromModel();
         if (variables == null || variables.isEmpty()) {
             return false;
         }
@@ -449,8 +449,8 @@ public class GroupEditPanel extends JPanel {
                 if (autoSaveTimer.isRunning()) {
                     autoSaveTimer.stop();
                 }
-                // 立即保存
-                autoSaveGroupData();
+                // 立即保存（先提交正在编辑的 cell，确保最新输入被包含）
+                autoSaveGroupData(true);
                 NotificationUtil.showInfo(I18nUtil.getMessage(MessageKeys.SAVE_SUCCESS));
 
             }
@@ -471,8 +471,17 @@ public class GroupEditPanel extends JPanel {
 
     /**
      * 自动保存分组数据
+     *
+     * @param forceSave true = 手动触发（Cmd+S），先提交正在编辑的 cell 再保存；
+     *                  false = 定时器自动触发，直接读 model 不打断 Tab 导航。
      */
-    private void autoSaveGroupData() {
+    private void autoSaveGroupData(boolean forceSave) {
+        if (forceSave) {
+            // 手动保存：提交当前正在编辑的 cell，确保最新输入也被保存
+            headersPanel.stopCellEditing();
+            variablesPanel.stopCellEditing();
+        }
+
         // 先检查是否有修改
         if (!isModified()) {
             return; // 没有修改，不需要保存
@@ -503,8 +512,8 @@ public class GroupEditPanel extends JPanel {
         group.setAuthToken(authTabPanel.getToken());
         group.setPrescript(scriptPanel.getPrescript());
         group.setPostscript(scriptPanel.getPostscript());
-        group.setHeaders(headersPanel.getHeadersList());
-        group.setVariables(variablesPanel.getVariableList());
+        group.setHeaders(headersPanel.getHeadersListFromModel());
+        group.setVariables(variablesPanel.getVariableListFromModel());
 
         // ⚡ 重要：使缓存失效，确保分组修改立即生效
         PreparedRequestBuilder.invalidateCache();
@@ -537,8 +546,8 @@ public class GroupEditPanel extends JPanel {
         if (!safeEquals(originalAuthToken, authTabPanel.getToken())) return true;
         if (!safeEquals(originalPrescript, scriptPanel.getPrescript())) return true;
         if (!safeEquals(originalPostscript, scriptPanel.getPostscript())) return true;
-        if (!headersEquals(originalHeaders, headersPanel.getHeadersList())) return true;
-        if (!variablesEquals(originalVariables, variablesPanel.getVariableList())) return true;
+        if (!headersEquals(originalHeaders, headersPanel.getHeadersListFromModel())) return true;
+        if (!variablesEquals(originalVariables, variablesPanel.getVariableListFromModel())) return true;
         return false;
     }
 
@@ -598,8 +607,8 @@ public class GroupEditPanel extends JPanel {
         originalAuthToken = authTabPanel.getToken();
         originalPrescript = scriptPanel.getPrescript();
         originalPostscript = scriptPanel.getPostscript();
-        originalHeaders = new java.util.ArrayList<>(headersPanel.getHeadersList());
-        originalVariables = new java.util.ArrayList<>(variablesPanel.getVariableList());
+        originalHeaders = new java.util.ArrayList<>(headersPanel.getHeadersListFromModel());
+        originalVariables = new java.util.ArrayList<>(variablesPanel.getVariableListFromModel());
     }
 
     private void loadGroupData() {

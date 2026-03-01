@@ -432,6 +432,25 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
     }
 
     /**
+     * 从 tableModel 直接读取变量列表，不停止当前单元格编辑。
+     * 用于自动保存 / tab 指示器等后台场景，避免打断用户正在进行的输入。
+     * 正在编辑的单元格值尚未提交到 model，因此读取的是上一次已提交的值。
+     */
+    public List<Variable> getVariableListFromModel() {
+        List<Variable> dataList = new ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            boolean enabled = getBooleanValue(i, COL_DRAG_ENABLE);
+            String key = getStringValue(i, COL_KEY);
+            String value = getStringValue(i, COL_VALUE);
+
+            if (!key.isEmpty()) {
+                dataList.add(new Variable(enabled, key, value));
+            }
+        }
+        return dataList;
+    }
+
+    /**
      * 设置环境变量列表（新格式）
      */
     public void setVariableList(List<Variable> dataList) {
