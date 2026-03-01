@@ -1994,11 +1994,16 @@ public final class MessageKeys {
     public static final String TABLE_COL_FILTER_DESELECT_ALL  = "table.col_filter.deselect_all";
     public static final String TABLE_COL_FILTER_OK            = "table.col_filter.ok";
     public static final String TABLE_ROWS_SUFFIX              = "table.rows.suffix";
+    public static final String TABLE_ROWS_FILTERED            = "table.rows.filtered";
     public static final String TABLE_PAGE_SIZE_LABEL          = "table.page.size_label";
     public static final String TABLE_PAGE_JUMP_LABEL          = "table.page.jump_label";
     public static final String TABLE_PAGE_INFO                = "table.page.info";
+    public static final String TABLE_PAGE_INFO_EMPTY          = "table.page.info.empty";
     public static final String TABLE_CONTEXT_COPY_CELL        = "table.context.copy_cell";
     public static final String TABLE_CONTEXT_COPY_ROW         = "table.context.copy_row";
+    public static final String TABLE_CONTEXT_COPIED           = "table.context.copied";
+    public static final String TABLE_EMPTY_NO_DATA            = "table.empty.no_data";
+    public static final String TABLE_EMPTY_NO_MATCH           = "table.empty.no_match";
 
     // ==================== Notification Toast ====================
     public static final String NOTIFICATION_TYPE_SUCCESS = "notification.type.success";
