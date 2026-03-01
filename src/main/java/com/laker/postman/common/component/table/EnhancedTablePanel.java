@@ -59,6 +59,10 @@ public class EnhancedTablePanel extends JPanel {
     // ── Hover ─────────────────────────────────────────────────────────────
     private int hoveredRow = -1;
 
+    // ── UI 常量 ───────────────────────────────────────────────────────────
+    private static final String SEPARATOR_FG    = "Separator.foreground";
+    private static final String LABEL_DISABLED  = "Label.disabledForeground";
+
     // ── 分页大小选项 ───────────────────────────────────────────────────────
     private static final int[] PAGE_SIZES = {20, 50, 100, 0};
     private static final String[] SIZE_LABELS = {"20", "50", "100", "All"};
@@ -170,50 +174,35 @@ public class EnhancedTablePanel extends JPanel {
         JPanel bar = new JPanel(new BorderLayout(4, 0));
         bar.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0,
-                        UIManager.getColor("Separator.foreground")),
+                        UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(4, 6, 4, 6)));
 
         searchField = new SearchTextField();
-        searchField.putClientProperty(FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT, null);
+        // 保留 SearchTextField 内置的大小写/整词匹配按钮（不覆盖 trailing component）
         searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_ALL));
-        searchField.setPreferredSize(new Dimension(200, 28));
+        searchField.setPreferredSize(new Dimension(220, 28));
         searchField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) {
-                onSearch();
-            }
-
-            public void removeUpdate(DocumentEvent e) {
-                onSearch();
-            }
-
-            public void changedUpdate(DocumentEvent e) {
-                onSearch();
-            }
+            public void insertUpdate(DocumentEvent e) { onSearch(); }
+            public void removeUpdate(DocumentEvent e) { onSearch(); }
+            public void changedUpdate(DocumentEvent e) { onSearch(); }
         });
 
         // 监听大小写 / 整词切换 → 重新过滤
         searchField.addPropertyChangeListener("caseSensitive", e -> {
             caseSensitive = searchField.isCaseSensitive();
-            if (!filterText.isEmpty()) {
-                currentPage = 0;
-                applyFilterAndSort();
-            }
+            if (!filterText.isEmpty()) { currentPage = 0; applyFilterAndSort(); }
         });
         searchField.addPropertyChangeListener("wholeWord", e -> {
             wholeWord = searchField.isWholeWord();
-            if (!filterText.isEmpty()) {
-                currentPage = 0;
-                applyFilterAndSort();
-            }
+            if (!filterText.isEmpty()) { currentPage = 0; applyFilterAndSort(); }
         });
 
         // Escape 清空搜索框
         searchField.getInputMap(WHEN_FOCUSED).put(
                 KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "clearSearch");
         searchField.getActionMap().put("clearSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
+            @Override public void actionPerformed(ActionEvent e) {
                 if (!searchField.getText().isEmpty()) searchField.setText("");
             }
         });
@@ -221,7 +210,7 @@ public class EnhancedTablePanel extends JPanel {
         colFilterBtn = new JButton(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN));
         colFilterBtn.setFont(colFilterBtn.getFont().deriveFont(Font.PLAIN, 11f));
         colFilterBtn.setFocusPainted(false);
-        colFilterBtn.setPreferredSize(new Dimension(100, 28));
+        colFilterBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_TOOLTIP));
         colFilterBtn.addActionListener(e -> showColFilterPopup());
 
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -230,8 +219,9 @@ public class EnhancedTablePanel extends JPanel {
         left.add(colFilterBtn);
 
         hintLabel = new JLabel("0" + I18nUtil.getMessage(MessageKeys.TABLE_ROWS_SUFFIX));
-        hintLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        hintLabel.setForeground(UIManager.getColor(LABEL_DISABLED));
         hintLabel.setFont(hintLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        hintLabel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
 
         bar.add(left, BorderLayout.WEST);
         bar.add(hintLabel, BorderLayout.EAST);
@@ -260,19 +250,17 @@ public class EnhancedTablePanel extends JPanel {
         JPopupMenu popup = new JPopupMenu();
         popup.setLayout(new BorderLayout(0, 0));
 
-        JPanel outer = new JPanel(new BorderLayout(0, 0));
-        outer.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        // ── 标题栏 ──────────────────────────────────────────────────────
+        JLabel titleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_TITLE));
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        titleLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
+                BorderFactory.createEmptyBorder(6, 10, 6, 10)));
+        popup.add(titleLabel, BorderLayout.NORTH);
 
-        JButton btnAll = makeSmallBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_SELECT_ALL));
-        JButton btnNone = makeSmallBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_DESELECT_ALL));
-        JPanel topRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        topRow.setOpaque(false);
-        topRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
-        topRow.add(btnAll);
-        topRow.add(btnNone);
-        outer.add(topRow, BorderLayout.NORTH);
-
-        JPanel checkPanel = new JPanel(new GridLayout(0, 1, 0, 1));
+        // ── 复选框列表 ───────────────────────────────────────────────────
+        JPanel checkPanel = new JPanel(new GridLayout(0, 1, 0, 0));
+        checkPanel.setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 10));
         checkPanel.setOpaque(false);
         colFilterBoxes = new JCheckBox[currentColumns.length];
         for (int i = 0; i < currentColumns.length; i++) {
@@ -280,31 +268,59 @@ public class EnhancedTablePanel extends JPanel {
             colFilterBoxes[i] = new JCheckBox(currentColumns[i], checked);
             colFilterBoxes[i].setFont(colFilterBoxes[i].getFont().deriveFont(Font.PLAIN, 12f));
             colFilterBoxes[i].setOpaque(false);
+            colFilterBoxes[i].setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
             checkPanel.add(colFilterBoxes[i]);
         }
         JScrollPane checkScroll = new JScrollPane(checkPanel,
                 ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         checkScroll.setBorder(BorderFactory.createEmptyBorder());
-        checkScroll.setPreferredSize(new Dimension(180, Math.min(currentColumns.length * 24, 240)));
-        outer.add(checkScroll, BorderLayout.CENTER);
+        checkScroll.setPreferredSize(new Dimension(200, Math.min(currentColumns.length * 28 + 8, 250)));
+        popup.add(checkScroll, BorderLayout.CENTER);
 
-        JButton btnOk = makeSmallBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_OK));
-        JPanel bottomRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
-        bottomRow.setOpaque(false);
-        bottomRow.add(btnOk);
-        outer.add(bottomRow, BorderLayout.SOUTH);
+        // ── 底部操作栏 ───────────────────────────────────────────────────
+        JPanel footer = new JPanel(new BorderLayout(0, 0));
+        footer.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, UIManager.getColor(SEPARATOR_FG)),
+                BorderFactory.createEmptyBorder(6, 10, 6, 10)));
 
-        btnAll.addActionListener(e -> {
-            for (JCheckBox cb : colFilterBoxes) cb.setSelected(true);
-        });
-        btnNone.addActionListener(e -> {
-            for (JCheckBox cb : colFilterBoxes) cb.setSelected(false);
-        });
-        btnOk.addActionListener(e -> applyColFilter(popup));
+        JPanel linkRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        linkRow.setOpaque(false);
+        JButton btnAll  = makeLinkBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_SELECT_ALL));
+        JLabel  sep     = new JLabel(" | ");
+        sep.setForeground(UIManager.getColor(LABEL_DISABLED));
+        sep.setFont(sep.getFont().deriveFont(Font.PLAIN, 11f));
+        JButton btnNone = makeLinkBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_DESELECT_ALL));
+        linkRow.add(btnAll);
+        linkRow.add(sep);
+        linkRow.add(btnNone);
 
-        popup.add(outer, BorderLayout.CENTER);
+        JButton btnOk = new JButton(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_OK));
+        btnOk.setFont(btnOk.getFont().deriveFont(Font.PLAIN, 11f));
+        btnOk.setFocusPainted(false);
+
+        footer.add(linkRow, BorderLayout.WEST);
+        footer.add(btnOk,   BorderLayout.EAST);
+        popup.add(footer, BorderLayout.SOUTH);
+
+        btnAll .addActionListener(e -> { for (JCheckBox cb : colFilterBoxes) cb.setSelected(true);  });
+        btnNone.addActionListener(e -> { for (JCheckBox cb : colFilterBoxes) cb.setSelected(false); });
+        btnOk  .addActionListener(e -> applyColFilter(popup));
+
         return popup;
+    }
+
+    /** 链接风格的小按钮（无边框、无背景、字体 11f） */
+    private static JButton makeLinkBtn(String text) {
+        JButton b = new JButton(text);
+        b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
+        b.setFocusPainted(false);
+        b.setBorderPainted(false);
+        b.setContentAreaFilled(false);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        b.putClientProperty(FlatClientProperties.BUTTON_TYPE,
+                FlatClientProperties.BUTTON_TYPE_BORDERLESS);
+        return b;
     }
 
     private void syncCheckboxesToFilterCols() {
@@ -329,28 +345,24 @@ public class EnhancedTablePanel extends JPanel {
         popup.setVisible(false);
     }
 
-    private static JButton makeSmallBtn(String text) {
-        JButton b = new JButton(text);
-        b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
-        b.setFocusPainted(false);
-        return b;
-    }
-
     /**
      * 更新列筛选按钮文字 + 搜索框 placeholder
      */
     private void updateColFilterBtnLabel() {
+        String base = I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN);
         if (filterCols == null) {
-            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN));
+            colFilterBtn.setText(base);
+            colFilterBtn.setForeground(null);
             searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                     I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_ALL));
         } else if (filterCols.isEmpty()) {
-            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN_N, "0"));
+            colFilterBtn.setText(base + " (0)");
+            colFilterBtn.setForeground(UIManager.getColor(LABEL_DISABLED));
             searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                     I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_NONE));
         } else {
-            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN_N,
-                    String.valueOf(filterCols.size())));
+            colFilterBtn.setText(base + " (" + filterCols.size() + ")");
+            colFilterBtn.setForeground(UIManager.getColor("Component.accentColor"));
             searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                     I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_COLS,
                             buildFilterColNames()));
@@ -421,7 +433,7 @@ public class EnhancedTablePanel extends JPanel {
     private JLabel buildEmptyLabel() {
         JLabel label = new JLabel("", SwingConstants.CENTER);
         label.setFont(label.getFont().deriveFont(Font.PLAIN, 13f));
-        label.setForeground(UIManager.getColor("Label.disabledForeground"));
+        label.setForeground(UIManager.getColor(LABEL_DISABLED));
         label.setOpaque(false);
         label.setVisible(false);
         return label;
@@ -501,7 +513,7 @@ public class EnhancedTablePanel extends JPanel {
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 3));
         bar.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(1, 0, 0, 0,
-                        UIManager.getColor("Separator.foreground")),
+                        UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
         JComboBox<String> pageSizeCombo = new JComboBox<>(SIZE_LABELS);

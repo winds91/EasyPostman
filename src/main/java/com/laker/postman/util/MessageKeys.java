@@ -1990,6 +1990,8 @@ public final class MessageKeys {
     public static final String TABLE_SEARCH_PLACEHOLDER_COLS  = "table.search.placeholder.cols";
     public static final String TABLE_COL_FILTER_BTN           = "table.col_filter.btn";
     public static final String TABLE_COL_FILTER_BTN_N         = "table.col_filter.btn.n";
+    public static final String TABLE_COL_FILTER_TOOLTIP       = "table.col_filter.tooltip";
+    public static final String TABLE_COL_FILTER_TITLE         = "table.col_filter.title";
     public static final String TABLE_COL_FILTER_SELECT_ALL    = "table.col_filter.select_all";
     public static final String TABLE_COL_FILTER_DESELECT_ALL  = "table.col_filter.deselect_all";
     public static final String TABLE_COL_FILTER_OK            = "table.col_filter.ok";
