@@ -1,5 +1,6 @@
 package com.laker.postman.panel.toolbox;
 
+import com.formdev.flatlaf.FlatClientProperties;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import com.laker.postman.common.SingletonBasePanel;
 import com.laker.postman.common.component.SearchTextField;
@@ -30,22 +31,23 @@ import java.util.List;
 public class ToolboxPanel extends SingletonBasePanel {
 
     private record ToolEntry(String id, String nameKey, String iconPath,
-                              String groupKey, JPanel panel) {}
+                             String groupKey, JPanel panel) {
+    }
 
     private final List<ToolEntry> allTools = new ArrayList<>();
     private final List<ToolEntry> filtered = new ArrayList<>();
 
-    private JPanel          navPanel;
-    private JPanel          contentArea;
-    private CardLayout      cardLayout;
+    private JPanel navPanel;
+    private JPanel contentArea;
+    private CardLayout cardLayout;
     private SearchTextField searchField;
-    private String          selectedId = null;
+    private String selectedId = null;
 
-    private static final String GRP_FORMAT  = "toolbox.group.format";
+    private static final String GRP_FORMAT = "toolbox.group.format";
     private static final String GRP_CONVERT = "toolbox.group.convert";
-    private static final String GRP_GEN     = "toolbox.group.generate";
-    private static final String GRP_DB      = "toolbox.group.database";
-    private static final String GRP_DEV     = "toolbox.group.dev";
+    private static final String GRP_GEN = "toolbox.group.generate";
+    private static final String GRP_DB = "toolbox.group.database";
+    private static final String GRP_DEV = "toolbox.group.dev";
 
     @Override
     protected void initUI() {
@@ -65,14 +67,21 @@ public class ToolboxPanel extends SingletonBasePanel {
         // 复用项目 SearchTextField（带搜索图标、清除按钮、无结果红框）
         // 工具箱搜索不需要大小写/整词按钮，移除 trailing 组件使其更简洁
         searchField = new SearchTextField();
-        searchField.putClientProperty(
-                com.formdev.flatlaf.FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT, null);
+        searchField.putClientProperty(FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT, null);
         searchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         searchField.setPreferredSize(new Dimension(Integer.MAX_VALUE, 28));
         searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e)  { applyFilter(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e)  { applyFilter(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { applyFilter(); }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                applyFilter();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                applyFilter();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                applyFilter();
+            }
         });
 
         JPanel searchBox = new JPanel(new BorderLayout());
@@ -86,7 +95,7 @@ public class ToolboxPanel extends SingletonBasePanel {
         leftPanel.add(navScroll, BorderLayout.CENTER);
 
         // ---- 右侧：CardLayout 内容区 ----
-        cardLayout  = new CardLayout();
+        cardLayout = new CardLayout();
         contentArea = new JPanel(cardLayout);
         contentArea.setMinimumSize(new Dimension(200, 0));
         for (ToolEntry t : allTools) {
@@ -95,7 +104,7 @@ public class ToolboxPanel extends SingletonBasePanel {
 
         // 可拖动分割线（dividerSize=5，支持拖拽调宽）
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, contentArea);
-        split.setDividerSize(5);
+        split.setDividerSize(3);
         split.setDividerLocation(160);
         split.setContinuousLayout(true);
         split.setBorder(BorderFactory.createEmptyBorder());
@@ -107,22 +116,22 @@ public class ToolboxPanel extends SingletonBasePanel {
     // ===== 注册所有工具 =====
     private void registerAllTools() {
         // 格式化
-        reg("json",       MessageKeys.TOOLBOX_JSON,          "icons/format.svg",   GRP_FORMAT,  new JsonToolPanel());
-        reg("sql",        MessageKeys.TOOLBOX_SQL,           "icons/database.svg", GRP_FORMAT,  new SqlToolPanel());
-        reg("markdown",   "toolbox.markdown",                "icons/edit.svg",     GRP_FORMAT,  new MarkdownToolPanel());
+        reg("json", MessageKeys.TOOLBOX_JSON, "icons/format.svg", GRP_FORMAT, new JsonToolPanel());
+        reg("sql", MessageKeys.TOOLBOX_SQL, "icons/database.svg", GRP_FORMAT, new SqlToolPanel());
+        reg("markdown", "toolbox.markdown", "icons/edit.svg", GRP_FORMAT, new MarkdownToolPanel());
         // 转换
-        reg("encoder",    MessageKeys.TOOLBOX_ENCODER,       "icons/code.svg",     GRP_CONVERT, new EncoderPanel());
-        reg("timestamp",  MessageKeys.TOOLBOX_TIMESTAMP,     "icons/time.svg",     GRP_CONVERT, new TimestampPanel());
-        reg("crypto",     MessageKeys.TOOLBOX_CRYPTO,        "icons/security.svg", GRP_CONVERT, new CryptoPanel());
+        reg("encoder", MessageKeys.TOOLBOX_ENCODER, "icons/code.svg", GRP_CONVERT, new EncoderPanel());
+        reg("timestamp", MessageKeys.TOOLBOX_TIMESTAMP, "icons/time.svg", GRP_CONVERT, new TimestampPanel());
+        reg("crypto", MessageKeys.TOOLBOX_CRYPTO, "icons/security.svg", GRP_CONVERT, new CryptoPanel());
         // 生成
-        reg("uuid",       MessageKeys.TOOLBOX_UUID,          "icons/plus.svg",     GRP_GEN,     new UuidPanel());
-        reg("hash",       MessageKeys.TOOLBOX_HASH,          "icons/hash.svg",     GRP_GEN,     new HashPanel());
-        reg("cron",       MessageKeys.TOOLBOX_CRON,          "icons/time.svg",     GRP_GEN,     new CronPanel());
+        reg("uuid", MessageKeys.TOOLBOX_UUID, "icons/plus.svg", GRP_GEN, new UuidPanel());
+        reg("hash", MessageKeys.TOOLBOX_HASH, "icons/hash.svg", GRP_GEN, new HashPanel());
+        reg("cron", MessageKeys.TOOLBOX_CRON, "icons/time.svg", GRP_GEN, new CronPanel());
         // 数据库
-        reg("es",         MessageKeys.TOOLBOX_ELASTICSEARCH, "icons/database.svg", GRP_DB,      new ElasticsearchPanel());
+        reg("es", MessageKeys.TOOLBOX_ELASTICSEARCH, "icons/database.svg", GRP_DB, new ElasticsearchPanel());
         // 开发
-        reg("diff",       MessageKeys.TOOLBOX_DIFF,          "icons/file.svg",     GRP_DEV,     new DiffPanel());
-        reg("decompiler", MessageKeys.TOOLBOX_DECOMPILER,    "icons/decompile.svg", GRP_DEV,     new DecompilerPanel());
+        reg("diff", MessageKeys.TOOLBOX_DIFF, "icons/file.svg", GRP_DEV, new DiffPanel());
+        reg("decompiler", MessageKeys.TOOLBOX_DECOMPILER, "icons/decompile.svg", GRP_DEV, new DecompilerPanel());
     }
 
     private void reg(String id, String nameKey, String iconPath, String group, JPanel panel) {
@@ -218,7 +227,8 @@ public class ToolboxPanel extends SingletonBasePanel {
         item.add(lblName, BorderLayout.CENTER);
 
         item.addMouseListener(new MouseAdapter() {
-            @Override public void mouseEntered(MouseEvent e) {
+            @Override
+            public void mouseEntered(MouseEvent e) {
                 if (!t.id().equals(selectedId)) {
                     Color hover = UIManager.getColor("List.hoverBackground");
                     if (hover == null) hover = UIManager.getColor("Button.hoverBackground");
@@ -227,11 +237,15 @@ public class ToolboxPanel extends SingletonBasePanel {
                     item.repaint();
                 }
             }
-            @Override public void mouseExited(MouseEvent e) {
+
+            @Override
+            public void mouseExited(MouseEvent e) {
                 item.setOpaque(false);
                 item.repaint();
             }
-            @Override public void mouseClicked(MouseEvent e) {
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
                 selectTool(t.id());
             }
         });
