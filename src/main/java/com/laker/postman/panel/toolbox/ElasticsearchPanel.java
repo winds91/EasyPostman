@@ -56,34 +56,44 @@ public class ElasticsearchPanel extends JPanel {
     private JTabbedPane resultTabs;
 
     // ===== HTTP 客户端 =====
-    private OkHttpClient httpClient;
+    private transient OkHttpClient httpClient;
     private String baseUrl = "http://localhost:9200";
     private String authHeader = null;
     private boolean connected = false;
 
+    // ===== 常量 =====
+    private static final String SEPARATOR_FG         = "Separator.foreground";
+    private static final String SEARCH_PATH          = "/{index}/_search";
+    private static final String HTTP_DELETE          = "DELETE";
+    private static final String CLUSTER_HEALTH_PATH  = "/_cluster/health";
+    private static final String JSON_UTF8            = "application/json; charset=utf-8";
+    private static final String JSON_MIME            = "application/json";
+    private static final String HEADER_AUTHORIZATION = "Authorization";
+    private static final String CLIENT_PROP_TOTAL_HITS = "es.totalHits";
+
     // ===== 内置 DSL 模板（名称走 i18n，DSL body 保持英文原样）=====
     private static final String[][] DSL_TEMPLATES = {
-            {"toolbox.es.tpl.match_all", "GET", "/{index}/_search",
+            {"toolbox.es.tpl.match_all", "GET", SEARCH_PATH,
                     "{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 20\n}"},
-            {"toolbox.es.tpl.match", "GET", "/{index}/_search",
+            {"toolbox.es.tpl.match", "GET", SEARCH_PATH,
                     "{\n  \"query\": {\n    \"match\": {\n      \"field\": \"value\"\n    }\n  }\n}"},
-            {"toolbox.es.tpl.term", "GET", "/{index}/_search",
+            {"toolbox.es.tpl.term", "GET", SEARCH_PATH,
                     "{\n  \"query\": {\n    \"term\": {\n      \"field.keyword\": \"exact_value\"\n    }\n  }\n}"},
-            {"toolbox.es.tpl.range", "GET", "/{index}/_search",
+            {"toolbox.es.tpl.range", "GET", SEARCH_PATH,
                     "{\n  \"query\": {\n    \"range\": {\n      \"timestamp\": {\n        \"gte\": \"2024-01-01\",\n        \"lte\": \"2024-12-31\"\n      }\n    }\n  }\n}"},
-            {"toolbox.es.tpl.bool", "GET", "/{index}/_search",
+            {"toolbox.es.tpl.bool", "GET", SEARCH_PATH,
                     "{\n  \"query\": {\n    \"bool\": {\n      \"must\": [\n        { \"match\": { \"title\": \"elasticsearch\" } }\n      ],\n      \"filter\": [\n        { \"term\": { \"status\": \"active\" } }\n      ],\n      \"must_not\": [],\n      \"should\": []\n    }\n  }\n}"},
-            {"toolbox.es.tpl.agg", "GET", "/{index}/_search",
+            {"toolbox.es.tpl.agg", "GET", SEARCH_PATH,
                     "{\n  \"size\": 0,\n  \"aggs\": {\n    \"group_by_status\": {\n      \"terms\": {\n        \"field\": \"status.keyword\",\n        \"size\": 10\n      }\n    }\n  }\n}"},
             {"toolbox.es.tpl.index_doc", "POST", "/{index}/_doc",
                     "{\n  \"field1\": \"value1\",\n  \"field2\": \"value2\",\n  \"timestamp\": \"2024-01-01T00:00:00Z\"\n}"},
             {"toolbox.es.tpl.update_doc", "POST", "/{index}/_update/{id}",
                     "{\n  \"doc\": {\n    \"field\": \"new_value\"\n  }\n}"},
-            {"toolbox.es.tpl.delete_doc", "DELETE", "/{index}/_doc/{id}", ""},
+            {"toolbox.es.tpl.delete_doc", HTTP_DELETE, "/{index}/_doc/{id}", ""},
             {"toolbox.es.tpl.get_doc", "GET", "/{index}/_doc/{id}", ""},
             {"toolbox.es.tpl.mapping", "GET", "/{index}/_mapping", ""},
             {"toolbox.es.tpl.settings", "GET", "/{index}/_settings", ""},
-            {"toolbox.es.tpl.health", "GET", "/_cluster/health", ""},
+            {"toolbox.es.tpl.health", "GET", CLUSTER_HEALTH_PATH, ""},
             {"toolbox.es.tpl.cluster_stats", "GET", "/_cluster/stats", ""},
             {"toolbox.es.tpl.list_indices", "GET", "/_cat/indices?v&format=json", ""},
             {"toolbox.es.tpl.create_index", "PUT", "/{index}",
@@ -129,10 +139,8 @@ public class ElasticsearchPanel extends JPanel {
     private JPanel buildConnectionPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(6, 8, 6, 8)));
-
-        // 所有组件放同一行 FlowLayout，连接按钮紧跟密码框
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
 
         hostField = new JTextField("http://localhost:9200", 26);
@@ -178,7 +186,7 @@ public class ElasticsearchPanel extends JPanel {
         // 顶部标题栏 + 刷新按钮
         JPanel titleBar = new JPanel(new BorderLayout());
         titleBar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(4, 8, 4, 4)));
         JLabel titleLbl = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_MANAGEMENT));
         titleLbl.setFont(titleLbl.getFont().deriveFont(Font.BOLD, 12f));
@@ -206,86 +214,7 @@ public class ElasticsearchPanel extends JPanel {
                 if (selected != null) pathField.setText("/" + selected + "/_search");
             }
         });
-        indexList.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent evt) {
-                if (evt.getClickCount() == 2 && !SwingUtilities.isRightMouseButton(evt)) {
-                    String sel = indexList.getSelectedValue();
-                    if (sel != null) {
-                        pathField.setText("/" + sel + "/_mapping");
-                        methodCombo.setSelectedItem("GET");
-                        dslEditor.setText("");
-                        executeRequest();
-                    }
-                }
-            }
-
-            @Override
-            public void mousePressed(java.awt.event.MouseEvent evt) {
-                maybeShowPopup(evt);
-            }
-
-            @Override
-            public void mouseReleased(java.awt.event.MouseEvent evt) {
-                maybeShowPopup(evt);
-            }
-
-            private void maybeShowPopup(java.awt.event.MouseEvent evt) {
-                if (!SwingUtilities.isRightMouseButton(evt)) return;
-                // 先选中右键点击的行
-                int idx = indexList.locationToIndex(evt.getPoint());
-                if (idx >= 0) indexList.setSelectedIndex(idx);
-                String sel = indexList.getSelectedValue();
-
-                JPopupMenu menu = new JPopupMenu();
-
-                // ── 删除索引 ────────────────────────────────────────────────
-                JMenuItem deleteItem = new JMenuItem(
-                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE));
-                deleteItem.setEnabled(sel != null);
-                deleteItem.addActionListener(e -> deleteIndex(sel));
-                menu.add(deleteItem);
-
-                // ── 清空索引（delete_by_query match_all）────────────────────
-                JMenuItem clearItem = new JMenuItem(
-                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR));
-                clearItem.setEnabled(sel != null);
-                clearItem.addActionListener(e -> clearIndex(sel));
-                menu.add(clearItem);
-
-                menu.addSeparator();
-
-                // ── 查看 Mapping ─────────────────────────────────────────────
-                JMenuItem mappingItem = new JMenuItem(
-                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_VIEW_MAPPING));
-                mappingItem.setEnabled(sel != null);
-                mappingItem.addActionListener(e -> {
-                    if (sel != null) {
-                        pathField.setText("/" + sel + "/_mapping");
-                        methodCombo.setSelectedItem("GET");
-                        dslEditor.setText("");
-                        executeRequest();
-                    }
-                });
-                menu.add(mappingItem);
-
-                // ── 查看 Settings ────────────────────────────────────────────
-                JMenuItem settingsItem = new JMenuItem(
-                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_VIEW_SETTINGS));
-                settingsItem.setEnabled(sel != null);
-                settingsItem.addActionListener(e -> {
-                    if (sel != null) {
-                        pathField.setText("/" + sel + "/_settings");
-                        methodCombo.setSelectedItem("GET");
-                        dslEditor.setText("");
-                        executeRequest();
-                    }
-                });
-                menu.add(settingsItem);
-
-                menu.show(indexList, evt.getX(), evt.getY());
-            }
-        });
+        indexList.addMouseListener(buildIndexListMouseListener());
         JScrollPane listScroll = new JScrollPane(indexList);
         listScroll.setBorder(BorderFactory.createEmptyBorder());
 
@@ -359,6 +288,64 @@ public class ElasticsearchPanel extends JPanel {
         return panel;
     }
 
+    private java.awt.event.MouseAdapter buildIndexListMouseListener() {
+        return new java.awt.event.MouseAdapter() {
+            @Override public void mousePressed(java.awt.event.MouseEvent evt)  { maybeShowIndexPopup(evt); }
+            @Override public void mouseReleased(java.awt.event.MouseEvent evt) { maybeShowIndexPopup(evt); }
+        };
+    }
+
+    private void maybeShowIndexPopup(java.awt.event.MouseEvent evt) {
+        if (!SwingUtilities.isRightMouseButton(evt)) return;
+        int idx = indexList.locationToIndex(evt.getPoint());
+        if (idx >= 0) indexList.setSelectedIndex(idx);
+        String sel = indexList.getSelectedValue();
+
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem deleteItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE));
+        deleteItem.setEnabled(sel != null);
+        deleteItem.addActionListener(e -> deleteIndex(sel));
+        menu.add(deleteItem);
+
+        JMenuItem clearItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR));
+        clearItem.setEnabled(sel != null);
+        clearItem.addActionListener(e -> clearIndex(sel));
+        menu.add(clearItem);
+
+        menu.addSeparator();
+        menu.add(buildViewMappingItem(sel));
+        menu.add(buildViewSettingsItem(sel));
+        menu.show(indexList, evt.getX(), evt.getY());
+    }
+
+    private JMenuItem buildViewMappingItem(String sel) {
+        JMenuItem item = new JMenuItem(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_VIEW_MAPPING));
+        item.setEnabled(sel != null);
+        item.addActionListener(e -> {
+            if (sel != null) {
+                pathField.setText("/" + sel + "/_mapping");
+                methodCombo.setSelectedItem("GET");
+                dslEditor.setText("");
+                executeRequest();
+            }
+        });
+        return item;
+    }
+
+    private JMenuItem buildViewSettingsItem(String sel) {
+        JMenuItem item = new JMenuItem(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_VIEW_SETTINGS));
+        item.setEnabled(sel != null);
+        item.addActionListener(e -> {
+            if (sel != null) {
+                pathField.setText("/" + sel + "/_settings");
+                methodCombo.setSelectedItem("GET");
+                dslEditor.setText("");
+                executeRequest();
+            }
+        });
+        return item;
+    }
+
     /**
      * 根据关键词过滤索引列表
      */
@@ -381,7 +368,7 @@ public class ElasticsearchPanel extends JPanel {
         // ---- 工具栏：所有按钮一行 ----
         JPanel toolBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
         toolBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0,
-                UIManager.getColor("Separator.foreground")));
+                UIManager.getColor(SEPARATOR_FG)));
 
         JComboBox<String> templateCombo = new JComboBox<>();
         for (String[] t : DSL_TEMPLATES) templateCombo.addItem(I18nUtil.getMessage(t[0]));
@@ -421,9 +408,9 @@ public class ElasticsearchPanel extends JPanel {
         // ---- 请求行：Method + Path + Execute ----
         JPanel requestRow = new JPanel(new BorderLayout(4, 0));
         requestRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
-        methodCombo = new JComboBox<>(new String[]{"GET", "POST", "PUT", "DELETE", "HEAD"});
+        methodCombo = new JComboBox<>(new String[]{"GET", "POST", "PUT", HTTP_DELETE, "HEAD"});
         methodCombo.setPreferredSize(new Dimension(90, 28));
-        pathField = new JTextField("/_cluster/health");
+        pathField = new JTextField(CLUSTER_HEALTH_PATH);
         pathField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_PATH_PLACEHOLDER));
         PrimaryButton executeBtn = new PrimaryButton(
@@ -451,7 +438,7 @@ public class ElasticsearchPanel extends JPanel {
         JLabel dslLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_DSL_TITLE));
         dslLabel.setFont(dslLabel.getFont().deriveFont(Font.BOLD, 11f));
         dslLabel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(2, 4, 2, 4)));
         dslEditor = createJsonEditor(true);
         dslEditor.setText("{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 20\n}");
@@ -466,7 +453,7 @@ public class ElasticsearchPanel extends JPanel {
         JLabel respLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_RESPONSE_TITLE));
         respLabel.setFont(respLabel.getFont().deriveFont(Font.BOLD, 11f));
         respLabel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
         resultTabs = new JTabbedPane(SwingConstants.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -533,6 +520,9 @@ public class ElasticsearchPanel extends JPanel {
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     loadIndices();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("deleteIndex interrupted", ex);
                 } catch (Exception ex) {
                     showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_FAILED),
@@ -561,6 +551,9 @@ public class ElasticsearchPanel extends JPanel {
                     String resp = get();
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("clearIndex interrupted", ex);
                 } catch (Exception ex) {
                     showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR_FAILED),
@@ -591,7 +584,7 @@ public class ElasticsearchPanel extends JPanel {
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() throws Exception {
-                return doGet("/_cluster/health", "");
+                return doGet(CLUSTER_HEALTH_PATH, "");
             }
 
             @Override
@@ -606,6 +599,9 @@ public class ElasticsearchPanel extends JPanel {
                     resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     loadIndices();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("doConnect interrupted", ex);
                 } catch (Exception ex) {
                     connected = false;
                     connectionStatusLabel.setForeground(Color.RED);
@@ -644,6 +640,9 @@ public class ElasticsearchPanel extends JPanel {
                         }
                     }
                     filterIndices("");
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("loadIndices interrupted", ex);
                 } catch (Exception ex) {
                     log.warn("Failed to load indices: {}", ex.getMessage());
                 }
@@ -680,6 +679,9 @@ public class ElasticsearchPanel extends JPanel {
                     resultArea.setCaretPosition(0);
                     newIndexField.setText("");
                     loadIndices();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("createIndex interrupted", ex);
                 } catch (Exception ex) {
                     showError(MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE_FAILED),
@@ -710,11 +712,11 @@ public class ElasticsearchPanel extends JPanel {
             @Override
             protected String doInBackground() throws Exception {
                 return switch (method) {
-                    case "POST"   -> doPost(path, body);
-                    case "PUT"    -> doPut(path, body);
-                    case "DELETE" -> doDelete(path, body);
-                    case "HEAD"   -> doHead(path);
-                    default       -> doGet(path, body);
+                    case "POST"      -> doPost(path, body);
+                    case "PUT"       -> doPut(path, body);
+                    case HTTP_DELETE -> doDelete(path, body);
+                    case "HEAD"      -> doHead(path);
+                    default          -> doGet(path, body);
                 };
             }
 
@@ -722,24 +724,10 @@ public class ElasticsearchPanel extends JPanel {
             protected void done() {
                 long elapsed = System.currentTimeMillis() - start;
                 try {
-                    String resp = get();
-                    String formatted = JsonUtil.isTypeJSON(resp) ? JsonUtil.toJsonPrettyStr(resp) : resp;
-                    resultArea.setText(formatted);
-                    resultArea.setCaretPosition(0);
-                    if (JsonUtil.isTypeJSON(resp)) {
-                        populateTable(resp);
-                    }
-                    if (enhancedTable.getTable().getRowCount() > 0) {
-                        resultTabs.setSelectedIndex(0);
-                    } else {
-                        resultTabs.setSelectedIndex(1);
-                    }
-                    // ES 总命中提示：仅 log，不显示在 UI
-                    Object totalHits = enhancedTable.getClientProperty("es.totalHits");
-                    if (totalHits instanceof Long th) {
-                        log.debug("ES totalHits={}, returned={}, elapsed={}ms",
-                                th, enhancedTable.getTotalRowCount(), elapsed);
-                    }
+                    handleRequestResult(get(), elapsed);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("executeRequest interrupted", ex);
                 } catch (Exception ex) {
                     String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
                     resultArea.setText("Error: " + msg);
@@ -747,6 +735,21 @@ public class ElasticsearchPanel extends JPanel {
             }
         };
         worker.execute();
+    }
+
+    private void handleRequestResult(String resp, long elapsed) {
+        String formatted = JsonUtil.isTypeJSON(resp) ? JsonUtil.toJsonPrettyStr(resp) : resp;
+        resultArea.setText(formatted);
+        resultArea.setCaretPosition(0);
+        if (JsonUtil.isTypeJSON(resp)) {
+            populateTable(resp);
+        }
+        resultTabs.setSelectedIndex(enhancedTable.getTable().getRowCount() > 0 ? 0 : 1);
+        Object totalHits = enhancedTable.getClientProperty(CLIENT_PROP_TOTAL_HITS);
+        if (totalHits instanceof Long th) {
+            log.debug("ES totalHits={}, returned={}, elapsed={}ms",
+                    th, enhancedTable.getTotalRowCount(), elapsed);
+        }
     }
 
     private void populateTable(String json) {
@@ -779,59 +782,57 @@ public class ElasticsearchPanel extends JPanel {
             enhancedTable.clearData();
             return;
         }
+        long totalHits = parseTotalHits(hits.get("total"));
+        List<String> colNames = buildHitColumns(hitsArr);
+        List<Object[]> rows   = buildHitRows(hitsArr, colNames);
+        rebuildEnhancedTable(colNames.toArray(new String[0]), rows);
+        enhancedTable.putClientProperty(CLIENT_PROP_TOTAL_HITS,
+                totalHits > rows.size() ? totalHits : null);
+    }
 
-        // 读取 ES 端实际命中总数（hits.total.value 或 hits.total）
-        long totalHits = -1;
-        JsonNode totalNode = hits.get("total");
-        if (totalNode != null) {
-            if (totalNode.isNumber()) {
-                totalHits = totalNode.longValue();
-            } else if (totalNode.isObject() && totalNode.has("value")) {
-                totalHits = totalNode.get("value").longValue();
-            }
-        }
+    private static long parseTotalHits(JsonNode totalNode) {
+        if (totalNode == null) return -1;
+        if (totalNode.isNumber()) return totalNode.longValue();
+        if (totalNode.isObject() && totalNode.has("value")) return totalNode.get("value").longValue();
+        return -1;
+    }
 
-        // 构建列名（扫描所有行的 _source，合并字段）
-        List<String> colNames = new ArrayList<>();
-        colNames.add("_index");
-        colNames.add("_id");
-        colNames.add("_score");
-        // 合并所有行的字段，避免第一行字段不全
+    private static List<String> buildHitColumns(JsonNode hitsArr) {
         LinkedHashSet<String> srcCols = new LinkedHashSet<>();
         for (JsonNode hit : hitsArr) {
             JsonNode src = hit.get("_source");
             if (src != null) {
-                for (java.util.Map.Entry<String, JsonNode> e : src.properties()) srcCols.add(e.getKey());
+                src.properties().forEach(e -> srcCols.add(e.getKey()));
             }
         }
+        List<String> colNames = new ArrayList<>();
+        colNames.add("_index");
+        colNames.add("_id");
+        colNames.add("_score");
         colNames.addAll(srcCols);
+        return colNames;
+    }
 
-        // 构建行数据
+    private static List<Object[]> buildHitRows(JsonNode hitsArr, List<String> colNames) {
         List<Object[]> rows = new ArrayList<>();
         for (JsonNode hit : hitsArr) {
-            JsonNode src = hit.get("_source");
-            Object[] row = new Object[colNames.size()];
-            row[0] = nodeText(hit.get("_index"));
-            row[1] = nodeText(hit.get("_id"));
-            row[2] = nodeText(hit.get("_score"));
-            if (src != null) {
-                for (int c = 3; c < colNames.size(); c++) {
-                    row[c] = nodeText(src.get(colNames.get(c)));
-                }
+            rows.add(buildHitRow(hit, colNames));
+        }
+        return rows;
+    }
+
+    private static Object[] buildHitRow(JsonNode hit, List<String> colNames) {
+        JsonNode src = hit.get("_source");
+        Object[] row = new Object[colNames.size()];
+        row[0] = nodeText(hit.get("_index"));
+        row[1] = nodeText(hit.get("_id"));
+        row[2] = nodeText(hit.get("_score"));
+        if (src != null) {
+            for (int c = 3; c < colNames.size(); c++) {
+                row[c] = nodeText(src.get(colNames.get(c)));
             }
-            rows.add(row);
         }
-
-        rebuildEnhancedTable(colNames.toArray(new String[0]), rows);
-
-        // 若 ES total > 返回行数，在 hintLabel 追加提示
-        if (totalHits > rows.size()) {
-            // 通过 getTable() 拿到父组件后更新 hintLabel 不可达，直接在状态栏追加
-            // 让调用方在 done() 里处理，这里把 total 写入 client property
-            enhancedTable.putClientProperty("es.totalHits", totalHits);
-        } else {
-            enhancedTable.putClientProperty("es.totalHits", null);
-        }
+        return row;
     }
 
     private void populateArrayTable(String json) {
@@ -906,8 +907,7 @@ public class ElasticsearchPanel extends JPanel {
      */
     private String doGet(String path, String body) throws IOException {
         if (body != null && !body.isEmpty()) {
-            // ES: GET _search with body → POST _search（语义等价，ES 官方两者都支持）
-            RequestBody rb = RequestBody.create(body, MediaType.get("application/json; charset=utf-8"));
+            RequestBody rb = RequestBody.create(body, MediaType.get(JSON_UTF8));
             return executeHttp(buildRequest("POST", path, rb));
         }
         return executeHttp(buildRequest("GET", path, null));
@@ -916,24 +916,24 @@ public class ElasticsearchPanel extends JPanel {
     private String doPost(String path, String body) throws IOException {
         RequestBody rb = body.isEmpty()
                 ? RequestBody.create(new byte[0], null)
-                : RequestBody.create(body, MediaType.get("application/json; charset=utf-8"));
+                : RequestBody.create(body, MediaType.get(JSON_UTF8));
         return executeHttp(buildRequest("POST", path, rb));
     }
 
     private String doPut(String path, String body) throws IOException {
         RequestBody rb = body.isEmpty()
-                ? RequestBody.create(new byte[0], MediaType.get("application/json"))
-                : RequestBody.create(body, MediaType.get("application/json; charset=utf-8"));
+                ? RequestBody.create(new byte[0], MediaType.get(JSON_MIME))
+                : RequestBody.create(body, MediaType.get(JSON_UTF8));
         return executeHttp(buildRequest("PUT", path, rb));
     }
 
     private String doDelete(String path, String body) throws IOException {
         RequestBody rb = (body != null && !body.isEmpty())
-                ? RequestBody.create(body, MediaType.get("application/json; charset=utf-8"))
+                ? RequestBody.create(body, MediaType.get(JSON_UTF8))
                 : null;
         Request.Builder builder = new Request.Builder().url(baseUrl + path);
-        if (authHeader != null) builder.header("Authorization", authHeader);
-        builder.header("Content-Type", "application/json");
+        if (authHeader != null) builder.header(HEADER_AUTHORIZATION, authHeader);
+        builder.header("Content-Type", JSON_MIME);
         if (rb != null) builder.delete(rb);
         else builder.delete();
         return executeHttp(builder.build());
@@ -941,14 +941,14 @@ public class ElasticsearchPanel extends JPanel {
 
     private String doHead(String path) throws IOException {
         Request.Builder builder = new Request.Builder().url(baseUrl + path).head();
-        if (authHeader != null) builder.header("Authorization", authHeader);
+        if (authHeader != null) builder.header(HEADER_AUTHORIZATION, authHeader);
         return executeHttp(builder.build());
     }
 
     private Request buildRequest(String method, String path, RequestBody body) {
         Request.Builder builder = new Request.Builder().url(baseUrl + path);
-        if (authHeader != null) builder.header("Authorization", authHeader);
-        builder.header("Content-Type", "application/json");
+        if (authHeader != null) builder.header(HEADER_AUTHORIZATION, authHeader);
+        builder.header("Content-Type", JSON_MIME);
         builder.method(method, body);
         return builder.build();
     }

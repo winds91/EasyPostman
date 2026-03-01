@@ -1975,6 +1975,22 @@ public final class MessageKeys {
     public static final String CERT_CONSOLE_VALIDATION_FAILED = "cert.console.validation_failed";
     public static final String CERT_CONSOLE_FILE_NOT_FOUND = "cert.console.file_not_found";
 
+    // ============ EnhancedTablePanel 通用表格组件 ============
+    public static final String TABLE_SEARCH_PLACEHOLDER_ALL   = "table.search.placeholder.all";
+    public static final String TABLE_SEARCH_PLACEHOLDER_NONE  = "table.search.placeholder.none";
+    public static final String TABLE_SEARCH_PLACEHOLDER_COLS  = "table.search.placeholder.cols";
+    public static final String TABLE_COL_FILTER_BTN           = "table.col_filter.btn";
+    public static final String TABLE_COL_FILTER_BTN_N         = "table.col_filter.btn.n";
+    public static final String TABLE_COL_FILTER_SELECT_ALL    = "table.col_filter.select_all";
+    public static final String TABLE_COL_FILTER_DESELECT_ALL  = "table.col_filter.deselect_all";
+    public static final String TABLE_COL_FILTER_OK            = "table.col_filter.ok";
+    public static final String TABLE_ROWS_SUFFIX              = "table.rows.suffix";
+    public static final String TABLE_PAGE_SIZE_LABEL          = "table.page.size_label";
+    public static final String TABLE_PAGE_JUMP_LABEL          = "table.page.jump_label";
+    public static final String TABLE_PAGE_INFO                = "table.page.info";
+    public static final String TABLE_CONTEXT_COPY_CELL        = "table.context.copy_cell";
+    public static final String TABLE_CONTEXT_COPY_ROW         = "table.context.copy_row";
+
     // ==================== Notification Toast ====================
     public static final String NOTIFICATION_TYPE_SUCCESS = "notification.type.success";
     public static final String NOTIFICATION_TYPE_INFO = "notification.type.info";

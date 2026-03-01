@@ -3,6 +3,8 @@ package com.laker.postman.common.component.table;
 import com.formdev.flatlaf.FlatClientProperties;
 import com.laker.postman.common.component.SearchTextField;
 import com.laker.postman.util.FontsUtil;
+import com.laker.postman.util.I18nUtil;
+import com.laker.postman.util.MessageKeys;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -48,9 +50,9 @@ public class EnhancedTablePanel extends JPanel {
     private boolean sortAsc = true;
 
     // ── 过滤 ─────────────────────────────────────────────────────────────
-    private String      filterText    = "";
+    private String       filterText  = "";
     /** null = 搜索全列；否则只在这些列索引中搜索 */
-    private Set<Integer> filterCols   = null;
+    private Set<Integer> filterCols  = null;
 
     // ── Hover ─────────────────────────────────────────────────────────────
     private int hoveredRow = -1;
@@ -58,30 +60,23 @@ public class EnhancedTablePanel extends JPanel {
     // ── 分页大小选项 ───────────────────────────────────────────────────────
     private static final int[]    PAGE_SIZES  = {20, 50, 100, 0};
     private static final String[] SIZE_LABELS = {"20", "50", "100", "All"};
-    private static final String   ROWS_SUFFIX = " rows";
 
     // ── Swing 组件 ────────────────────────────────────────────────────────
     @Getter
     private JTable            table;
     private DefaultTableModel tableModel;
     private SearchTextField   searchField;
-    private JButton           colFilterBtn;     // 列选择下拉按钮
+    private JButton           colFilterBtn;
     private JLabel            hintLabel;
     private JLabel            pageInfoLabel;
     private JButton           btnPrev;
     private JButton           btnNext;
-    private JComboBox<String> pageSizeCombo;
-    private JTextField        pageJumpField;
 
     // ─────────────────────────────────────────────────────────────────────
 
     public EnhancedTablePanel(String[] columns) {
         this.currentColumns = columns.clone();
         buildUI();
-    }
-
-    public static EnhancedTablePanel create(String... cols) {
-        return new EnhancedTablePanel(cols);
     }
 
     // ═══════════════════ Public API ══════════════════════════════════════
@@ -103,7 +98,7 @@ public class EnhancedTablePanel extends JPanel {
                 filterCols.removeIf(ci -> ci >= newColumns.length);
                 if (filterCols.size() >= newColumns.length) filterCols = null;
             }
-            updateColFilterBtnLabel();  // 同步按钮文字 + 搜索框 placeholder
+            updateColFilterBtnLabel();
         }
 
         // 重置 tableModel 列
@@ -114,7 +109,7 @@ public class EnhancedTablePanel extends JPanel {
         allRows.clear();
         if (rows != null) allRows.addAll(rows);
 
-        hintLabel.setText(allRows.size() + ROWS_SUFFIX);
+        hintLabel.setText(allRows.size() + I18nUtil.getMessage(MessageKeys.TABLE_ROWS_SUFFIX));
         applyFilterAndSort();
     }
 
@@ -124,14 +119,7 @@ public class EnhancedTablePanel extends JPanel {
         if (rows != null) allRows.addAll(rows);
         currentPage = 0;
         sortCol     = -1;
-        hintLabel.setText(allRows.size() + ROWS_SUFFIX);
-        applyFilterAndSort();
-    }
-
-    /** 追加一行 */
-    public void appendRow(Object[] row) {
-        allRows.add(row);
-        hintLabel.setText(allRows.size() + ROWS_SUFFIX);
+        hintLabel.setText(allRows.size() + I18nUtil.getMessage(MessageKeys.TABLE_ROWS_SUFFIX));
         applyFilterAndSort();
     }
 
@@ -141,33 +129,14 @@ public class EnhancedTablePanel extends JPanel {
         filteredRows.clear();
         currentPage = 0;
         sortCol     = -1;
-        hintLabel.setText("0" + ROWS_SUFFIX);
+        hintLabel.setText("0" + I18nUtil.getMessage(MessageKeys.TABLE_ROWS_SUFFIX));
         tableModel.setRowCount(0);
         updatePaginationControls();
-    }
-
-    public void setPageSize(int size) {
-        pageSize    = size;
-        currentPage = 0;
-        applyFilterAndSort();
     }
 
     /** 返回全量数据行数（不受分页/过滤影响） */
     public int getTotalRowCount() {
         return allRows.size();
-    }
-
-    /** 返回过滤后数据行数 */
-    public int getFilteredRowCount() {
-        return filteredRows.size();
-    }
-
-    public Object[] getSelectedRowData() {
-        int viewRow = table.getSelectedRow();
-        if (viewRow < 0) return new Object[0];
-        int idx = getPageOffset() + viewRow;
-        if (idx < 0 || idx >= filteredRows.size()) return new Object[0];
-        return filteredRows.get(idx);
     }
 
     // ═══════════════════ UI Build ════════════════════════════════════════
@@ -190,7 +159,8 @@ public class EnhancedTablePanel extends JPanel {
 
         searchField = new SearchTextField();
         searchField.putClientProperty(FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT, null);
-        searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "搜索（全列）...");
+        searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
+                I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_ALL));
         searchField.setPreferredSize(new Dimension(200, 28));
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e)  { onSearch(); }
@@ -198,11 +168,10 @@ public class EnhancedTablePanel extends JPanel {
             public void changedUpdate(DocumentEvent e) { onSearch(); }
         });
 
-        // 列筛选按钮（下拉多选弹窗）
-        colFilterBtn = new JButton("列筛选 ▾");
+        colFilterBtn = new JButton(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN));
         colFilterBtn.setFont(colFilterBtn.getFont().deriveFont(Font.PLAIN, 11f));
         colFilterBtn.setFocusPainted(false);
-        colFilterBtn.setPreferredSize(new Dimension(80, 28));
+        colFilterBtn.setPreferredSize(new Dimension(90, 28));
         colFilterBtn.addActionListener(e -> showColFilterPopup());
 
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -210,39 +179,33 @@ public class EnhancedTablePanel extends JPanel {
         left.add(searchField);
         left.add(colFilterBtn);
 
-        hintLabel = new JLabel("0" + ROWS_SUFFIX);
+        hintLabel = new JLabel("0" + I18nUtil.getMessage(MessageKeys.TABLE_ROWS_SUFFIX));
         hintLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         hintLabel.setFont(hintLabel.getFont().deriveFont(Font.PLAIN, 11f));
 
-        bar.add(left,       BorderLayout.WEST);
-        bar.add(hintLabel,  BorderLayout.EAST);
+        bar.add(left,      BorderLayout.WEST);
+        bar.add(hintLabel, BorderLayout.EAST);
         return bar;
     }
 
     // ── 列筛选 popup（持久化，避免每次重建导致状态丢失）──────────────────────
-    private JPopupMenu colFilterPopup = null;
-    private JCheckBox[] colFilterBoxes = null;
-    private String[]    colFilterPopupColumns = null;  // 记录 popup 对应的列，列变化时重建
+    private JPopupMenu colFilterPopup       = null;
+    private JCheckBox[] colFilterBoxes      = null;
+    private String[]    colFilterPopupColumns = null;
 
-    /**
-     * 弹出列多选下拉面板（持久化实例，关闭再打开状态保留）
-     */
     private void showColFilterPopup() {
         if (currentColumns.length == 0) return;
 
-        // 列结构变化时重建 popup
         if (colFilterPopup == null || !Arrays.equals(colFilterPopupColumns, currentColumns)) {
             colFilterPopup = buildColFilterPopup();
             colFilterPopupColumns = currentColumns.clone();
         } else {
-            // 列未变化，只同步 filterCols → checkbox 勾选状态
             syncCheckboxesToFilterCols();
         }
 
         colFilterPopup.show(colFilterBtn, 0, colFilterBtn.getHeight());
     }
 
-    /** 构建列筛选 popup（只在列结构变化时调用）*/
     private JPopupMenu buildColFilterPopup() {
         JPopupMenu popup = new JPopupMenu();
         popup.setLayout(new BorderLayout(0, 0));
@@ -250,9 +213,8 @@ public class EnhancedTablePanel extends JPanel {
         JPanel outer = new JPanel(new BorderLayout(0, 0));
         outer.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
 
-        // 顶部按钮行
-        JButton btnAll  = makeSmallBtn("全选");
-        JButton btnNone = makeSmallBtn("全不选");
+        JButton btnAll  = makeSmallBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_SELECT_ALL));
+        JButton btnNone = makeSmallBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_DESELECT_ALL));
         JPanel topRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         topRow.setOpaque(false);
         topRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
@@ -260,12 +222,10 @@ public class EnhancedTablePanel extends JPanel {
         topRow.add(btnNone);
         outer.add(topRow, BorderLayout.NORTH);
 
-        // 中间复选框列表
         JPanel checkPanel = new JPanel(new GridLayout(0, 1, 0, 1));
         checkPanel.setOpaque(false);
         colFilterBoxes = new JCheckBox[currentColumns.length];
         for (int i = 0; i < currentColumns.length; i++) {
-            // 初始勾选状态：null=全选，否则按 filterCols 判断
             boolean checked = (filterCols == null || filterCols.contains(i));
             colFilterBoxes[i] = new JCheckBox(currentColumns[i], checked);
             colFilterBoxes[i].setFont(colFilterBoxes[i].getFont().deriveFont(Font.PLAIN, 12f));
@@ -279,14 +239,12 @@ public class EnhancedTablePanel extends JPanel {
         checkScroll.setPreferredSize(new Dimension(180, Math.min(currentColumns.length * 24, 240)));
         outer.add(checkScroll, BorderLayout.CENTER);
 
-        // 底部确定按钮
-        JButton btnOk = makeSmallBtn("确定");
+        JButton btnOk = makeSmallBtn(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_OK));
         JPanel bottomRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
         bottomRow.setOpaque(false);
         bottomRow.add(btnOk);
         outer.add(bottomRow, BorderLayout.SOUTH);
 
-        // 事件
         btnAll.addActionListener(e -> {
             for (JCheckBox cb : colFilterBoxes) cb.setSelected(true);
         });
@@ -299,7 +257,6 @@ public class EnhancedTablePanel extends JPanel {
         return popup;
     }
 
-    /** 把当前 filterCols 状态同步到已有的 checkbox（popup 未重建时调用）*/
     private void syncCheckboxesToFilterCols() {
         if (colFilterBoxes == null) return;
         for (int i = 0; i < colFilterBoxes.length; i++) {
@@ -307,7 +264,6 @@ public class EnhancedTablePanel extends JPanel {
         }
     }
 
-    /** 确定按钮：读取 checkbox 状态 → 保存 filterCols → 关闭 popup → 重新过滤 */
     private void applyColFilter(JPopupMenu popup) {
         if (colFilterBoxes == null) return;
         Set<Integer> sel = new HashSet<>();
@@ -316,10 +272,7 @@ public class EnhancedTablePanel extends JPanel {
             if (colFilterBoxes[i].isSelected()) sel.add(i);
             else allChecked = false;
         }
-        // null  = 全选（搜索所有列）
-        // 非空 Set = 搜索指定列
-        // 空 Set   = 全不选（不搜索任何列，过滤时永远不匹配）
-        filterCols = allChecked ? null : sel;   // 注意：sel 为空时也保存空 Set，不转 null
+        filterCols = allChecked ? null : sel;
         updateColFilterBtnLabel();
         currentPage = 0;
         applyFilterAndSort();
@@ -333,31 +286,36 @@ public class EnhancedTablePanel extends JPanel {
         return b;
     }
 
-    /** 更新列筛选按钮文字 + 搜索框 placeholder，让用户直观感知两者联动 */
+    /** 更新列筛选按钮文字 + 搜索框 placeholder */
     private void updateColFilterBtnLabel() {
         if (filterCols == null) {
-            colFilterBtn.setText("列筛选 ▾");
-            searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "搜索（全列）...");
+            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN));
+            searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
+                    I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_ALL));
         } else if (filterCols.isEmpty()) {
-            colFilterBtn.setText("列筛选(0) ▾");
-            searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "搜索（无列，全不选）...");
+            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN_N, "0"));
+            searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
+                    I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_NONE));
         } else {
-            colFilterBtn.setText("列筛选(" + filterCols.size() + ") ▾");
-            // 拼出列名列表显示在 placeholder
-            StringBuilder sb = new StringBuilder("搜索（");
-            int count = 0;
-            for (int ci : filterCols) {
-                if (ci < currentColumns.length) {
-                    if (count > 0) sb.append(", ");
-                    sb.append(currentColumns[ci]);
-                    count++;
-                    if (count >= 3) { sb.append("..."); break; }
-                }
-            }
-            sb.append("）...");
-            searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, sb.toString());
+            colFilterBtn.setText(I18nUtil.getMessage(MessageKeys.TABLE_COL_FILTER_BTN_N,
+                    String.valueOf(filterCols.size())));
+            searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
+                    I18nUtil.getMessage(MessageKeys.TABLE_SEARCH_PLACEHOLDER_COLS,
+                            buildFilterColNames()));
         }
         searchField.repaint();
+    }
+
+    private String buildFilterColNames() {
+        List<String> names = new ArrayList<>();
+        for (int ci : filterCols) {
+            if (ci < currentColumns.length) {
+                names.add(currentColumns[ci]);
+                if (names.size() >= 3) break;
+            }
+        }
+        String joined = String.join(", ", names);
+        return (names.size() >= 3 && filterCols.size() > 3) ? joined + "..." : joined;
     }
 
     // ── 表格 ─────────────────────────────────────────────────────────────
@@ -385,7 +343,6 @@ public class EnhancedTablePanel extends JPanel {
         table.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
         table.setDefaultRenderer(Object.class, new HoverRenderer());
 
-        // 列标题排序
         table.getTableHeader().addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {
                 int col = table.columnAtPoint(e.getPoint());
@@ -397,7 +354,6 @@ public class EnhancedTablePanel extends JPanel {
             }
         });
 
-        // 悬停 + 右键
         table.addMouseMotionListener(new MouseMotionAdapter() {
             @Override public void mouseMoved(MouseEvent e) {
                 int row = table.rowAtPoint(e.getPoint());
@@ -431,7 +387,7 @@ public class EnhancedTablePanel extends JPanel {
                         UIManager.getColor("Separator.foreground")),
                 BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
-        pageSizeCombo = new JComboBox<>(SIZE_LABELS);
+        JComboBox<String> pageSizeCombo = new JComboBox<>(SIZE_LABELS);
         pageSizeCombo.setPreferredSize(new Dimension(65, 24));
         pageSizeCombo.setFont(pageSizeCombo.getFont().deriveFont(Font.PLAIN, 11f));
         pageSizeCombo.addActionListener(e -> {
@@ -442,15 +398,15 @@ public class EnhancedTablePanel extends JPanel {
 
         btnPrev = navBtn("‹");
         btnNext = navBtn("›");
-        btnPrev.addActionListener(e -> { if (currentPage > 0)             { currentPage--; refreshView(); } });
-        btnNext.addActionListener(e -> { if (currentPage < totalPages()-1) { currentPage++; refreshView(); } });
+        btnPrev.addActionListener(e -> { if (currentPage > 0)              { currentPage--; refreshView(); } });
+        btnNext.addActionListener(e -> { if (currentPage < totalPages()-1)  { currentPage++; refreshView(); } });
 
         pageInfoLabel = new JLabel("0 / 0");
         pageInfoLabel.setFont(pageInfoLabel.getFont().deriveFont(Font.PLAIN, 11f));
-        pageInfoLabel.setPreferredSize(new Dimension(100, 20));
+        pageInfoLabel.setPreferredSize(new Dimension(120, 20));
         pageInfoLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
-        pageJumpField = new JTextField(3);
+        JTextField pageJumpField = new JTextField(3);
         pageJumpField.setFont(pageJumpField.getFont().deriveFont(Font.PLAIN, 11f));
         pageJumpField.setHorizontalAlignment(SwingConstants.CENTER);
         pageJumpField.setPreferredSize(new Dimension(40, 24));
@@ -464,9 +420,13 @@ public class EnhancedTablePanel extends JPanel {
             pageJumpField.setText("");
         });
 
-        bar.add(tiny("每页:")); bar.add(pageSizeCombo);
-        bar.add(btnPrev); bar.add(pageInfoLabel); bar.add(btnNext);
-        bar.add(tiny("跳转:")); bar.add(pageJumpField);
+        bar.add(tiny(I18nUtil.getMessage(MessageKeys.TABLE_PAGE_SIZE_LABEL)));
+        bar.add(pageSizeCombo);
+        bar.add(btnPrev);
+        bar.add(pageInfoLabel);
+        bar.add(btnNext);
+        bar.add(tiny(I18nUtil.getMessage(MessageKeys.TABLE_PAGE_JUMP_LABEL)));
+        bar.add(pageJumpField);
         return bar;
     }
 
@@ -479,16 +439,14 @@ public class EnhancedTablePanel extends JPanel {
     }
 
     private void applyFilterAndSort() {
-        // 过滤
         filteredRows.clear();
         for (Object[] row : allRows) {
             if (matches(row)) filteredRows.add(row);
         }
         searchField.setNoResult(!filterText.isEmpty() && filteredRows.isEmpty());
 
-        // 排序
         if (sortCol >= 0 && sortCol < tableModel.getColumnCount()) {
-            final int  col = sortCol;
+            final int col = sortCol;
             final boolean asc = sortAsc;
             filteredRows.sort((x, y) -> cmp(
                     col < x.length ? x[col] : null,
@@ -517,12 +475,14 @@ public class EnhancedTablePanel extends JPanel {
     private void updatePaginationControls() {
         int total = filteredRows.size();
         int pages = totalPages();
-        // 格式：当前页 / 总页数 (共N条)
         String info;
         if (total == 0) {
             info = "0 / 0";
         } else {
-            info = (currentPage + 1) + " / " + pages + "  (" + total + " 条)";
+            info = I18nUtil.getMessage(MessageKeys.TABLE_PAGE_INFO,
+                    String.valueOf(currentPage + 1),
+                    String.valueOf(pages),
+                    String.valueOf(total));
         }
         pageInfoLabel.setText(info);
         btnPrev.setEnabled(currentPage > 0);
@@ -549,38 +509,43 @@ public class EnhancedTablePanel extends JPanel {
         TableColumnModel cm = table.getColumnModel();
         for (int i = 0; i < cm.getColumnCount(); i++) {
             String base = (i < currentColumns.length) ? currentColumns[i] : table.getColumnName(i);
-            String header = (i == sortCol) ? base + (sortAsc ? " ▲" : " ▼") : base;
-            cm.getColumn(i).setHeaderValue(header);
+            String suffix = "";
+            if (i == sortCol) suffix = sortAsc ? " ▲" : " ▼";
+            cm.getColumn(i).setHeaderValue(base + suffix);
         }
         table.getTableHeader().repaint();
     }
 
     private void showContextMenu(MouseEvent e) {
         JPopupMenu menu = new JPopupMenu();
-        JMenuItem copyCell = new JMenuItem("复制单元格");
-        copyCell.addActionListener(ev -> {
-            int r = table.getSelectedRow();
-            int c = table.getSelectedColumn();
-            if (r >= 0 && c >= 0) {
-                Object v = table.getValueAt(r, c);
-                clip(v == null ? "" : v.toString());
-            }
-        });
-        JMenuItem copyRow = new JMenuItem("复制整行");
-        copyRow.addActionListener(ev -> {
-            int r = table.getSelectedRow();
-            if (r < 0) return;
-            StringBuilder sb = new StringBuilder();
-            for (int c = 0; c < table.getColumnCount(); c++) {
-                if (c > 0) sb.append('\t');
-                Object v = table.getValueAt(r, c);
-                if (v != null) sb.append(v);
-            }
-            clip(sb.toString());
-        });
+        JMenuItem copyCell = new JMenuItem(I18nUtil.getMessage(MessageKeys.TABLE_CONTEXT_COPY_CELL));
+        copyCell.addActionListener(ev -> copySelectedCell());
+        JMenuItem copyRow = new JMenuItem(I18nUtil.getMessage(MessageKeys.TABLE_CONTEXT_COPY_ROW));
+        copyRow.addActionListener(ev -> copySelectedRow());
         menu.add(copyCell);
         menu.add(copyRow);
         menu.show(table, e.getX(), e.getY());
+    }
+
+    private void copySelectedCell() {
+        int r = table.getSelectedRow();
+        int c = table.getSelectedColumn();
+        if (r >= 0 && c >= 0) {
+            Object v = table.getValueAt(r, c);
+            clip(v == null ? "" : v.toString());
+        }
+    }
+
+    private void copySelectedRow() {
+        int r = table.getSelectedRow();
+        if (r < 0) return;
+        StringBuilder sb = new StringBuilder();
+        for (int c = 0; c < table.getColumnCount(); c++) {
+            if (c > 0) sb.append('\t');
+            Object v = table.getValueAt(r, c);
+            if (v != null) sb.append(v);
+        }
+        clip(sb.toString());
     }
 
     // ═══════════════════ 工具方法 ════════════════════════════════════════
@@ -595,27 +560,30 @@ public class EnhancedTablePanel extends JPanel {
         return pageSize == 0 ? 0 : currentPage * pageSize;
     }
 
-    /**
-     * 行是否匹配过滤条件。
-     * filterCols==null 时搜索全列，否则只搜索指定列。
-     */
     private boolean matches(Object[] row) {
         if (filterText.isEmpty()) return true;
         if (filterCols == null) {
-            // 全列匹配
-            for (Object cell : row) {
-                if (cell != null && cell.toString().toLowerCase().contains(filterText)) return true;
-            }
-        } else {
-            // 指定列匹配
-            for (int ci : filterCols) {
-                if (ci < row.length) {
-                    Object cell = row[ci];
-                    if (cell != null && cell.toString().toLowerCase().contains(filterText)) return true;
-                }
-            }
+            return matchesAnyCell(row);
+        }
+        return matchesSelectedCols(row);
+    }
+
+    private boolean matchesAnyCell(Object[] row) {
+        for (Object cell : row) {
+            if (cellContains(cell)) return true;
         }
         return false;
+    }
+
+    private boolean matchesSelectedCols(Object[] row) {
+        for (int ci : filterCols) {
+            if (ci < row.length && cellContains(row[ci])) return true;
+        }
+        return false;
+    }
+
+    private boolean cellContains(Object cell) {
+        return cell != null && cell.toString().toLowerCase().contains(filterText);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
