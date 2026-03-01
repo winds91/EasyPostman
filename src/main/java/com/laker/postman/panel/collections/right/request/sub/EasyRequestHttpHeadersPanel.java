@@ -163,6 +163,11 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
         rowSorter = new TableRowSorter<>(model);
         defaultHeaderFilter = new DefaultHeaderRowFilter();
 
+        // Disable sorting for all columns
+        for (int i = 0; i < model.getColumnCount(); i++) {
+            rowSorter.setSortable(i, false);
+        }
+
         table.setRowSorter(rowSorter);
 
         // Apply initial filter (hide default headers by default)
