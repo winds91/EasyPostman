@@ -1,7 +1,8 @@
 package com.laker.postman.panel.toolbox;
 
-import cn.hutool.json.JSONUtil;
+import com.laker.postman.util.JsonUtil;
 import com.formdev.flatlaf.FlatClientProperties;
+import com.laker.postman.common.component.button.*;
 import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
@@ -10,9 +11,9 @@ import okhttp3.*;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
+import tools.jackson.databind.JsonNode;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
@@ -36,6 +37,7 @@ public class ElasticsearchPanel extends JPanel {
 
     // ===== 索引管理 =====
     private DefaultListModel<String> indexListModel;
+    private DefaultListModel<String> indexFilteredModel;
     private JList<String> indexList;
     private JTextField newIndexField;
     private JSpinner shardSpinner;
@@ -51,6 +53,7 @@ public class ElasticsearchPanel extends JPanel {
     // ===== 结果表格 =====
     private DefaultTableModel tableModel;
     private JTable resultTable;
+    private JTabbedPane resultTabs;
 
     // ===== HTTP 客户端 =====
     private OkHttpClient httpClient;
@@ -130,13 +133,15 @@ public class ElasticsearchPanel extends JPanel {
 
     // ===== 连接面板 =====
     private JPanel buildConnectionPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        panel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CONNECTION),
-                TitledBorder.LEFT, TitledBorder.TOP));
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createEmptyBorder(6, 8, 6, 8)));
 
-        hostField = new JTextField("http://localhost:9200", 28);
+        // 所有组件放同一行 FlowLayout，连接按钮紧跟密码框
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+
+        hostField = new JTextField("http://localhost:9200", 26);
         hostField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_HOST_PLACEHOLDER));
 
@@ -148,47 +153,66 @@ public class ElasticsearchPanel extends JPanel {
         passwordField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_PASS_PLACEHOLDER));
 
-        connectBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CONNECT));
-        connectBtn.addActionListener(e -> doConnect());
-
         connectionStatusLabel = new JLabel("●");
-        connectionStatusLabel.setForeground(Color.GRAY);
-        connectionStatusLabel.setFont(connectionStatusLabel.getFont().deriveFont(Font.BOLD, 16f));
+        connectionStatusLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        connectionStatusLabel.setFont(connectionStatusLabel.getFont().deriveFont(Font.BOLD, 14f));
         connectionStatusLabel.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_NOT_CONNECTED));
 
-        panel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_HOST)));
-        panel.add(hostField);
-        panel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_USER)));
-        panel.add(usernameField);
-        panel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_PASS)));
-        panel.add(passwordField);
-        panel.add(connectBtn);
-        panel.add(connectionStatusLabel);
+        connectBtn = new PrimaryButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CONNECT), "icons/connect.svg");
+        connectBtn.addActionListener(e -> doConnect());
+
+        row.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_HOST)));
+        row.add(hostField);
+        row.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_USER)));
+        row.add(usernameField);
+        row.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_PASS)));
+        row.add(passwordField);
+        row.add(connectBtn);
+        row.add(connectionStatusLabel);
+
+        panel.add(row, BorderLayout.CENTER);
         return panel;
     }
 
     // ===== 索引管理面板 =====
     private JPanel buildIndexPanel() {
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_MANAGEMENT),
-                TitledBorder.LEFT, TitledBorder.TOP));
+        JPanel panel = new JPanel(new BorderLayout(0, 0));
+        panel.setBorder(BorderFactory.createEmptyBorder());
         panel.setPreferredSize(new Dimension(220, 0));
 
-        // 索引列表
-        indexListModel = new DefaultListModel<>();
-        indexList = new JList<>(indexListModel);
+        // 顶部标题栏 + 刷新按钮
+        JPanel titleBar = new JPanel(new BorderLayout());
+        titleBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createEmptyBorder(4, 8, 4, 4)));
+        JLabel titleLbl = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_MANAGEMENT));
+        titleLbl.setFont(titleLbl.getFont().deriveFont(Font.BOLD, 12f));
+        RefreshButton refreshBtn = new RefreshButton();
+        refreshBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_REFRESH));
+        refreshBtn.addActionListener(e -> loadIndices());
+        titleBar.add(titleLbl, BorderLayout.CENTER);
+        titleBar.add(refreshBtn, BorderLayout.EAST);
+
+        // 搜索框
+        com.laker.postman.common.component.SearchTextField indexSearchField =
+                new com.laker.postman.common.component.SearchTextField();
+        indexSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        JPanel searchBox = new JPanel(new BorderLayout());
+        searchBox.setBorder(BorderFactory.createEmptyBorder(4, 6, 2, 6));
+        searchBox.add(indexSearchField, BorderLayout.CENTER);
+
+        // 索引列表（使用过滤 model）
+        indexListModel    = new DefaultListModel<>();
+        indexFilteredModel = new DefaultListModel<>();
+        indexList = new JList<>(indexFilteredModel);
         indexList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         indexList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 String selected = indexList.getSelectedValue();
-                if (selected != null) {
-                    pathField.setText("/" + selected + "/_search");
-                }
+                if (selected != null) pathField.setText("/" + selected + "/_search");
             }
         });
-        // Double-click → show mapping
         indexList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent evt) {
@@ -204,26 +228,32 @@ public class ElasticsearchPanel extends JPanel {
             }
         });
         JScrollPane listScroll = new JScrollPane(indexList);
+        listScroll.setBorder(BorderFactory.createEmptyBorder());
 
-        // 索引操作按钮
-        JPanel btnPanel = new JPanel(new GridLayout(1, 3, 3, 0));
-        JButton refreshBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_REFRESH));
-        JButton deleteBtn  = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE));
-        JButton statsBtn   = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_STATS));
-        refreshBtn.setFont(refreshBtn.getFont().deriveFont(11f));
-        deleteBtn.setFont(deleteBtn.getFont().deriveFont(11f));
-        statsBtn.setFont(statsBtn.getFont().deriveFont(11f));
-        refreshBtn.addActionListener(e -> loadIndices());
+        // 搜索监听：实时过滤
+        indexSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e)  { filterIndices(indexSearchField.getText()); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e)  { filterIndices(indexSearchField.getText()); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filterIndices(indexSearchField.getText()); }
+        });
+
+        // 操作按钮行
+        JPanel actionBar = new JPanel(new GridLayout(1, 2, 4, 0));
+        actionBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createEmptyBorder(4, 6, 4, 6)));
+        SecondaryButton deleteBtn = new SecondaryButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE), "icons/delete.svg");
+        SecondaryButton statsBtn = new SecondaryButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_STATS), "icons/performance.svg");
         deleteBtn.addActionListener(e -> deleteSelectedIndex());
         statsBtn.addActionListener(e -> showIndexStats());
-        btnPanel.add(refreshBtn);
-        btnPanel.add(deleteBtn);
-        btnPanel.add(statsBtn);
+        actionBar.add(deleteBtn);
+        actionBar.add(statsBtn);
 
-        // 创建新索引
+        // 创建索引面板
         JPanel createPanel = new JPanel(new GridBagLayout());
-        createPanel.setBorder(BorderFactory.createTitledBorder(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE_TITLE)));
+        createPanel.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -233,7 +263,8 @@ public class ElasticsearchPanel extends JPanel {
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_NAME_PLACEHOLDER));
         shardSpinner   = new JSpinner(new SpinnerNumberModel(1, 1, 100, 1));
         replicaSpinner = new JSpinner(new SpinnerNumberModel(1, 0, 10, 1));
-        JButton createBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE));
+        PrimaryButton createBtn = new PrimaryButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATE), "icons/plus.svg");
         createBtn.addActionListener(e -> createIndex());
 
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
@@ -248,29 +279,50 @@ public class ElasticsearchPanel extends JPanel {
         createPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_REPLICAS)), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         createPanel.add(replicaSpinner, gbc);
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.weightx = 1;
         createPanel.add(createBtn, gbc);
 
+        JPanel topArea = new JPanel(new BorderLayout());
+        topArea.add(titleBar, BorderLayout.NORTH);
+        topArea.add(searchBox, BorderLayout.CENTER);
+
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.add(actionBar, BorderLayout.NORTH);
+        bottom.add(createPanel, BorderLayout.CENTER);
+
+        panel.add(topArea, BorderLayout.NORTH);
         panel.add(listScroll, BorderLayout.CENTER);
-        panel.add(btnPanel, BorderLayout.NORTH);
-        panel.add(createPanel, BorderLayout.SOUTH);
+        panel.add(bottom, BorderLayout.SOUTH);
         return panel;
+    }
+
+    /** 根据关键词过滤索引列表 */
+    private void filterIndices(String kw) {
+        String lower = kw == null ? "" : kw.trim().toLowerCase();
+        indexFilteredModel.clear();
+        for (int i = 0; i < indexListModel.size(); i++) {
+            String name = indexListModel.get(i);
+            if (lower.isEmpty() || name.toLowerCase().contains(lower)) {
+                indexFilteredModel.addElement(name);
+            }
+        }
     }
 
     // ===== DSL 编辑 + 结果面板 =====
     private JPanel buildDslPanel() {
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
+        JPanel panel = new JPanel(new BorderLayout(0, 4));
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
 
-        // 顶部工具栏：模板选择 + 方法 + 路径 + 执行
-        JPanel toolBar = new JPanel(new BorderLayout(4, 4));
-        toolBar.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+        // ---- 工具栏：所有按钮一行 ----
+        JPanel toolBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
+        toolBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0,
+                UIManager.getColor("Separator.foreground")));
 
-        // 第1行：模板选择
-        JPanel templateRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         JComboBox<String> templateCombo = new JComboBox<>();
         for (String[] t : DSL_TEMPLATES) templateCombo.addItem(I18nUtil.getMessage(t[0]));
-        templateCombo.setPreferredSize(new Dimension(200, 28));
-        JButton loadTplBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_LOAD_TEMPLATE));
+        templateCombo.setPreferredSize(new Dimension(180, 28));
+        SecondaryButton loadTplBtn = new SecondaryButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_LOAD_TEMPLATE), "icons/load.svg");
         loadTplBtn.addActionListener(e -> {
             int idx = templateCombo.getSelectedIndex();
             if (idx >= 0 && idx < DSL_TEMPLATES.length) {
@@ -280,11 +332,14 @@ public class ElasticsearchPanel extends JPanel {
                 dslEditor.setCaretPosition(0);
             }
         });
-        JButton formatBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_FORMAT_JSON));
+        FormatButton formatBtn = new FormatButton();
+        formatBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_FORMAT_JSON));
         formatBtn.addActionListener(e -> formatDsl());
-        JButton copyBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_COPY_RESULT));
+        CopyButton copyBtn = new CopyButton();
+        copyBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_COPY_RESULT));
         copyBtn.addActionListener(e -> copyResult());
-        JButton clearBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CLEAR));
+        ClearButton clearBtn = new ClearButton();
+        clearBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_CLEAR));
         clearBtn.addActionListener(e -> {
             dslEditor.setText("");
             resultArea.setText("");
@@ -292,73 +347,72 @@ public class ElasticsearchPanel extends JPanel {
             setStatus(" " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CLEARED));
         });
 
-        templateRow.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TEMPLATE_LABEL)));
-        templateRow.add(templateCombo);
-        templateRow.add(loadTplBtn);
-        templateRow.add(new JSeparator(SwingConstants.VERTICAL));
-        templateRow.add(formatBtn);
-        templateRow.add(copyBtn);
-        templateRow.add(clearBtn);
+        toolBar.add(templateCombo);
+        toolBar.add(loadTplBtn);
+        toolBar.add(new JSeparator(SwingConstants.VERTICAL));
+        toolBar.add(formatBtn);
+        toolBar.add(copyBtn);
+        toolBar.add(clearBtn);
 
-        // 第2行：方法 + 路径 + 执行
+        // ---- 请求行：Method + Path + Execute ----
         JPanel requestRow = new JPanel(new BorderLayout(4, 0));
+        requestRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
         methodCombo = new JComboBox<>(new String[]{"GET", "POST", "PUT", "DELETE", "HEAD"});
-        methodCombo.setPreferredSize(new Dimension(85, 28));
+        methodCombo.setPreferredSize(new Dimension(90, 28));
         pathField = new JTextField("/_cluster/health");
         pathField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
                 I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_PATH_PLACEHOLDER));
-        JButton executeBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_EXECUTE));
-        executeBtn.setBackground(new Color(0, 120, 215));
-        executeBtn.setForeground(Color.WHITE);
-        executeBtn.setOpaque(true);
+        PrimaryButton executeBtn = new PrimaryButton(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_EXECUTE), "icons/send.svg");
         executeBtn.addActionListener(e -> executeRequest());
         registerCtrlEnterShortcut(executeBtn);
-
         requestRow.add(methodCombo, BorderLayout.WEST);
         requestRow.add(pathField, BorderLayout.CENTER);
         requestRow.add(executeBtn, BorderLayout.EAST);
 
-        toolBar.add(templateRow, BorderLayout.NORTH);
-        toolBar.add(requestRow, BorderLayout.CENTER);
-        panel.add(toolBar, BorderLayout.NORTH);
+        JPanel topArea = new JPanel(new BorderLayout(0, 4));
+        topArea.add(toolBar, BorderLayout.NORTH);
+        topArea.add(requestRow, BorderLayout.CENTER);
+        panel.add(topArea, BorderLayout.NORTH);
 
-        // 主分割：DSL 编辑器 (上) + 结果 (下)
+        // ---- 主分割：DSL 编辑器(上) + 结果(下) ----
         JSplitPane editorSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         editorSplit.setDividerSize(5);
         editorSplit.setContinuousLayout(true);
         editorSplit.setResizeWeight(0.4);
+        editorSplit.setBorder(BorderFactory.createEmptyBorder());
 
         // DSL 编辑器
         JPanel editorPanel = new JPanel(new BorderLayout());
-        editorPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_DSL_TITLE),
-                TitledBorder.LEFT, TitledBorder.TOP));
+        JLabel dslLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_DSL_TITLE));
+        dslLabel.setFont(dslLabel.getFont().deriveFont(Font.BOLD, 11f));
+        dslLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createEmptyBorder(2, 4, 2, 4)));
         dslEditor = createJsonEditor(true);
         dslEditor.setText("{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 20\n}");
         RTextScrollPane editorScroll = new RTextScrollPane(dslEditor);
         editorScroll.setLineNumbersEnabled(true);
+        editorScroll.setBorder(BorderFactory.createEmptyBorder());
+        editorPanel.add(dslLabel, BorderLayout.NORTH);
         editorPanel.add(editorScroll, BorderLayout.CENTER);
 
-        // 结果区域（带标签页：表格 + 原始 JSON）
+        // 结果区（Tab: 表格 + 原始 JSON）
         JPanel resultPanel = new JPanel(new BorderLayout());
-        resultPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_RESPONSE_TITLE),
-                TitledBorder.LEFT, TitledBorder.TOP));
+        JLabel respLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_RESPONSE_TITLE));
+        respLabel.setFont(respLabel.getFont().deriveFont(Font.BOLD, 11f));
+        respLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
+                BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
-        JTabbedPane resultTabs = new JTabbedPane(SwingConstants.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
-
-        // Tab1: 表格视图
+        resultTabs = new JTabbedPane(SwingConstants.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
         tableModel = new DefaultTableModel() {
-            @Override
-            public boolean isCellEditable(int row, int column) { return false; }
+            @Override public boolean isCellEditable(int row, int col) { return false; }
         };
         resultTable = new JTable(tableModel);
         resultTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         resultTable.setFillsViewportHeight(true);
         resultTable.setRowHeight(22);
-        // 右键菜单：复制单元格值
         JPopupMenu tablePopup = new JPopupMenu();
         JMenuItem copyCell = new JMenuItem(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_COPY_CELL));
         copyCell.addActionListener(e -> {
@@ -366,23 +420,23 @@ public class ElasticsearchPanel extends JPanel {
             int col = resultTable.getSelectedColumn();
             if (row >= 0 && col >= 0) {
                 Object val = resultTable.getValueAt(row, col);
-                if (val != null) {
+                if (val != null)
                     Toolkit.getDefaultToolkit().getSystemClipboard()
                             .setContents(new StringSelection(val.toString()), null);
-                }
             }
         });
         tablePopup.add(copyCell);
         resultTable.setComponentPopupMenu(tablePopup);
-        resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_TABLE),
-                new JScrollPane(resultTable));
 
-        // Tab2: 原始 JSON
         resultArea = createJsonEditor(false);
         RTextScrollPane resultScroll = new RTextScrollPane(resultArea);
         resultScroll.setLineNumbersEnabled(true);
+        resultScroll.setBorder(BorderFactory.createEmptyBorder());
+
+        resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_TABLE), new JScrollPane(resultTable));
         resultTabs.addTab(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_TAB_RAW), resultScroll);
 
+        resultPanel.add(respLabel, BorderLayout.NORTH);
         resultPanel.add(resultTabs, BorderLayout.CENTER);
 
         editorSplit.setTopComponent(editorPanel);
@@ -449,7 +503,7 @@ public class ElasticsearchPanel extends JPanel {
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CONNECTED), finalUrl));
                     setStatus(" ✅ " + MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_CONNECTED), finalUrl));
-                    resultArea.setText(JSONUtil.formatJsonStr(resp));
+                    resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     loadIndices();
                 } catch (Exception ex) {
@@ -485,12 +539,15 @@ public class ElasticsearchPanel extends JPanel {
                 try {
                     String json = get();
                     indexListModel.clear();
-                    cn.hutool.json.JSONArray arr = JSONUtil.parseArray(json);
-                    for (Object o : arr) {
-                        cn.hutool.json.JSONObject obj = (cn.hutool.json.JSONObject) o;
-                        String idxName = obj.getStr("index");
-                        if (idxName != null) indexListModel.addElement(idxName);
+                    JsonNode arr = JsonUtil.readTree(json);
+                    if (arr.isArray()) {
+                        for (JsonNode node : arr) {
+                            JsonNode idx = node.get("index");
+                            if (idx != null && !idx.isNull())
+                                indexListModel.addElement(idx.toString().replace("\"", ""));
+                        }
                     }
+                    filterIndices(""); // 刷新后重置过滤，显示全部
                     setStatus(" ✅ " + MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_LOADED),
                             indexListModel.size()));
@@ -528,7 +585,7 @@ public class ElasticsearchPanel extends JPanel {
             protected void done() {
                 try {
                     String resp = get();
-                    resultArea.setText(JSONUtil.formatJsonStr(resp));
+                    resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     setStatus(" ✅ " + MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CREATED), name));
@@ -573,7 +630,7 @@ public class ElasticsearchPanel extends JPanel {
             protected void done() {
                 try {
                     String resp = get();
-                    resultArea.setText(JSONUtil.formatJsonStr(resp));
+                    resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
                     resultArea.setCaretPosition(0);
                     setStatus(" ✅ " + MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETED), sel));
@@ -641,12 +698,17 @@ public class ElasticsearchPanel extends JPanel {
                 long elapsed = System.currentTimeMillis() - start;
                 try {
                     String resp = get();
-                    String formatted = JSONUtil.isTypeJSON(resp) ? JSONUtil.formatJsonStr(resp) : resp;
+                    String formatted = JsonUtil.isTypeJSON(resp) ? JsonUtil.toJsonPrettyStr(resp) : resp;
                     resultArea.setText(formatted);
                     resultArea.setCaretPosition(0);
-                    // 填充表格
-                    if (JSONUtil.isTypeJSON(resp)) {
+                    if (JsonUtil.isTypeJSON(resp)) {
                         populateTable(resp);
+                    }
+                    // 根据实际情况切换 tab：有表格数据切 Table，否则切 Raw JSON
+                    if (tableModel.getRowCount() > 0) {
+                        resultTabs.setSelectedIndex(0); // 表格视图
+                    } else {
+                        resultTabs.setSelectedIndex(1); // 原始 JSON
                     }
                     setStatus(" ✅ " + MessageFormat.format(
                             I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_SUCCESS),
@@ -662,22 +724,18 @@ public class ElasticsearchPanel extends JPanel {
         worker.execute();
     }
 
-    /** 将 ES _search 结果填充进表格 */
     private void populateTable(String json) {
         tableModel.setRowCount(0);
         tableModel.setColumnCount(0);
         try {
-            cn.hutool.json.JSONObject root = JSONUtil.parseObj(json);
-            // 支持 _search 结果格式
-            if (root.containsKey("hits")) {
+            JsonNode root = JsonUtil.readTree(json);
+            if (root.has("hits")) {
                 populateHitsTable(root);
-            } else if (root.containsKey("indices") || root.containsKey("_all")) {
-                // cat/stats 等
+            } else if (root.has("indices") || root.has("_all")) {
                 tableModel.addColumn("Key");
                 tableModel.addColumn("Value");
                 flattenJson("", root);
             } else if (json.trim().startsWith("[")) {
-                // _cat/indices?format=json 等
                 populateArrayTable(json);
             }
         } catch (Exception e) {
@@ -685,62 +743,73 @@ public class ElasticsearchPanel extends JPanel {
         }
     }
 
-    private void populateHitsTable(cn.hutool.json.JSONObject root) {
-        cn.hutool.json.JSONObject hits = root.getJSONObject("hits");
-        cn.hutool.json.JSONArray hitsArr = hits.getJSONArray("hits");
-        if (hitsArr == null || hitsArr.isEmpty()) return;
-        cn.hutool.json.JSONObject first = (cn.hutool.json.JSONObject) hitsArr.get(0);
+    private void populateHitsTable(JsonNode root) {
+        JsonNode hits = root.get("hits");
+        JsonNode hitsArr = hits.get("hits");
+        if (hitsArr == null || !hitsArr.isArray() || hitsArr.isEmpty()) return;
+        JsonNode first = hitsArr.get(0);
         tableModel.addColumn("_index");
         tableModel.addColumn("_id");
         tableModel.addColumn("_score");
-        cn.hutool.json.JSONObject source0 = first.getJSONObject("_source");
+        JsonNode source0 = first.get("_source");
         if (source0 != null) {
-            for (String key : source0.keySet()) tableModel.addColumn(key);
+            for (java.util.Map.Entry<String, JsonNode> e : source0.properties()) {
+                tableModel.addColumn(e.getKey());
+            }
         }
-        for (Object o : hitsArr) {
-            cn.hutool.json.JSONObject hit = (cn.hutool.json.JSONObject) o;
-            cn.hutool.json.JSONObject src = hit.getJSONObject("_source");
+        for (JsonNode hit : hitsArr) {
+            JsonNode src = hit.get("_source");
             java.util.List<Object> row = new java.util.ArrayList<>();
-            row.add(hit.getStr("_index"));
-            row.add(hit.getStr("_id"));
-            row.add(hit.getObj("_score"));
+            row.add(nodeText(hit.get("_index")));
+            row.add(nodeText(hit.get("_id")));
+            row.add(nodeText(hit.get("_score")));
             if (src != null) {
                 for (int c = 3; c < tableModel.getColumnCount(); c++) {
-                    row.add(src.getObj(tableModel.getColumnName(c)));
+                    row.add(nodeText(src.get(tableModel.getColumnName(c))));
                 }
             }
             tableModel.addRow(row.toArray());
         }
-        // 自动调整列宽
         autoResizeColumns();
     }
 
     private void populateArrayTable(String json) {
-        cn.hutool.json.JSONArray arr = JSONUtil.parseArray(json);
-        if (arr.isEmpty()) return;
-        cn.hutool.json.JSONObject first = (cn.hutool.json.JSONObject) arr.get(0);
-        for (String k : first.keySet()) tableModel.addColumn(k);
-        for (Object o : arr) {
-            cn.hutool.json.JSONObject obj = (cn.hutool.json.JSONObject) o;
-            java.util.List<Object> row = new java.util.ArrayList<>();
-            for (int c = 0; c < tableModel.getColumnCount(); c++) {
-                row.add(obj.getObj(tableModel.getColumnName(c)));
+        try {
+            JsonNode arr = JsonUtil.readTree(json);
+            if (!arr.isArray() || arr.isEmpty()) return;
+            JsonNode first = arr.get(0);
+            for (java.util.Map.Entry<String, JsonNode> e : first.properties()) {
+                tableModel.addColumn(e.getKey());
             }
-            tableModel.addRow(row.toArray());
+            for (JsonNode obj : arr) {
+                java.util.List<Object> row = new java.util.ArrayList<>();
+                for (int c = 0; c < tableModel.getColumnCount(); c++) {
+                    row.add(nodeText(obj.get(tableModel.getColumnName(c))));
+                }
+                tableModel.addRow(row.toArray());
+            }
+            autoResizeColumns();
+        } catch (Exception e) {
+            log.debug("populateArrayTable error: {}", e.getMessage());
         }
-        autoResizeColumns();
     }
 
-    private void flattenJson(String prefix, cn.hutool.json.JSONObject obj) {
-        for (String k : obj.keySet()) {
-            String fullKey = prefix.isEmpty() ? k : prefix + "." + k;
-            Object v = obj.getObj(k);
-            if (v instanceof cn.hutool.json.JSONObject nested) {
-                flattenJson(fullKey, nested);
+    private void flattenJson(String prefix, JsonNode obj) {
+        for (java.util.Map.Entry<String, JsonNode> entry : obj.properties()) {
+            String fullKey = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
+            JsonNode v = entry.getValue();
+            if (v.isObject()) {
+                flattenJson(fullKey, v);
             } else {
-                tableModel.addRow(new Object[]{fullKey, v});
+                tableModel.addRow(new Object[]{fullKey, nodeText(v)});
             }
         }
+    }
+
+    /** 安全地将 JsonNode 转为字符串，null 返回空串 */
+    private static String nodeText(JsonNode node) {
+        if (node == null || node.isNull()) return "";
+        return node.isValueNode() ? node.toString().replace("\"", "") : node.toString();
     }
 
     private void autoResizeColumns() {
@@ -767,8 +836,8 @@ public class ElasticsearchPanel extends JPanel {
     private void formatDsl() {
         String txt = dslEditor.getText().trim();
         if (txt.isEmpty()) return;
-        if (JSONUtil.isTypeJSON(txt)) {
-            dslEditor.setText(JSONUtil.formatJsonStr(txt));
+        if (JsonUtil.isTypeJSON(txt)) {
+            dslEditor.setText(JsonUtil.toJsonPrettyStr(txt));
             dslEditor.setCaretPosition(0);
             setStatus(" ✅ " + I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_STATUS_FORMATTED));
         } else {
