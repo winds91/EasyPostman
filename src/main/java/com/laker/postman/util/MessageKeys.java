@@ -1789,6 +1789,76 @@ public final class MessageKeys {
     public static final String TOOLBOX_DECOMPILER_ROOT_TOOLTIP_LINE1 = "toolbox.decompiler.root_tooltip_line1";
     public static final String TOOLBOX_DECOMPILER_ROOT_TOOLTIP_LINE2 = "toolbox.decompiler.root_tooltip_line2";
 
+    // ============ Elasticsearch 工具相关 ============
+    public static final String TOOLBOX_ELASTICSEARCH = "toolbox.elasticsearch";
+
+    // 连接面板
+    public static final String TOOLBOX_ES_CONNECTION = "toolbox.es.connection";
+    public static final String TOOLBOX_ES_HOST = "toolbox.es.host";
+    public static final String TOOLBOX_ES_HOST_PLACEHOLDER = "toolbox.es.host.placeholder";
+    public static final String TOOLBOX_ES_USER = "toolbox.es.user";
+    public static final String TOOLBOX_ES_USER_PLACEHOLDER = "toolbox.es.user.placeholder";
+    public static final String TOOLBOX_ES_PASS = "toolbox.es.pass";
+    public static final String TOOLBOX_ES_PASS_PLACEHOLDER = "toolbox.es.pass.placeholder";
+    public static final String TOOLBOX_ES_CONNECT = "toolbox.es.connect";
+    public static final String TOOLBOX_ES_STATUS_NOT_CONNECTED = "toolbox.es.status.not_connected";
+    public static final String TOOLBOX_ES_STATUS_CONNECTED = "toolbox.es.status.connected";
+    public static final String TOOLBOX_ES_STATUS_CONNECTING = "toolbox.es.status.connecting";
+    public static final String TOOLBOX_ES_STATUS_CONNECT_FAILED = "toolbox.es.status.connect_failed";
+    public static final String TOOLBOX_ES_STATUS_CONNECTION_FAILED = "toolbox.es.status.connection_failed";
+    public static final String TOOLBOX_ES_STATUS_READY = "toolbox.es.status.ready";
+
+    // 索引管理
+    public static final String TOOLBOX_ES_INDEX_MANAGEMENT = "toolbox.es.index.management";
+    public static final String TOOLBOX_ES_INDEX_REFRESH = "toolbox.es.index.refresh";
+    public static final String TOOLBOX_ES_INDEX_DELETE = "toolbox.es.index.delete";
+    public static final String TOOLBOX_ES_INDEX_STATS = "toolbox.es.index.stats";
+    public static final String TOOLBOX_ES_INDEX_CREATE = "toolbox.es.index.create";
+    public static final String TOOLBOX_ES_INDEX_CREATE_TITLE = "toolbox.es.index.create.title";
+    public static final String TOOLBOX_ES_INDEX_NAME = "toolbox.es.index.name";
+    public static final String TOOLBOX_ES_INDEX_NAME_PLACEHOLDER = "toolbox.es.index.name.placeholder";
+    public static final String TOOLBOX_ES_INDEX_SHARDS = "toolbox.es.index.shards";
+    public static final String TOOLBOX_ES_INDEX_REPLICAS = "toolbox.es.index.replicas";
+    public static final String TOOLBOX_ES_INDEX_LOADED = "toolbox.es.index.loaded";
+    public static final String TOOLBOX_ES_INDEX_LOAD_FAILED = "toolbox.es.index.load_failed";
+    public static final String TOOLBOX_ES_INDEX_CREATED = "toolbox.es.index.created";
+    public static final String TOOLBOX_ES_INDEX_CREATE_FAILED = "toolbox.es.index.create_failed";
+    public static final String TOOLBOX_ES_INDEX_DELETED = "toolbox.es.index.deleted";
+    public static final String TOOLBOX_ES_INDEX_DELETE_FAILED = "toolbox.es.index.delete_failed";
+    public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM = "toolbox.es.index.delete.confirm";
+    public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM_TITLE = "toolbox.es.index.delete.confirm.title";
+    public static final String TOOLBOX_ES_INDEX_SELECT_TO_DELETE = "toolbox.es.index.select_to_delete";
+    public static final String TOOLBOX_ES_INDEX_SELECT_FOR_STATS = "toolbox.es.index.select_for_stats";
+    public static final String TOOLBOX_ES_INDEX_NAME_REQUIRED = "toolbox.es.index.name_required";
+
+    // DSL 编辑器
+    public static final String TOOLBOX_ES_TEMPLATE_LABEL = "toolbox.es.template.label";
+    public static final String TOOLBOX_ES_LOAD_TEMPLATE = "toolbox.es.load_template";
+    public static final String TOOLBOX_ES_FORMAT_JSON = "toolbox.es.format_json";
+    public static final String TOOLBOX_ES_COPY_RESULT = "toolbox.es.copy_result";
+    public static final String TOOLBOX_ES_CLEAR = "toolbox.es.clear";
+    public static final String TOOLBOX_ES_EXECUTE = "toolbox.es.execute";
+    public static final String TOOLBOX_ES_PATH_PLACEHOLDER = "toolbox.es.path.placeholder";
+    public static final String TOOLBOX_ES_DSL_TITLE = "toolbox.es.dsl.title";
+    public static final String TOOLBOX_ES_RESPONSE_TITLE = "toolbox.es.response.title";
+    public static final String TOOLBOX_ES_TAB_TABLE = "toolbox.es.tab.table";
+    public static final String TOOLBOX_ES_TAB_RAW = "toolbox.es.tab.raw";
+    public static final String TOOLBOX_ES_COPY_CELL = "toolbox.es.copy_cell";
+
+    // 状态 & 错误消息
+    public static final String TOOLBOX_ES_STATUS_CLEARED = "toolbox.es.status.cleared";
+    public static final String TOOLBOX_ES_STATUS_EXECUTING = "toolbox.es.status.executing";
+    public static final String TOOLBOX_ES_STATUS_SUCCESS = "toolbox.es.status.success";
+    public static final String TOOLBOX_ES_STATUS_REQUEST_FAILED = "toolbox.es.status.request_failed";
+    public static final String TOOLBOX_ES_STATUS_FORMATTED = "toolbox.es.status.formatted";
+    public static final String TOOLBOX_ES_STATUS_NOT_JSON = "toolbox.es.status.not_json";
+    public static final String TOOLBOX_ES_STATUS_COPIED = "toolbox.es.status.copied";
+    public static final String TOOLBOX_ES_ERR_HOST_REQUIRED = "toolbox.es.err.host_required";
+    public static final String TOOLBOX_ES_ERR_PATH_REQUIRED = "toolbox.es.err.path_required";
+    public static final String TOOLBOX_ES_ERR_NOT_CONNECTED = "toolbox.es.err.not_connected";
+    public static final String TOOLBOX_ES_ERR_CONNECT_FAILED = "toolbox.es.err.connect_failed";
+    public static final String TOOLBOX_ES_TITLE = "toolbox.es.title";
+
     public static final String TOOLBOX_CRON = "toolbox.cron";
     public static final String TOOLBOX_CRON_EXPRESSION = "toolbox.cron.expression";
     public static final String TOOLBOX_CRON_PARSE = "toolbox.cron.parse";
