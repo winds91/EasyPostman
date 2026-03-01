@@ -1824,6 +1824,12 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM_TITLE = "toolbox.es.index.delete.confirm.title";
     public static final String TOOLBOX_ES_INDEX_SELECT_TO_DELETE = "toolbox.es.index.select_to_delete";
     public static final String TOOLBOX_ES_INDEX_NAME_REQUIRED = "toolbox.es.index.name_required";
+    public static final String TOOLBOX_ES_INDEX_CLEAR = "toolbox.es.index.clear";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_CONFIRM = "toolbox.es.index.clear.confirm";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_CONFIRM_TITLE = "toolbox.es.index.clear.confirm.title";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_FAILED = "toolbox.es.index.clear_failed";
+    public static final String TOOLBOX_ES_INDEX_VIEW_MAPPING = "toolbox.es.index.view_mapping";
+    public static final String TOOLBOX_ES_INDEX_VIEW_SETTINGS = "toolbox.es.index.view_settings";
 
     // DSL 编辑器
     public static final String TOOLBOX_ES_LOAD_TEMPLATE = "toolbox.es.load_template";

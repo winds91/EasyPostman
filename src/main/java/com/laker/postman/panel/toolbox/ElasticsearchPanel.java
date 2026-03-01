@@ -209,7 +209,7 @@ public class ElasticsearchPanel extends JPanel {
         indexList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent evt) {
-                if (evt.getClickCount() == 2) {
+                if (evt.getClickCount() == 2 && !SwingUtilities.isRightMouseButton(evt)) {
                     String sel = indexList.getSelectedValue();
                     if (sel != null) {
                         pathField.setText("/" + sel + "/_mapping");
@@ -218,6 +218,72 @@ public class ElasticsearchPanel extends JPanel {
                         executeRequest();
                     }
                 }
+            }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent evt) {
+                maybeShowPopup(evt);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent evt) {
+                maybeShowPopup(evt);
+            }
+
+            private void maybeShowPopup(java.awt.event.MouseEvent evt) {
+                if (!SwingUtilities.isRightMouseButton(evt)) return;
+                // 先选中右键点击的行
+                int idx = indexList.locationToIndex(evt.getPoint());
+                if (idx >= 0) indexList.setSelectedIndex(idx);
+                String sel = indexList.getSelectedValue();
+
+                JPopupMenu menu = new JPopupMenu();
+
+                // ── 删除索引 ────────────────────────────────────────────────
+                JMenuItem deleteItem = new JMenuItem(
+                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE));
+                deleteItem.setEnabled(sel != null);
+                deleteItem.addActionListener(e -> deleteIndex(sel));
+                menu.add(deleteItem);
+
+                // ── 清空索引（delete_by_query match_all）────────────────────
+                JMenuItem clearItem = new JMenuItem(
+                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR));
+                clearItem.setEnabled(sel != null);
+                clearItem.addActionListener(e -> clearIndex(sel));
+                menu.add(clearItem);
+
+                menu.addSeparator();
+
+                // ── 查看 Mapping ─────────────────────────────────────────────
+                JMenuItem mappingItem = new JMenuItem(
+                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_VIEW_MAPPING));
+                mappingItem.setEnabled(sel != null);
+                mappingItem.addActionListener(e -> {
+                    if (sel != null) {
+                        pathField.setText("/" + sel + "/_mapping");
+                        methodCombo.setSelectedItem("GET");
+                        dslEditor.setText("");
+                        executeRequest();
+                    }
+                });
+                menu.add(mappingItem);
+
+                // ── 查看 Settings ────────────────────────────────────────────
+                JMenuItem settingsItem = new JMenuItem(
+                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_VIEW_SETTINGS));
+                settingsItem.setEnabled(sel != null);
+                settingsItem.addActionListener(e -> {
+                    if (sel != null) {
+                        pathField.setText("/" + sel + "/_settings");
+                        methodCombo.setSelectedItem("GET");
+                        dslEditor.setText("");
+                        executeRequest();
+                    }
+                });
+                menu.add(settingsItem);
+
+                menu.show(indexList, evt.getX(), evt.getY());
             }
         });
         JScrollPane listScroll = new JScrollPane(indexList);
@@ -238,15 +304,7 @@ public class ElasticsearchPanel extends JPanel {
             }
         });
 
-        // 操作按钮行（仅保留删除）
-        JPanel actionBar = new JPanel(new GridLayout(1, 1, 4, 0));
-        actionBar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 1, 0, UIManager.getColor("Separator.foreground")),
-                BorderFactory.createEmptyBorder(4, 6, 4, 6)));
-        SecondaryButton deleteBtn = new SecondaryButton(
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE), "icons/delete.svg");
-        deleteBtn.addActionListener(e -> deleteSelectedIndex());
-        actionBar.add(deleteBtn);
+        // 操作按钮行已移除（删除按钮去掉）
 
         // 创建索引面板
         JPanel createPanel = new JPanel(new GridBagLayout());
@@ -295,13 +353,9 @@ public class ElasticsearchPanel extends JPanel {
         topArea.add(titleBar, BorderLayout.NORTH);
         topArea.add(searchBox, BorderLayout.CENTER);
 
-        JPanel bottom = new JPanel(new BorderLayout());
-        bottom.add(actionBar, BorderLayout.NORTH);
-        bottom.add(createPanel, BorderLayout.CENTER);
-
         panel.add(topArea, BorderLayout.NORTH);
         panel.add(listScroll, BorderLayout.CENTER);
-        panel.add(bottom, BorderLayout.SOUTH);
+        panel.add(createPanel, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -460,6 +514,62 @@ public class ElasticsearchPanel extends JPanel {
 
     // ===== 核心功能方法 =====
 
+    /** 删除索引（右键菜单触发） */
+    private void deleteIndex(String indexName) {
+        if (!connected || indexName == null) return;
+        int opt = JOptionPane.showConfirmDialog(this,
+                MessageFormat.format(
+                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_CONFIRM), indexName),
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_CONFIRM_TITLE),
+                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (opt != JOptionPane.YES_OPTION) return;
+        new SwingWorker<String, Void>() {
+            @Override protected String doInBackground() throws Exception {
+                return doDelete("/" + indexName, "");
+            }
+            @Override protected void done() {
+                try {
+                    String resp = get();
+                    resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
+                    resultArea.setCaretPosition(0);
+                    loadIndices();
+                } catch (Exception ex) {
+                    showError(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_FAILED),
+                            ex.getMessage()));
+                }
+            }
+        }.execute();
+    }
+
+    /** 清空索引数据（delete_by_query match_all，保留索引结构） */
+    private void clearIndex(String indexName) {
+        if (!connected || indexName == null) return;
+        int opt = JOptionPane.showConfirmDialog(this,
+                MessageFormat.format(
+                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR_CONFIRM), indexName),
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR_CONFIRM_TITLE),
+                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (opt != JOptionPane.YES_OPTION) return;
+        String body = "{\n  \"query\": {\n    \"match_all\": {}\n  }\n}";
+        new SwingWorker<String, Void>() {
+            @Override protected String doInBackground() throws Exception {
+                return doPost("/" + indexName + "/_delete_by_query", body);
+            }
+            @Override protected void done() {
+                try {
+                    String resp = get();
+                    resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
+                    resultArea.setCaretPosition(0);
+                } catch (Exception ex) {
+                    showError(MessageFormat.format(
+                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_CLEAR_FAILED),
+                            ex.getMessage()));
+                }
+            }
+        }.execute();
+    }
+
     private void doConnect() {
         String url = hostField.getText().trim();
         if (url.isEmpty()) {
@@ -580,44 +690,6 @@ public class ElasticsearchPanel extends JPanel {
         worker.execute();
     }
 
-    private void deleteSelectedIndex() {
-        if (!connected) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_ERR_NOT_CONNECTED));
-            return;
-        }
-        String sel = indexList.getSelectedValue();
-        if (sel == null) {
-            showError(I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_SELECT_TO_DELETE));
-            return;
-        }
-        int opt = JOptionPane.showConfirmDialog(this,
-                MessageFormat.format(
-                        I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_CONFIRM), sel),
-                I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_CONFIRM_TITLE),
-                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (opt != JOptionPane.YES_OPTION) return;
-        SwingWorker<String, Void> worker = new SwingWorker<>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                return doDelete("/" + sel, "");
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    String resp = get();
-                    resultArea.setText(JsonUtil.toJsonPrettyStr(resp));
-                    resultArea.setCaretPosition(0);
-                    loadIndices();
-                } catch (Exception ex) {
-                    showError(MessageFormat.format(
-                            I18nUtil.getMessage(MessageKeys.TOOLBOX_ES_INDEX_DELETE_FAILED),
-                            ex.getMessage()));
-                }
-            }
-        };
-        worker.execute();
-    }
 
     private void executeRequest() {
         if (!connected) {
