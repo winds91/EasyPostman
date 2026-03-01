@@ -102,9 +102,13 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
 
     /**
      * 启用JTable行拖动排序
+     * 注意：不使用 setDragEnabled(true)，而是只在拖拽手柄区域手动触发拖拽，
+     * 避免全局 dragEnabled 干扰单击编辑行为。
      */
     private void enableRowDragAndDrop() {
-        table.setDragEnabled(true);
+        // 不调用 table.setDragEnabled(true)，防止 Swing 的 DragGestureRecognizer
+        // 拦截 mousePressed 事件，导致单击编辑失效。
+        // 拖拽由 addDragHandleMouseListener() 中的 exportAsDrag 手动触发。
         table.setDropMode(DropMode.INSERT_ROWS);
 
         // 传递回调函数，在拖拽期间控制自动补空行和编辑状态

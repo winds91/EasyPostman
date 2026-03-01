@@ -995,6 +995,23 @@ public abstract class AbstractTablePanel<T> extends JPanel {
             table.getCellEditor().stopCellEditing();
         }
 
+        if (!reverse) {
+            // Tab 向前：检测是否在最后一行的最后一个可编辑列
+            boolean isLastRow = (currentRow == table.getRowCount() - 1);
+            boolean isLastEditableCol = (currentColumn == getLastEditableColumnIndex());
+            if (isLastRow && isLastEditableCol && editable) {
+                // 类似 Enter 在 Value 列的行为：追加新行并跳到它的 Key 列
+                SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() -> {
+                    int last = table.getRowCount() - 1;
+                    if (last > currentRow) {
+                        startEditAt(last, getFirstEditableColumnIndex());
+                    }
+                    // 若 autoAppend 未追加（当前行是空行），停留不动
+                }));
+                return;
+            }
+        }
+
         // 计算目标单元格（stopCellEditing 是同步的，但 model 更新可能触发事件，用 invokeLater 保证时序）
         final int[] target = reverse
                 ? findPreviousEditableCell(currentRow, currentColumn)
@@ -1022,7 +1039,7 @@ public abstract class AbstractTablePanel<T> extends JPanel {
                     row++;
                     col = getFirstEditableColumnIndex() - 1; // 下一次循环 +1 后正好是 firstEditable
                 } else {
-                    // 已到末尾，停在最后一个可编辑列
+                    // 已到末尾（此分支在 moveToNextEditableCell 中已提前处理），停在最后一个可编辑列
                     return new int[]{row, getLastEditableColumnIndex()};
                 }
                 continue; // 让循环 col++ 来到正确位置
