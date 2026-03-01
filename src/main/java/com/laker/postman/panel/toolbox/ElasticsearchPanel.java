@@ -78,7 +78,7 @@ public class ElasticsearchPanel extends JPanel {
     // ===== 内置 DSL 模板（名称走 i18n，DSL body 保持英文原样）=====
     private static final String[][] DSL_TEMPLATES = {
             {"toolbox.es.tpl.match_all", "GET", SEARCH_PATH,
-                    "{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 20\n}"},
+                    "{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 60\n}"},
             {"toolbox.es.tpl.match", "GET", SEARCH_PATH,
                     "{\n  \"query\": {\n    \"match\": {\n      \"field\": \"value\"\n    }\n  }\n}"},
             {"toolbox.es.tpl.term", "GET", SEARCH_PATH,
@@ -298,13 +298,16 @@ public class ElasticsearchPanel extends JPanel {
 
     private java.awt.event.MouseAdapter buildIndexListMouseListener() {
         return new java.awt.event.MouseAdapter() {
-            @Override public void mousePressed(java.awt.event.MouseEvent evt)  { maybeShowIndexPopup(evt); }
-            @Override public void mouseReleased(java.awt.event.MouseEvent evt) { maybeShowIndexPopup(evt); }
+            @Override public void mousePressed(java.awt.event.MouseEvent evt)  {
+                if (evt.isPopupTrigger()) maybeShowIndexPopup(evt);
+            }
+            @Override public void mouseReleased(java.awt.event.MouseEvent evt) {
+                if (evt.isPopupTrigger()) maybeShowIndexPopup(evt);
+            }
         };
     }
 
     private void maybeShowIndexPopup(java.awt.event.MouseEvent evt) {
-        if (!SwingUtilities.isRightMouseButton(evt)) return;
         int idx = indexList.locationToIndex(evt.getPoint());
         if (idx >= 0) indexList.setSelectedIndex(idx);
         String sel = indexList.getSelectedValue();
@@ -475,7 +478,7 @@ public class ElasticsearchPanel extends JPanel {
                 BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
                 BorderFactory.createEmptyBorder(2, 4, 2, 4)));
         dslEditor = createJsonEditor(true);
-        dslEditor.setText("{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 20\n}");
+        dslEditor.setText("{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 60\n}");
         RTextScrollPane editorScroll = new RTextScrollPane(dslEditor);
         editorScroll.setLineNumbersEnabled(true);
         editorScroll.setBorder(BorderFactory.createEmptyBorder());
