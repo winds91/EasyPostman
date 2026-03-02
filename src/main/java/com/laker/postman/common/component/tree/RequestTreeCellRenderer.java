@@ -25,7 +25,7 @@ import java.util.Date;
  */
 public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
 
-    private static final int ICON_SIZE = 16;
+    private static final int ICON_SIZE = 18;
 
     /**
      * 当前鼠标悬浮的行号，-1 表示无悬浮；由外部（MouseMotionListener）更新
@@ -117,7 +117,7 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
         boolean isHover = (row == hoveredRow);
 
         if (isRootLevel) {
-            setIcon(new FlatSVGIcon("icons/root_group.svg", ICON_SIZE, ICON_SIZE));
+            setIcon(new FlatSVGIcon("icons/collection.svg", ICON_SIZE, ICON_SIZE));
 
         } else {
             setIcon(new FlatSVGIcon("icons/group.svg", ICON_SIZE, ICON_SIZE));
@@ -127,10 +127,8 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
             // hover 时用纯文本，JLabel 能自动省略超长文字
             setText(groupName);
         } else {
-            int baseFontSize = SettingManager.getUiFontSize();
-            int nameFontSize = Math.max(9, baseFontSize - 3);
             String nameColor = FlatLaf.isLafDark() ? "#e2e8f0" : "#1e293b";
-            setText("<html><nobr><span style='font-size:" + nameFontSize + "px;color:" + nameColor + "'>"
+            setText("<html><nobr><span color:" + nameColor + "'>"
                     + escapeHtml(groupName) + "</span></nobr></html>");
         }
 

@@ -39,8 +39,6 @@ public class RequestTreePopupMenu {
         TreePath[] selectedPaths = requestTree.getSelectionPaths();
         boolean isMultipleSelection = selectedPaths != null && selectedPaths.length > 1;
 
-        // 始终显示"创建根分组"选项
-        addRootGroupMenuItem(menu);
 
         if (selectedNode == null || selectedNode == leftPanel.getRootTreeNode()) {
             menu.show(requestTree, x, y);
@@ -54,7 +52,7 @@ public class RequestTreePopupMenu {
 
         // 请求节点菜单
         if (userObj instanceof Object[] && REQUEST.equals(((Object[]) userObj)[0])) {
-            addRequestMenuItems(menu, isMultipleSelection);
+            addRequestMenuItems(menu, selectedNode, isMultipleSelection);
         }
 
         // 保存的响应节点菜单 - 只显示重命名和删除，不显示粘贴等其他选项
@@ -77,23 +75,11 @@ public class RequestTreePopupMenu {
         menu.show(requestTree, x, y);
     }
 
-    /**
-     * 添加创建根分组菜单项
-     */
-    private void addRootGroupMenuItem(JPopupMenu menu) {
-        JMenuItem item = new JMenuItem(
-                I18nUtil.getMessage(MessageKeys.COLLECTIONS_MENU_ADD_ROOT_GROUP),
-                IconUtil.create("icons/root_group.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL)
-        );
-        item.addActionListener(e -> actions.showAddGroupDialog(leftPanel.getRootTreeNode()));
-        menu.add(item);
-    }
 
     /**
      * 添加分组相关菜单项
      */
     private void addGroupMenuItems(JPopupMenu menu, DefaultMutableTreeNode selectedNode, boolean isMultipleSelection) {
-        menu.addSeparator();
 
         // 添加到功能测试
         JMenuItem addToFunctional = createMenuItem(
@@ -155,7 +141,7 @@ public class RequestTreePopupMenu {
     /**
      * 添加请求相关菜单项
      */
-    private void addRequestMenuItems(JPopupMenu menu, boolean isMultipleSelection) {
+    private void addRequestMenuItems(JPopupMenu menu, DefaultMutableTreeNode selectedNode, boolean isMultipleSelection) {
         // 添加到功能测试
         JMenuItem addToFunctional = createMenuItem(
                 MessageKeys.COLLECTIONS_MENU_ADD_TO_FUNCTIONAL,
@@ -164,6 +150,18 @@ public class RequestTreePopupMenu {
         );
         menu.add(addToFunctional);
         menu.addSeparator();
+
+        // 新增请求（在同级分组下）
+        DefaultMutableTreeNode parentGroup = (DefaultMutableTreeNode) selectedNode.getParent();
+        if (parentGroup != null) {
+            JMenuItem addRequest = createMenuItem(
+                    MessageKeys.COLLECTIONS_MENU_ADD_REQUEST,
+                    "icons/request.svg",
+                    e -> actions.showAddRequestDialog(parentGroup)
+            );
+            addRequest.setEnabled(!isMultipleSelection);
+            menu.add(addRequest);
+        }
 
         // 复制（创建副本）
         JMenuItem duplicate = createMenuItem(

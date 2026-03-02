@@ -11,6 +11,9 @@ import javax.swing.tree.DefaultTreeCellRenderer;
 import java.awt.*;
 
 public class JMeterTreeCellRenderer extends DefaultTreeCellRenderer {
+
+    public static final int SIZE = 18;
+
     @Override
     public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
         JLabel label = (JLabel) super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
@@ -19,11 +22,11 @@ public class JMeterTreeCellRenderer extends DefaultTreeCellRenderer {
         if (userObj instanceof JMeterTreeNode jtNode) {
             // 设置图标
             switch (jtNode.type) {
-                case THREAD_GROUP -> label.setIcon(IconUtil.createThemed("icons/user-group.svg", 16, 16));
-                case REQUEST -> label.setIcon(new FlatSVGIcon("icons/http.svg", 16, 16));
-                case ASSERTION -> label.setIcon(IconUtil.createThemed("icons/warning.svg", 16, 16));
-                case TIMER -> label.setIcon(IconUtil.createThemed("icons/time.svg", 16, 16));
-                case ROOT -> label.setIcon(new FlatSVGIcon("icons/computer.svg", 16, 16));
+                case THREAD_GROUP -> label.setIcon(IconUtil.createThemed("icons/user-group.svg", SIZE, SIZE));
+                case REQUEST -> label.setIcon(new FlatSVGIcon("icons/http.svg", SIZE, SIZE));
+                case ASSERTION -> label.setIcon(IconUtil.createThemed("icons/warning.svg", SIZE, SIZE));
+                case TIMER -> label.setIcon(IconUtil.createThemed("icons/time.svg", SIZE, SIZE));
+                case ROOT -> label.setIcon(new FlatSVGIcon("icons/computer.svg", SIZE, SIZE));
             }
 
             String text = jtNode.name;
@@ -32,11 +35,11 @@ public class JMeterTreeCellRenderer extends DefaultTreeCellRenderer {
                 if (!sel) {
                     label.setForeground(disabledColor);
                 }
-                label.setFont(FontsUtil.getDefaultFontWithOffset(Font.ITALIC, -1));
+                label.setFont(FontsUtil.getDefaultFont(Font.ITALIC));
                 label.setText("<html><strike>" + text + "</strike></html>");
             } else {
                 // 启用状态：恢复正常样式
-                label.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
+                label.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
                 label.setText(text);
             }
         }

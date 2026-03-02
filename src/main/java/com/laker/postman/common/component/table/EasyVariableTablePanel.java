@@ -102,9 +102,13 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
 
     /**
      * 启用JTable行拖动排序
+     * 注意：不使用 setDragEnabled(true)，而是只在拖拽手柄区域手动触发拖拽，
+     * 避免全局 dragEnabled 干扰单击编辑行为。
      */
     private void enableRowDragAndDrop() {
-        table.setDragEnabled(true);
+        // 不调用 table.setDragEnabled(true)，防止 Swing 的 DragGestureRecognizer
+        // 拦截 mousePressed 事件，导致单击编辑失效。
+        // 拖拽由 addDragHandleMouseListener() 中的 exportAsDrag 手动触发。
         table.setDropMode(DropMode.INSERT_ROWS);
 
         // 传递回调函数，在拖拽期间控制自动补空行和编辑状态
@@ -414,6 +418,25 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
         // Use parent class method with recursion protection
         stopCellEditingWithProtection();
 
+        List<Variable> dataList = new ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            boolean enabled = getBooleanValue(i, COL_DRAG_ENABLE);
+            String key = getStringValue(i, COL_KEY);
+            String value = getStringValue(i, COL_VALUE);
+
+            if (!key.isEmpty()) {
+                dataList.add(new Variable(enabled, key, value));
+            }
+        }
+        return dataList;
+    }
+
+    /**
+     * 从 tableModel 直接读取变量列表，不停止当前单元格编辑。
+     * 用于自动保存 / tab 指示器等后台场景，避免打断用户正在进行的输入。
+     * 正在编辑的单元格值尚未提交到 model，因此读取的是上一次已提交的值。
+     */
+    public List<Variable> getVariableListFromModel() {
         List<Variable> dataList = new ArrayList<>();
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             boolean enabled = getBooleanValue(i, COL_DRAG_ENABLE);

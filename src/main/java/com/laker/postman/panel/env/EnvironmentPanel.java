@@ -8,8 +8,7 @@ import com.laker.postman.common.SingletonBasePanel;
 import com.laker.postman.common.SingletonFactory;
 import com.laker.postman.common.component.SearchTextField;
 import com.laker.postman.common.component.button.EditButton;
-import com.laker.postman.common.component.button.ExportButton;
-import com.laker.postman.common.component.button.ImportButton;
+import com.laker.postman.common.component.button.PlusButton;
 import com.laker.postman.common.component.button.SaveButton;
 import com.laker.postman.common.component.combobox.EnvironmentComboBox;
 import com.laker.postman.common.component.list.EnvironmentListCellRenderer;
@@ -57,7 +56,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
     private JList<EnvironmentItem> environmentList;
     private DefaultListModel<EnvironmentItem> environmentListModel;
     private SearchTextField searchField;
-    private ImportButton importBtn;
+    private PlusButton plusBtn;
     private String originalVariablesSnapshot; // 原始变量快照，直接用json字符串
     private boolean isLoadingData = false; // 用于控制是否正在加载数据，防止自动保存
     private SearchTextField tableSearchField; // 表格搜索框
@@ -205,8 +204,9 @@ public class EnvironmentPanel extends SingletonBasePanel {
         if (currentEnvironment == null) return;
 
         try {
-            variablesTablePanel.stopCellEditing();
-            List<Variable> variableList = variablesTablePanel.getVariableList();
+            // 直接从 model 读取，不停止单元格编辑，避免打断用户正在进行的输入（如 Tab 导航）。
+            // 此方法由 TableModelListener（invokeLater）触发，model 中已经是最新已提交的值。
+            List<Variable> variableList = variablesTablePanel.getVariableListFromModel();
             currentEnvironment.setVariableList(new ArrayList<>(variableList)); // 使用副本避免并发修改
             EnvironmentService.saveEnvironment(currentEnvironment);
             // 保存后更新快照
@@ -218,39 +218,50 @@ public class EnvironmentPanel extends SingletonBasePanel {
     }
 
     private JPanel getSearchAndImportPanel() {
-        JPanel importExportPanel = new JPanel();
-        importExportPanel.setLayout(new BoxLayout(importExportPanel, BoxLayout.X_AXIS));
-        importExportPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.X_AXIS));
+        topPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        importBtn = new ImportButton();
-        importBtn.addActionListener(e -> showImportMenu());
-
-        ExportButton exportBtn = new ExportButton();
-        exportBtn.addActionListener(e -> exportEnvironments());
+        plusBtn = new PlusButton();
+        plusBtn.setToolTipText("New / Import");
+        plusBtn.addActionListener(e -> showPlusMenu());
 
         searchField = new SearchTextField();
 
-        importExportPanel.add(importBtn);
-        importExportPanel.add(exportBtn);
-        importExportPanel.add(searchField);
-        return importExportPanel;
+        topPanel.add(plusBtn);
+        topPanel.add(Box.createHorizontalStrut(4));
+        topPanel.add(searchField);
+        return topPanel;
     }
 
-    private void showImportMenu() {
-        JPopupMenu importMenu = new JPopupMenu();
+    private void showPlusMenu() {
+        JPopupMenu menu = new JPopupMenu();
+
+        // ── 新建环境
+        JMenuItem newEnvItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.ENV_BUTTON_ADD),
+                IconUtil.create("icons/plus.svg", IconUtil.SIZE_MEDIUM, IconUtil.SIZE_MEDIUM));
+        newEnvItem.addActionListener(e -> addEnvironment());
+        menu.add(newEnvItem);
+
+        menu.addSeparator();
+
+        // ── 导入
         JMenuItem importEasyToolsItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.ENV_MENU_IMPORT_EASY),
                 IconUtil.create("icons/easy.svg", IconUtil.SIZE_MEDIUM, IconUtil.SIZE_MEDIUM));
         importEasyToolsItem.addActionListener(e -> importEnvironments());
+        menu.add(importEasyToolsItem);
+
         JMenuItem importPostmanItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.ENV_MENU_IMPORT_POSTMAN),
-                IconUtil.create("icons/postman.svg", IconUtil.SIZE_MEDIUM, IconUtil.SIZE_MEDIUM)); // 彩色
+                IconUtil.create("icons/postman.svg", IconUtil.SIZE_MEDIUM, IconUtil.SIZE_MEDIUM));
         importPostmanItem.addActionListener(e -> importPostmanEnvironments());
+        menu.add(importPostmanItem);
+
         JMenuItem importIntelliJItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.ENV_MENU_IMPORT_INTELLIJ),
                 IconUtil.create("icons/idea-http.svg", IconUtil.SIZE_MEDIUM, IconUtil.SIZE_MEDIUM));
         importIntelliJItem.addActionListener(e -> importIntelliJEnvironments());
-        importMenu.add(importEasyToolsItem);
-        importMenu.add(importPostmanItem);
-        importMenu.add(importIntelliJItem);
-        importMenu.show(importBtn, 0, importBtn.getHeight());
+        menu.add(importIntelliJItem);
+
+        menu.show(plusBtn, 0, plusBtn.getHeight());
     }
 
     @Override
@@ -590,7 +601,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
     /**
      * 导出所有环境变量为JSON文件
      */
-    private void exportEnvironments() {
+    public void exportEnvironments() {
         JFileChooser fileChooser = new JFileChooser();
         fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_TITLE));
         fileChooser.setSelectedFile(new File(EXPORT_FILE_NAME));
@@ -885,7 +896,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
 
     // 判断当前表格内容和快照是否一致，使用JSON序列化比较
     private boolean isVariablesChanged() {
-        String curJson = JSONUtil.toJsonStr(variablesTablePanel.getVariableList());
+        String curJson = JSONUtil.toJsonStr(variablesTablePanel.getVariableListFromModel());
         boolean isVariablesChanged = !CharSequenceUtil.equals(curJson, originalVariablesSnapshot);
         if (isVariablesChanged) {
             log.debug("env name: {}", currentEnvironment != null ? currentEnvironment.getName() : "null");

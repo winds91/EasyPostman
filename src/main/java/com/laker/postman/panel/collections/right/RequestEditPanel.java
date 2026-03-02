@@ -8,6 +8,7 @@ import com.laker.postman.common.SingletonFactory;
 import com.laker.postman.common.component.tab.ClosableTabComponent;
 import com.laker.postman.common.component.tab.PlusPanel;
 import com.laker.postman.common.component.tab.PlusTabComponent;
+import com.laker.postman.common.component.tab.TabbedPaneDragHandler;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.frame.MainFrame;
 import com.laker.postman.model.HttpRequestItem;
@@ -52,6 +53,9 @@ public class RequestEditPanel extends SingletonBasePanel {
     public static final String GROUP = "group";
     @Getter
     private JTabbedPane tabbedPane; // 使用 JTabbedPane 管理多个请求编辑子面板
+
+    @Getter
+    private TabbedPaneDragHandler dragHandler; // Tab 拖拽排序支持
 
     // 预览模式：单击使用的临时 tab（可被下次单击替换）
     private Component previewTab = null; // 可以是 RequestEditSubPanel 或 GroupEditPanel
@@ -190,7 +194,8 @@ public class RequestEditPanel extends SingletonBasePanel {
             leftPanel.getPersistence().saveRequestGroups();
         });
 
-        showOrUpdatePreviewTab(groupEditPanel, groupName, null);
+        boolean isRoot = groupNode.getLevel() == 1;
+        showOrUpdatePreviewTab(groupEditPanel, groupName, null, isRoot);
     }
 
     // showOrCreateTab 需适配 "+" Tab（双击时调用，创建固定 tab）
@@ -626,8 +631,9 @@ public class RequestEditPanel extends SingletonBasePanel {
                     Object userObj = node.getUserObject();
                     if (userObj instanceof Object[] arr && GROUP.equals(arr[0]) && arr[1] instanceof RequestGroup group) {
                         setText(group.getName());
-                        // 橙色实心文件夹，模拟Postman分组
-                        setIcon(new FlatSVGIcon("icons/group.svg", 16, 16));
+                        // 根节点（collection）用 collection.svg，子文件夹用 group.svg
+                        String iconName = node.getLevel() == 1 ? "icons/collection.svg" : "icons/group.svg";
+                        setIcon(new FlatSVGIcon(iconName, 16, 16));
                     } else {
                         setText("");
                         setIcon(null);
@@ -694,7 +700,8 @@ public class RequestEditPanel extends SingletonBasePanel {
         if (idx < 0) return;
 
         // 重新创建 Tab 组件以更新标题
-        tabbedPane.setTabComponentAt(idx, new ClosableTabComponent(newTitle, null));
+        boolean isRoot = panel.getGroupNode() != null && panel.getGroupNode().getLevel() == 1;
+        tabbedPane.setTabComponentAt(idx, new ClosableTabComponent(newTitle, null, isRoot));
         tabbedPane.setToolTipTextAt(idx, newTitle);
     }
 
@@ -709,6 +716,12 @@ public class RequestEditPanel extends SingletonBasePanel {
         tabbedPane.putClientProperty(TABBED_PANE_TAB_INSETS, new Insets(3, 5, 3, 5));
         tabbedPane.putClientProperty(TABBED_PANE_TAB_HEIGHT, 38); // 设置tab高度，配合内边距让tab更美观
         add(tabbedPane, BorderLayout.CENTER);
+
+        // 安装 Tab 拖拽排序支持（IDEA 风格蓝色竖线指示）
+        // 通过 getter/setter 传入 previewTabIndex，确保拖拽移动后索引正确同步
+        dragHandler = TabbedPaneDragHandler.install(tabbedPane,
+                () -> previewTabIndex,
+                v -> previewTabIndex = v);
     }
 
     @Override
@@ -814,8 +827,9 @@ public class RequestEditPanel extends SingletonBasePanel {
 
         // 添加为新 Tab
         String groupName = group.getName();
+        boolean isRoot = groupNode.getLevel() == 1;
         tabbedPane.addTab(groupName, groupEditPanel);
-        tabbedPane.setTabComponentAt(tabbedPane.getTabCount() - 1, new ClosableTabComponent(groupName, null));
+        tabbedPane.setTabComponentAt(tabbedPane.getTabCount() - 1, new ClosableTabComponent(groupName, null, isRoot));
         tabbedPane.setSelectedIndex(tabbedPane.getTabCount() - 1);
 
         // 恢复+Tab
@@ -1023,19 +1037,24 @@ public class RequestEditPanel extends SingletonBasePanel {
         }
     }
 
+    private void showOrUpdatePreviewTab(Component panel, String name, RequestItemProtocolEnum protocol) {
+        showOrUpdatePreviewTab(panel, name, protocol, false);
+    }
+
     /**
      * 显示或更新预览 tab
      *
      * @param panel    要显示的面板
      * @param name     tab 名称
      * @param protocol 协议类型
+     * @param isRoot   是否为根文件夹（collection）
      */
-    private void showOrUpdatePreviewTab(Component panel, String name, RequestItemProtocolEnum protocol) {
+    private void showOrUpdatePreviewTab(Component panel, String name, RequestItemProtocolEnum protocol, boolean isRoot) {
         if (previewTab != null && previewTabIndex >= 0) {
             previewTab = panel;
             tabbedPane.setComponentAt(previewTabIndex, previewTab);
             tabbedPane.setTitleAt(previewTabIndex, name);
-            ClosableTabComponent tabComponent = new ClosableTabComponent(name, protocol);
+            ClosableTabComponent tabComponent = new ClosableTabComponent(name, protocol, isRoot);
             tabComponent.setPreviewMode(true);
             tabbedPane.setTabComponentAt(previewTabIndex, tabComponent);
             tabbedPane.setSelectedIndex(previewTabIndex);
@@ -1048,7 +1067,7 @@ public class RequestEditPanel extends SingletonBasePanel {
             previewTab = panel;
             tabbedPane.addTab(name, previewTab);
             previewTabIndex = tabbedPane.getTabCount() - 1;
-            ClosableTabComponent tabComponent = new ClosableTabComponent(name, protocol);
+            ClosableTabComponent tabComponent = new ClosableTabComponent(name, protocol, isRoot);
             tabComponent.setPreviewMode(true);
             tabbedPane.setTabComponentAt(previewTabIndex, tabComponent);
             tabbedPane.setSelectedIndex(previewTabIndex);

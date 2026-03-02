@@ -13,6 +13,8 @@ public final class MessageKeys {
     public static final String MENU_FILE = "menu.file";
     public static final String MENU_FILE_LOG = "menu.file.log";
     public static final String MENU_FILE_EXIT = "menu.file.exit";
+    public static final String MENU_FILE_EXPORT_COLLECTIONS = "menu.file.export_collections";
+    public static final String MENU_FILE_EXPORT_ENVIRONMENTS = "menu.file.export_environments";
     public static final String MENU_LANGUAGE = "menu.language";
     public static final String MENU_THEME = "menu.theme";
     public static final String MENU_THEME_LIGHT = "menu.theme.light";
@@ -272,7 +274,6 @@ public final class MessageKeys {
     public static final String SCRIPT_HELP_SHORTCUTS = "script.help.shortcuts";
     public static final String SCRIPT_HELP_EXAMPLES = "script.help.examples";
     public static final String SCRIPT_PRESCRIPT_EXECUTION_FAILED = "script.prescript.execution.failed";
-    public static final String SCRIPT_PRESCRIPT_ERROR_TITLE = "script.prescript.error.title";
     public static final String SCRIPT_POSTSCRIPT_EXECUTION_FAILED = "script.postscript.execution.failed";
     public static final String SCRIPT_POSTSCRIPT_ERROR_TITLE = "script.postscript.error.title";
 
@@ -577,6 +578,7 @@ public final class MessageKeys {
     public static final String EXIT_CANCEL = "exit.cancel";
 
     // ============ 集合相关 ============
+    public static final String COLLECTIONS_NEW_COLLECTION = "collections.new_collection";
     public static final String COLLECTIONS_IMPORT_CURL_DETECTED = "collections.import.curl.detected";
     public static final String COLLECTIONS_IMPORT_CURL_TITLE = "collections.import.curl.title";
     public static final String COLLECTIONS_IMPORT_EASY = "collections.import.easy";
@@ -590,7 +592,6 @@ public final class MessageKeys {
 
     // ============ 集合菜单相关 ============
     public static final String COLLECTIONS_MENU_ADD_GROUP = "collections.menu.add_group";
-    public static final String COLLECTIONS_MENU_ADD_ROOT_GROUP = "collections.menu.add_root_group";
     public static final String COLLECTIONS_MENU_ADD_REQUEST = "collections.menu.add_request";
     public static final String COLLECTIONS_MENU_DUPLICATE = "collections.menu.duplicate";
     public static final String COLLECTIONS_MENU_EXPORT_POSTMAN = "collections.menu.export_postman";
@@ -1788,6 +1789,65 @@ public final class MessageKeys {
     public static final String TOOLBOX_DECOMPILER_ROOT_TOOLTIP_LINE1 = "toolbox.decompiler.root_tooltip_line1";
     public static final String TOOLBOX_DECOMPILER_ROOT_TOOLTIP_LINE2 = "toolbox.decompiler.root_tooltip_line2";
 
+    // ============ Elasticsearch 工具相关 ============
+    public static final String TOOLBOX_ELASTICSEARCH = "toolbox.elasticsearch";
+
+    // 连接面板
+    public static final String TOOLBOX_ES_HOST = "toolbox.es.host";
+    public static final String TOOLBOX_ES_HOST_PLACEHOLDER = "toolbox.es.host.placeholder";
+    public static final String TOOLBOX_ES_USER = "toolbox.es.user";
+    public static final String TOOLBOX_ES_USER_PLACEHOLDER = "toolbox.es.user.placeholder";
+    public static final String TOOLBOX_ES_PASS = "toolbox.es.pass";
+    public static final String TOOLBOX_ES_PASS_PLACEHOLDER = "toolbox.es.pass.placeholder";
+    public static final String TOOLBOX_ES_CONNECT = "toolbox.es.connect";
+    public static final String TOOLBOX_ES_STATUS_NOT_CONNECTED = "toolbox.es.status.not_connected";
+    public static final String TOOLBOX_ES_STATUS_CONNECTED = "toolbox.es.status.connected";
+    public static final String TOOLBOX_ES_CONNECT_SUCCESS = "toolbox.es.connect.success";
+    public static final String TOOLBOX_ES_STATUS_REQUESTING = "toolbox.es.status.requesting";
+    public static final String TOOLBOX_ES_STATUS_OK = "toolbox.es.status.ok";
+    public static final String TOOLBOX_ES_STATUS_ERROR = "toolbox.es.status.error";
+    public static final String TOOLBOX_ES_RESULT_COPIED = "toolbox.es.result.copied";
+    public static final String TOOLBOX_ES_INDEX_LIST_EMPTY = "toolbox.es.index.list_empty";
+    // 索引管理
+    public static final String TOOLBOX_ES_INDEX_MANAGEMENT = "toolbox.es.index.management";
+    public static final String TOOLBOX_ES_INDEX_DELETE = "toolbox.es.index.delete";
+    public static final String TOOLBOX_ES_INDEX_CREATE = "toolbox.es.index.create";
+    public static final String TOOLBOX_ES_INDEX_NAME = "toolbox.es.index.name";
+    public static final String TOOLBOX_ES_INDEX_NAME_PLACEHOLDER = "toolbox.es.index.name.placeholder";
+    public static final String TOOLBOX_ES_INDEX_SHARDS = "toolbox.es.index.shards";
+    public static final String TOOLBOX_ES_INDEX_REPLICAS = "toolbox.es.index.replicas";
+    public static final String TOOLBOX_ES_INDEX_CREATE_FAILED = "toolbox.es.index.create_failed";
+    public static final String TOOLBOX_ES_INDEX_CREATE_SUCCESS = "toolbox.es.index.create_success";
+    public static final String TOOLBOX_ES_INDEX_DELETE_FAILED = "toolbox.es.index.delete_failed";
+    public static final String TOOLBOX_ES_INDEX_DELETE_SUCCESS = "toolbox.es.index.delete_success";
+    public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM = "toolbox.es.index.delete.confirm";
+    public static final String TOOLBOX_ES_INDEX_DELETE_CONFIRM_TITLE = "toolbox.es.index.delete.confirm.title";
+    public static final String TOOLBOX_ES_INDEX_NAME_REQUIRED = "toolbox.es.index.name_required";
+    public static final String TOOLBOX_ES_INDEX_CLEAR = "toolbox.es.index.clear";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_CONFIRM = "toolbox.es.index.clear.confirm";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_CONFIRM_TITLE = "toolbox.es.index.clear.confirm.title";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_FAILED = "toolbox.es.index.clear_failed";
+    public static final String TOOLBOX_ES_INDEX_CLEAR_SUCCESS = "toolbox.es.index.clear_success";
+    public static final String TOOLBOX_ES_INDEX_VIEW_MAPPING = "toolbox.es.index.view_mapping";
+    public static final String TOOLBOX_ES_INDEX_VIEW_SETTINGS = "toolbox.es.index.view_settings";
+
+    // DSL 编辑器
+    public static final String TOOLBOX_ES_LOAD_TEMPLATE = "toolbox.es.load_template";
+    public static final String TOOLBOX_ES_FORMAT_JSON = "toolbox.es.format_json";
+    public static final String TOOLBOX_ES_COPY_RESULT = "toolbox.es.copy_result";
+    public static final String TOOLBOX_ES_CLEAR = "toolbox.es.clear";
+    public static final String TOOLBOX_ES_EXECUTE = "toolbox.es.execute";
+    public static final String TOOLBOX_ES_PATH_PLACEHOLDER = "toolbox.es.path.placeholder";
+    public static final String TOOLBOX_ES_DSL_TITLE = "toolbox.es.dsl.title";
+    public static final String TOOLBOX_ES_RESPONSE_TITLE = "toolbox.es.response.title";
+    public static final String TOOLBOX_ES_TAB_TABLE = "toolbox.es.tab.table";
+    public static final String TOOLBOX_ES_TAB_RAW = "toolbox.es.tab.raw";
+    public static final String TOOLBOX_ES_ERR_HOST_REQUIRED = "toolbox.es.err.host_required";
+    public static final String TOOLBOX_ES_ERR_PATH_REQUIRED = "toolbox.es.err.path_required";
+    public static final String TOOLBOX_ES_ERR_NOT_CONNECTED = "toolbox.es.err.not_connected";
+    public static final String TOOLBOX_ES_ERR_CONNECT_FAILED = "toolbox.es.err.connect_failed";
+    public static final String TOOLBOX_ES_TITLE = "toolbox.es.title";
+
     public static final String TOOLBOX_CRON = "toolbox.cron";
     public static final String TOOLBOX_CRON_EXPRESSION = "toolbox.cron.expression";
     public static final String TOOLBOX_CRON_PARSE = "toolbox.cron.parse";
@@ -1864,17 +1924,17 @@ public final class MessageKeys {
     public static final String TOOLBOX_CRON_DESC_WEEK_WEEKDAYS = "toolbox.cron.desc.week.weekdays";
     // month names
     public static final String[] TOOLBOX_CRON_DESC_MONTHS = {
-        null,
-        "toolbox.cron.desc.month.1",  "toolbox.cron.desc.month.2",  "toolbox.cron.desc.month.3",
-        "toolbox.cron.desc.month.4",  "toolbox.cron.desc.month.5",  "toolbox.cron.desc.month.6",
-        "toolbox.cron.desc.month.7",  "toolbox.cron.desc.month.8",  "toolbox.cron.desc.month.9",
-        "toolbox.cron.desc.month.10", "toolbox.cron.desc.month.11", "toolbox.cron.desc.month.12"
+            null,
+            "toolbox.cron.desc.month.1", "toolbox.cron.desc.month.2", "toolbox.cron.desc.month.3",
+            "toolbox.cron.desc.month.4", "toolbox.cron.desc.month.5", "toolbox.cron.desc.month.6",
+            "toolbox.cron.desc.month.7", "toolbox.cron.desc.month.8", "toolbox.cron.desc.month.9",
+            "toolbox.cron.desc.month.10", "toolbox.cron.desc.month.11", "toolbox.cron.desc.month.12"
     };
     // weekday names (index 0=Sun, 1=Mon … 6=Sat)
     public static final String[] TOOLBOX_CRON_DESC_WEEKDAYS = {
-        "toolbox.cron.desc.week.sun", "toolbox.cron.desc.week.mon", "toolbox.cron.desc.week.tue",
-        "toolbox.cron.desc.week.wed", "toolbox.cron.desc.week.thu", "toolbox.cron.desc.week.fri",
-        "toolbox.cron.desc.week.sat"
+            "toolbox.cron.desc.week.sun", "toolbox.cron.desc.week.mon", "toolbox.cron.desc.week.tue",
+            "toolbox.cron.desc.week.wed", "toolbox.cron.desc.week.thu", "toolbox.cron.desc.week.fri",
+            "toolbox.cron.desc.week.sat"
     };
 
     // ============ 客户端证书相关 ============
@@ -1923,6 +1983,29 @@ public final class MessageKeys {
     public static final String CERT_CONSOLE_LOAD_FAILED = "cert.console.load_failed";
     public static final String CERT_CONSOLE_VALIDATION_FAILED = "cert.console.validation_failed";
     public static final String CERT_CONSOLE_FILE_NOT_FOUND = "cert.console.file_not_found";
+
+    // ============ EnhancedTablePanel 通用表格组件 ============
+    public static final String TABLE_SEARCH_PLACEHOLDER_ALL   = "table.search.placeholder.all";
+    public static final String TABLE_SEARCH_PLACEHOLDER_NONE  = "table.search.placeholder.none";
+    public static final String TABLE_SEARCH_PLACEHOLDER_COLS  = "table.search.placeholder.cols";
+    public static final String TABLE_COL_FILTER_BTN           = "table.col_filter.btn";
+    public static final String TABLE_COL_FILTER_BTN_N         = "table.col_filter.btn.n";
+    public static final String TABLE_COL_FILTER_TOOLTIP       = "table.col_filter.tooltip";
+    public static final String TABLE_COL_FILTER_TITLE         = "table.col_filter.title";
+    public static final String TABLE_COL_FILTER_SELECT_ALL    = "table.col_filter.select_all";
+    public static final String TABLE_COL_FILTER_DESELECT_ALL  = "table.col_filter.deselect_all";
+    public static final String TABLE_COL_FILTER_OK            = "table.col_filter.ok";
+    public static final String TABLE_ROWS_SUFFIX              = "table.rows.suffix";
+    public static final String TABLE_ROWS_FILTERED            = "table.rows.filtered";
+    public static final String TABLE_PAGE_SIZE_LABEL          = "table.page.size_label";
+    public static final String TABLE_PAGE_JUMP_LABEL          = "table.page.jump_label";
+    public static final String TABLE_PAGE_INFO                = "table.page.info";
+    public static final String TABLE_PAGE_INFO_EMPTY          = "table.page.info.empty";
+    public static final String TABLE_CONTEXT_COPY_CELL        = "table.context.copy_cell";
+    public static final String TABLE_CONTEXT_COPY_ROW         = "table.context.copy_row";
+    public static final String TABLE_CONTEXT_COPIED           = "table.context.copied";
+    public static final String TABLE_EMPTY_NO_DATA            = "table.empty.no_data";
+    public static final String TABLE_EMPTY_NO_MATCH           = "table.empty.no_match";
 
     // ==================== Notification Toast ====================
     public static final String NOTIFICATION_TYPE_SUCCESS = "notification.type.success";

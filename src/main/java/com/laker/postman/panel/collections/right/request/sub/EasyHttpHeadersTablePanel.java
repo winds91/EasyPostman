@@ -136,18 +136,12 @@ public class EasyHttpHeadersTablePanel extends AbstractTablePanel<Map<String, Ob
 
     /**
      * 聚焦到已存在的 header（带延迟以等待UI更新完成）
+     * 使用 javax.swing.Timer 替代 Thread.sleep，避免阻塞 EDT
      */
     private void focusOnExistingHeader(String headerKey) {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // 短暂等待，确保展开动画完成
-                Thread.sleep(100);
-                parentPanel.focusOnHeader(headerKey);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                log.warn("Interrupted while focusing on header", ex);
-            }
-        });
+        javax.swing.Timer timer = new javax.swing.Timer(120, e -> parentPanel.focusOnHeader(headerKey));
+        timer.setRepeats(false);
+        timer.start();
     }
 
     /**
@@ -191,7 +185,26 @@ public class EasyHttpHeadersTablePanel extends AbstractTablePanel<Map<String, Ob
 
     @Override
     protected boolean isCellEditableForNavigation(int row, int column) {
-        return column == COL_KEY || column == COL_VALUE;
+        if (column != COL_KEY && column != COL_VALUE) {
+            return false;
+        }
+        // 默认 Header 的 Key 列不可编辑（不参与 Tab/Enter 导航）
+        if (column == COL_KEY) {
+            // row 是视图行索引（Tab 导航传入的是 editingRow，即视图行），
+            // tableModel.getValueAt 需要模型行索引——必须转换。
+            int modelRow = row;
+            if (table.getRowSorter() != null) {
+                try {
+                    modelRow = table.getRowSorter().convertRowIndexToModel(row);
+                } catch (IndexOutOfBoundsException e) {
+                    return false;
+                }
+            }
+            if (modelRow < 0 || modelRow >= tableModel.getRowCount()) return false;
+            Object keyObj = tableModel.getValueAt(modelRow, COL_KEY);
+            return keyObj == null || !DEFAULT_HEADER_KEYS.contains(keyObj.toString().trim());
+        }
+        return true;
     }
 
     @Override
@@ -234,8 +247,8 @@ public class EasyHttpHeadersTablePanel extends AbstractTablePanel<Map<String, Ob
     }
 
     @Override
-    protected boolean canDeleteRow(int modelRow) {
-        // Check if it's a default header
+    protected boolean isDeletableRow(int modelRow) {
+        // 默认 header 行不允许删除
         Object keyObj = tableModel.getValueAt(modelRow, COL_KEY);
         String keyStr = keyObj == null ? "" : keyObj.toString().trim();
         return !DEFAULT_HEADER_KEYS.contains(keyStr);
@@ -333,6 +346,22 @@ public class EasyHttpHeadersTablePanel extends AbstractTablePanel<Map<String, Ob
             rows.add(row);
         }
 
+        return rows;
+    }
+
+    /**
+     * 从 tableModel 直接读取行数据，不停止当前单元格编辑。
+     * 用于自动保存 / tab 指示器等后台场景，避免打断用户正在进行的输入。
+     */
+    public List<Map<String, Object>> getRowsFromModel() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("Enabled", getBooleanValue(i, COL_ENABLED));
+            row.put("Key", getStringValue(i, COL_KEY));
+            row.put("Value", getStringValue(i, COL_VALUE));
+            rows.add(row);
+        }
         return rows;
     }
 

@@ -31,6 +31,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+
 import static com.laker.postman.panel.collections.left.RequestCollectionsLeftPanel.*;
 
 /**
@@ -43,9 +44,28 @@ public class RequestTreeActions {
     private final RequestCollectionsLeftPanel leftPanel;
     private final List<HttpRequestItem> copiedRequests = new ArrayList<>();
 
+    /**
+     * 待保护的树路径：addHttpRequestDirectly 创建新请求后设置此值。
+     * TreeSelectionListener 发现选中被 BasicTreeUI 覆盖时，会立刻纠正回此路径，
+     * 纠正后清除该字段。
+     */
+    private TreePath pendingSelectPath = null;
+
     public RequestTreeActions(JTree requestTree, RequestCollectionsLeftPanel leftPanel) {
         this.requestTree = requestTree;
         this.leftPanel = leftPanel;
+        // 注册选中守卫：只要 pendingSelectPath 不为 null，就拦截任何外部对选中状态的覆盖
+        requestTree.addTreeSelectionListener(e -> {
+            TreePath guard = pendingSelectPath;
+            if (guard == null) return;
+            TreePath current = requestTree.getSelectionPath();
+            if (!guard.equals(current)) {
+                // BasicTreeUI 或其他代码把选中改掉了，立刻纠正回来
+                pendingSelectPath = null; // 先清除，避免递归
+                requestTree.setSelectionPath(guard);
+                requestTree.scrollPathToVisible(guard);
+            }
+        });
     }
 
     /**
@@ -123,17 +143,20 @@ public class RequestTreeActions {
         item.setUrl("");
         item.setProtocol(RequestItemProtocolEnum.HTTP);
         DefaultMutableTreeNode reqNode = new DefaultMutableTreeNode(new Object[]{REQUEST, item});
-        groupNode.add(reqNode);
-        leftPanel.getTreeModel().reload(groupNode);
+        leftPanel.getTreeModel().insertNodeInto(reqNode, groupNode, groupNode.getChildCount());
         JTree tree = leftPanel.getRequestTree();
         tree.expandPath(new TreePath(groupNode.getPath()));
-        // 选中并滚动到新创建的请求节点
+        leftPanel.getPersistence().saveRequestGroups();
+
         TreePath newPath = new TreePath(reqNode.getPath());
+        // 设置保护路径：TreeSelectionListener 会拦截 BasicTreeUI 在 mouseReleased 里
+        // 触发的 selectPathForEvent，保证最终选中停留在新请求节点上
+        pendingSelectPath = newPath;
+        SingletonFactory.getInstance(RequestEditPanel.class).showOrCreateTab(item);
         tree.setSelectionPath(newPath);
         tree.scrollPathToVisible(newPath);
-        leftPanel.getPersistence().saveRequestGroups();
-        SingletonFactory.getInstance(RequestEditPanel.class).showOrCreateTab(item);
     }
+
 
     /**
      * 重命名选中的项（分组、请求或保存的响应）

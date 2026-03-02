@@ -109,6 +109,23 @@ public class FormUrlencodedTablePanel extends AbstractTablePanel<HttpFormUrlenco
     }
 
     /**
+     * 从 tableModel 直接读取，不停止单元格编辑。
+     * 用于 tab 指示器等后台场景，避免打断用户正在进行的输入（如 Tab 导航）。
+     */
+    public List<HttpFormUrlencoded> getFormDataListFromModel() {
+        List<HttpFormUrlencoded> dataList = new ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            boolean enabled = getBooleanValue(i, COL_ENABLED);
+            String key = getStringValue(i, COL_KEY);
+            String value = getStringValue(i, COL_VALUE);
+            if (!key.isEmpty()) {
+                dataList.add(new HttpFormUrlencoded(enabled, key, value));
+            }
+        }
+        return dataList;
+    }
+
+    /**
      * Get form-urlencoded data list with enabled state (new format)
      */
     public List<HttpFormUrlencoded> getFormDataList() {
