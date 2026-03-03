@@ -371,32 +371,52 @@ public class PerformancePanel extends SingletonBasePanel {
      * 刷新当前选中的请求节点
      */
     private void refreshCurrentRequest() {
+        log.debug("[refreshCurrentRequest] 开始执行单节点刷新, currentRequestNode={}", currentRequestNode);
         if (currentRequestNode == null) {
+            log.debug("[refreshCurrentRequest] currentRequestNode 为 null，退出");
             NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_NO_REQUEST_SELECTED));
             return;
         }
 
         Object userObj = currentRequestNode.getUserObject();
         if (!(userObj instanceof JMeterTreeNode jmNode) || jmNode.type != NodeType.REQUEST) {
+            log.debug("[refreshCurrentRequest] 当前节点类型不是 REQUEST，退出");
             NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_NO_REQUEST_SELECTED));
             return;
         }
 
-        if (jmNode.httpRequestItem == null) {
-            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_NO_REQUEST_SELECTED));
-            return;
-        }
+        // 优先从 requestEditSubPanel 获取当前展示的 id，确保与面板显示保持一致
+        // 如果 editSub 中有有效 id 则使用，否则降级到节点存储的 id
+        String editSubId = requestEditSubPanel.getId();
+        String nodeId = jmNode.httpRequestItem != null ? jmNode.httpRequestItem.getId() : null;
+        log.debug("[refreshCurrentRequest] editSub.id={}, node.httpRequestItem.id={}", editSubId, nodeId);
 
-        // 从集合中查找最新的请求
-        String requestId = jmNode.httpRequestItem.getId();
+        String requestId = editSubId;
         if (requestId == null || requestId.trim().isEmpty()) {
+            log.debug("[refreshCurrentRequest] editSub.id 为空，降级使用 node.id");
+            if (jmNode.httpRequestItem == null) {
+                log.debug("[refreshCurrentRequest] node.httpRequestItem 也为 null，退出");
+                NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_NO_REQUEST_SELECTED));
+                return;
+            }
+            requestId = nodeId;
+        }
+
+        if (requestId == null || requestId.trim().isEmpty()) {
+            log.debug("[refreshCurrentRequest] requestId 最终为空，退出");
             NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_REQUEST_NOT_FOUND_IN_COLLECTIONS));
             return;
         }
 
+        log.debug("[refreshCurrentRequest] 准备从集合中查找请求, requestId={}", requestId);
         HttpRequestItem latestRequestItem = persistenceService.findRequestItemById(requestId);
+        log.debug("[refreshCurrentRequest] 集合中找到的请求: name={}, url={}, id={}",
+                latestRequestItem != null ? latestRequestItem.getName() : "null",
+                latestRequestItem != null ? latestRequestItem.getUrl() : "null",
+                latestRequestItem != null ? latestRequestItem.getId() : "null");
 
         if (latestRequestItem == null) {
+            log.debug("[refreshCurrentRequest] 集合中未找到 requestId={} 对应的请求，退出", requestId);
             NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_REQUEST_NOT_FOUND_IN_COLLECTIONS));
             return;
         }
@@ -405,14 +425,20 @@ public class PerformancePanel extends SingletonBasePanel {
         jmNode.httpRequestItem = latestRequestItem;
         jmNode.name = latestRequestItem.getName();
         treeModel.nodeChanged(currentRequestNode);
+        // 清除 InheritanceCache，防止下次执行时 PreparedRequestBuilder.build() 拿到旧缓存
+        PreparedRequestBuilder.invalidateCacheForRequest(requestId);
+        log.debug("[refreshCurrentRequest] 已将节点数据更新并清除 InheritanceCache, name={}, requestId={}", latestRequestItem.getName(), requestId);
 
-        // 刷新右侧编辑面板
+        // 用从集合取回的最新数据直接刷新右侧编辑面板（不依赖节点引用，避免被 listener 覆盖）
+        log.debug("[refreshCurrentRequest] 调用 initPanelData, url={}", latestRequestItem.getUrl());
         requestEditSubPanel.initPanelData(latestRequestItem);
+        log.debug("[refreshCurrentRequest] initPanelData 执行完毕，editSub.id={}", requestEditSubPanel.getId());
 
         // 保存配置
         saveConfig();
 
         NotificationUtil.showInfo(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_REQUEST_REFRESHED));
+        log.debug("[refreshCurrentRequest] 单节点刷新完成");
     }
 
     private static void createDefaultRequest(DefaultMutableTreeNode root) {
@@ -1074,8 +1100,8 @@ public class PerformancePanel extends SingletonBasePanel {
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
         ExecutorService executor = Executors.newCachedThreadPool();
 
-        // 已启动的线程数
-        AtomicInteger startedThreads = new AtomicInteger(0);
+        // 当前活跃线程数（用于并发调度，不是累计启动数）
+        AtomicInteger activeWorkerThreads = new AtomicInteger(0);
 
         // 每秒检查并启动新线程
         scheduler.scheduleAtFixedRate(() -> {
@@ -1098,9 +1124,15 @@ public class PerformancePanel extends SingletonBasePanel {
                 targetThreads = Math.min(targetThreads, endThreads); // 不超过最大线程数
 
                 // 启动新线程
-                while (startedThreads.get() < targetThreads && running) {
+                while (running) {
+                    int current = activeWorkerThreads.get();
+                    if (current >= targetThreads) {
+                        break;
+                    }
+                    if (!activeWorkerThreads.compareAndSet(current, current + 1)) {
+                        continue;
+                    }
                     executor.submit(() -> {
-                        startedThreads.incrementAndGet();
                         activeThreads.incrementAndGet();
                         SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                         try {
@@ -1109,6 +1141,7 @@ public class PerformancePanel extends SingletonBasePanel {
                                 runTaskIteration(groupNode);
                             }
                         } finally {
+                            activeWorkerThreads.decrementAndGet();
                             activeThreads.decrementAndGet();
                             SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                         }
@@ -1154,7 +1187,7 @@ public class PerformancePanel extends SingletonBasePanel {
 
         // 创建线程池
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-        AtomicInteger startedThreads = new AtomicInteger(minThreads);
+        AtomicInteger activeWorkerThreads = new AtomicInteger(0);
 
         // 使用ConcurrentHashMap跟踪线程及其预期结束时间
         ConcurrentHashMap<Thread, Long> threadEndTimes = new ConcurrentHashMap<>();
@@ -1170,6 +1203,7 @@ public class PerformancePanel extends SingletonBasePanel {
             if (!running) {
                 return;
             }
+            activeWorkerThreads.incrementAndGet();
             Thread thread = new Thread(() -> {
                 activeThreads.incrementAndGet();
                 SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
@@ -1181,6 +1215,7 @@ public class PerformancePanel extends SingletonBasePanel {
                         runTaskIteration(groupNode);
                     }
                 } finally {
+                    activeWorkerThreads.decrementAndGet();
                     activeThreads.decrementAndGet();
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     // 从跟踪Map中移除此线程
@@ -1213,13 +1248,13 @@ public class PerformancePanel extends SingletonBasePanel {
                 double progress = (double) elapsedSeconds / adjustedRampUpTime;
                 targetThreads = minThreads + (int) (progress * (maxThreads - minThreads));
                 // 增加线程
-                adjustSpikeThreadCount(groupNode, startedThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
+                adjustSpikeThreadCount(groupNode, tg, activeWorkerThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
             }
             // 保持阶段
             else if (elapsedSeconds < adjustedRampUpTime + adjustedHoldTime) {
                 targetThreads = maxThreads;
                 // 保持线程数
-                adjustSpikeThreadCount(groupNode, startedThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
+                adjustSpikeThreadCount(groupNode, tg, activeWorkerThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
             }
             // 下降阶段
             else {
@@ -1228,7 +1263,7 @@ public class PerformancePanel extends SingletonBasePanel {
                 targetThreads = Math.max(targetThreads, minThreads); // 不低于最小线程数
 
                 // 在下降阶段，通过设置线程结束时间来减少活跃线程数
-                int threadsToRemove = startedThreads.get() - targetThreads;
+                int threadsToRemove = activeWorkerThreads.get() - targetThreads;
                 if (threadsToRemove > 0) {
                     // 找出可以终止的线程
                     threadEndTimes.keySet().stream()
@@ -1238,7 +1273,7 @@ public class PerformancePanel extends SingletonBasePanel {
                 }
 
                 // 仍然需要增加线程的情况
-                adjustSpikeThreadCount(groupNode, startedThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
+                adjustSpikeThreadCount(groupNode, tg, activeWorkerThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
             }
 
             // 更新UI显示实际活跃线程数而不是理论目标数
@@ -1292,7 +1327,7 @@ public class PerformancePanel extends SingletonBasePanel {
 
         // 创建线程池
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-        AtomicInteger startedThreads = new AtomicInteger(startThreads);
+        AtomicInteger activeWorkerThreads = new AtomicInteger(0);
 
         // 使用ConcurrentHashMap跟踪线程及其预期结束时间
         ConcurrentHashMap<Thread, Long> threadEndTimes = new ConcurrentHashMap<>();
@@ -1309,6 +1344,7 @@ public class PerformancePanel extends SingletonBasePanel {
             if (!running) {
                 return;
             }
+            activeWorkerThreads.incrementAndGet();
             Thread thread = new Thread(() -> {
                 activeThreads.incrementAndGet();
                 SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
@@ -1320,6 +1356,7 @@ public class PerformancePanel extends SingletonBasePanel {
                         runTaskIteration(groupNode);
                     }
                 } finally {
+                    activeWorkerThreads.decrementAndGet();
                     activeThreads.decrementAndGet();
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     // 从跟踪Map中移除此线程
@@ -1365,7 +1402,7 @@ public class PerformancePanel extends SingletonBasePanel {
             }
 
             // 调整线程数
-            adjustStairsThreadCount(groupNode, startedThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
+            adjustStairsThreadCount(groupNode, activeWorkerThreads, targetThreads, totalTime, progressLabel, totalThreads, threadEndTimes);
 
             // 更新UI显示实际活跃线程数
             SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
@@ -1410,10 +1447,11 @@ public class PerformancePanel extends SingletonBasePanel {
 
     // 专用于尖刺模式的线程数调整方法
     private void adjustSpikeThreadCount(DefaultMutableTreeNode groupNode,
-                                        AtomicInteger startedThreads, int targetThreads,
+                                        ThreadGroupData tg,
+                                        AtomicInteger activeWorkerThreads, int targetThreads,
                                         int totalTime, JLabel progressLabel, int totalThreads,
                                         ConcurrentHashMap<Thread, Long> threadEndTimes) {
-        int current = startedThreads.get();
+        int current = activeWorkerThreads.get();
 
         // 需要增加线程
         if (current < targetThreads) {
@@ -1421,8 +1459,8 @@ public class PerformancePanel extends SingletonBasePanel {
             for (int i = 0; i < threadsToAdd; i++) {
                 if (!running) return;
 
+                activeWorkerThreads.incrementAndGet();
                 Thread thread = new Thread(() -> {
-                    startedThreads.incrementAndGet();
                     activeThreads.incrementAndGet();
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     try {
@@ -1433,6 +1471,7 @@ public class PerformancePanel extends SingletonBasePanel {
                             runTaskIteration(groupNode);
                         }
                     } finally {
+                        activeWorkerThreads.decrementAndGet();
                         activeThreads.decrementAndGet();
                         SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                         // 从跟踪Map中移除此线程
@@ -1457,21 +1496,11 @@ public class PerformancePanel extends SingletonBasePanel {
 
             // 如果有可终止的线程，则设置它们分散结束
             if (!availableThreads.isEmpty()) {
-                // 获取当前所处阶段信息 - 从runSpikeThreads方法推算
-                ThreadGroupData tg = null;
-                DefaultMutableTreeNode node = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
-                if (node != null) {
-                    Object userObj = node.getUserObject();
-                    if (userObj instanceof JMeterTreeNode jtNode && jtNode.threadGroupData != null) {
-                        tg = jtNode.threadGroupData;
-                    }
-                }
-
                 // 计算下降阶段的总时间
-                int rampDownTime = (tg != null) ? tg.spikeRampDownTime : 10; // 默认10秒
-                int totalSpikeTime = (tg != null) ? tg.spikeDuration : 60;   // 默认60秒
-                int rampUpTime = (tg != null) ? tg.spikeRampUpTime : 10;     // 默认10秒
-                int holdTime = (tg != null) ? tg.spikeHoldTime : 20;         // 默认20秒
+                int rampDownTime = tg.spikeRampDownTime;
+                int totalSpikeTime = tg.spikeDuration;
+                int rampUpTime = tg.spikeRampUpTime;
+                int holdTime = tg.spikeHoldTime;
 
                 // 计算实际的下降时间（按比例）
                 int phaseSum = rampUpTime + holdTime + rampDownTime;
@@ -1496,10 +1525,10 @@ public class PerformancePanel extends SingletonBasePanel {
 
     // 专用于阶梯模式的线程数调整方法
     private void adjustStairsThreadCount(DefaultMutableTreeNode groupNode,
-                                         AtomicInteger startedThreads, int targetThreads,
+                                         AtomicInteger activeWorkerThreads, int targetThreads,
                                          int totalTime, JLabel progressLabel, int totalThreads,
                                          ConcurrentHashMap<Thread, Long> threadEndTimes) {
-        int current = startedThreads.get();
+        int current = activeWorkerThreads.get();
 
         // 需要增加线程 阶梯模式下，不需要减少线程，只增加
         if (current < targetThreads) {
@@ -1507,8 +1536,8 @@ public class PerformancePanel extends SingletonBasePanel {
             for (int i = 0; i < threadsToAdd; i++) {
                 if (!running) return;
 
+                activeWorkerThreads.incrementAndGet();
                 Thread thread = new Thread(() -> {
-                    startedThreads.incrementAndGet();
                     activeThreads.incrementAndGet();
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     try {
@@ -1519,6 +1548,7 @@ public class PerformancePanel extends SingletonBasePanel {
                             runTaskIteration(groupNode);
                         }
                     } finally {
+                        activeWorkerThreads.decrementAndGet();
                         activeThreads.decrementAndGet();
                         SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                         // 从跟踪Map中移除此线程
@@ -1599,11 +1629,11 @@ public class PerformancePanel extends SingletonBasePanel {
             // 注册API元数据（集中管理，避免重复存储）
             ApiMetadata.register(apiId, apiName);
 
-            boolean success = true;
             PreparedRequest req;
             HttpResponse resp = null;
             String errorMsg = "";
             List<TestResult> testResults = new ArrayList<>();
+            boolean executionFailed = false; // 执行层面失败：前置脚本崩溃 / HTTP异常 / 后置脚本崩溃
 
             // 清理上次的临时变量
             VariableResolver.clearTemporaryVariables();
@@ -1639,7 +1669,7 @@ public class PerformancePanel extends SingletonBasePanel {
             if (!preOk) {
                 log.error("前置脚本: {}", preResult.getErrorMessage());
                 errorMsg = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_PRE_SCRIPT_FAILED, preResult.getErrorMessage());
-                success = false;
+                executionFailed = true;
             }
 
             // 前置脚本执行完后再次检查是否已停止
@@ -1677,7 +1707,7 @@ public class PerformancePanel extends SingletonBasePanel {
                         // 真正的错误
                         log.error("请求执行失败: {}", ex.getMessage(), ex);
                         errorMsg = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_REQUEST_FAILED, ex.getMessage());
-                        success = false;
+                        executionFailed = true;
                     }
                 } finally {
                     costMs = System.currentTimeMillis() - requestStartTime;
@@ -1714,7 +1744,6 @@ public class PerformancePanel extends SingletonBasePanel {
                             pass = Objects.equals(actual, expect);
                         }
                         if (!pass) {
-                            success = false;
                             errorMsg = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_ASSERTION_FAILED, type, assertion.content);
                         }
                         testResults.add(new TestResult(type, pass, pass ? null : "断言失败"));
@@ -1726,11 +1755,19 @@ public class PerformancePanel extends SingletonBasePanel {
                     ScriptExecutionResult postResult = pipeline.executePostScript(resp);
                     if (postResult.hasTestResults()) {
                         testResults.addAll(postResult.getTestResults());
+                        // 取第一条失败的断言名作为 errorMsg（展示用）
+                        if (!postResult.allTestsPassed()) {
+                            errorMsg = postResult.getTestResults().stream()
+                                    .filter(t -> !t.passed)
+                                    .map(t -> t.name)
+                                    .findFirst()
+                                    .orElse("pm.test assertion failed");
+                        }
                     }
                     if (!postResult.isSuccess()) {
                         log.error("后置脚本执行失败: {}", postResult.getErrorMessage());
                         errorMsg = postResult.getErrorMessage();
-                        success = false;
+                        executionFailed = true;
                     }
                 }
             } else {
@@ -1747,18 +1784,6 @@ public class PerformancePanel extends SingletonBasePanel {
 
             // 如果请求被中断（压测停止），跳过统计，不计入成功或失败
             if (!interrupted) {
-                // 使用statsLock保护统计数据写入，确保与读取的一致性
-                synchronized (statsLock) {
-                    allRequestResults.add(new RequestResult(requestStartTime, endTime, success, apiId));
-
-                    apiCostMap.computeIfAbsent(apiId, k -> Collections.synchronizedList(new ArrayList<>())).add(cost);
-                    if (success) {
-                        apiSuccessMap.merge(apiId, 1, Integer::sum);
-                    } else {
-                        apiFailMap.merge(apiId, 1, Integer::sum);
-                    }
-                }
-
                 // ✨ 优化：简化 req 和 resp 对象，移除渲染时不需要的字段
                 req.simplify();  // 移除 id, body, bodyType, headersList, paramsList
                 if (resp != null) {
@@ -1768,8 +1793,26 @@ public class PerformancePanel extends SingletonBasePanel {
                     }
                 }
 
+                // 统一用 ResultNodeInfo.isActuallySuccessful() 判断成功/失败
+                // 确保趋势图、报表、结果表格三处使用完全一致的判断逻辑：
+                //   有断言 → 以断言结果为准；无断言 → 以 HTTP 状态码（2xx/3xx）为准
+                ResultNodeInfo resultNodeInfo = new ResultNodeInfo(apiName, errorMsg, req, resp, testResults, executionFailed);
+                boolean actualSuccess = resultNodeInfo.isActuallySuccessful();
+
+                // 使用statsLock保护统计数据写入，确保与读取的一致性
+                synchronized (statsLock) {
+                    allRequestResults.add(new RequestResult(requestStartTime, endTime, actualSuccess, apiId));
+
+                    apiCostMap.computeIfAbsent(apiId, k -> Collections.synchronizedList(new ArrayList<>())).add(cost);
+                    if (actualSuccess) {
+                        apiSuccessMap.merge(apiId, 1, Integer::sum);
+                    } else {
+                        apiFailMap.merge(apiId, 1, Integer::sum);
+                    }
+                }
+
                 performanceResultTablePanel.addResult(
-                        new ResultNodeInfo(apiName, errorMsg, req, resp, testResults),
+                        resultNodeInfo,
                         efficientMode,
                         getJmeterSlowRequestThreshold()
                 );
@@ -1824,7 +1867,14 @@ public class PerformancePanel extends SingletonBasePanel {
                     if (userObj instanceof JMeterTreeNode jtNode) {
                         switch (jtNode.type) {
                             case THREAD_GROUP -> threadGroupPanel.saveThreadGroupData();
-                            case REQUEST -> jtNode.httpRequestItem = requestEditSubPanel.getCurrentRequest();
+                            case REQUEST -> {
+                                HttpRequestItem fromEditSub = requestEditSubPanel.getCurrentRequest();
+                                log.debug("[TreeSelectionListener] lastNode REQUEST 写回: name={}, url={} -> editSub: name={}, url={}",
+                                        jtNode.httpRequestItem != null ? jtNode.httpRequestItem.getName() : "null",
+                                        jtNode.httpRequestItem != null ? jtNode.httpRequestItem.getUrl() : "null",
+                                        fromEditSub.getName(), fromEditSub.getUrl());
+                                jtNode.httpRequestItem = fromEditSub;
+                            }
                             case ASSERTION -> assertionPanel.saveAssertionData();
                             case TIMER -> timerPanel.saveTimerData();
                             default -> {
@@ -2250,6 +2300,38 @@ public class PerformancePanel extends SingletonBasePanel {
     }
 
     /**
+     * 同步最新的 HttpRequestItem 到性能测试树中对应的节点（由 Collections 保存时调用）
+     * 避免用户在 editSubPanel 修改并保存后，PerformancePanel 仍持有旧数据。
+     *
+     * @param item 已保存的最新请求数据
+     */
+    public void syncRequestItem(HttpRequestItem item) {
+        if (item == null || item.getId() == null) return;
+        DefaultMutableTreeNode root = (DefaultMutableTreeNode) treeModel.getRoot();
+        syncRequestItemInTree(root, item);
+    }
+
+    private void syncRequestItemInTree(DefaultMutableTreeNode node, HttpRequestItem item) {
+        Object userObj = node.getUserObject();
+        if (userObj instanceof JMeterTreeNode jtNode
+                && jtNode.type == NodeType.REQUEST
+                && jtNode.httpRequestItem != null
+                && item.getId().equals(jtNode.httpRequestItem.getId())) {
+            jtNode.httpRequestItem = item;
+            jtNode.name = item.getName();
+            treeModel.nodeChanged(node);
+            // 如果当前正在编辑面板里展示的就是这个请求，也同步更新面板
+            if (node == currentRequestNode) {
+                requestEditSubPanel.initPanelData(item);
+            }
+            log.debug("PerformancePanel syncRequestItem: id={}, name={}", item.getId(), item.getName());
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            syncRequestItemInTree((DefaultMutableTreeNode) node.getChildAt(i), item);
+        }
+    }
+
+    /**
      * 清理资源（应用退出时调用）
      * 确保定时器被正确停止，避免资源泄漏
      */
@@ -2275,7 +2357,9 @@ public class PerformancePanel extends SingletonBasePanel {
      * 重新加载所有请求的最新配置
      */
     private void refreshRequestsFromCollections() {
+        log.debug("[refreshFromCollections] 开始执行全局刷新");
         saveAllPropertyPanelData();
+        log.debug("[refreshFromCollections] saveAllPropertyPanelData 执行完毕");
 
         // 清除缓存的测试结果数据，避免显示过时的结果
         performanceResultTablePanel.clearResults();
@@ -2298,6 +2382,7 @@ public class PerformancePanel extends SingletonBasePanel {
         DefaultMutableTreeNode root = (DefaultMutableTreeNode) treeModel.getRoot();
         updatedCount = refreshTreeNode(root, nodesToRemove);
         removedCount = nodesToRemove.size();
+        log.debug("[refreshFromCollections] refreshTreeNode 完毕: updatedCount={}, removedCount={}", updatedCount, removedCount);
 
         // 移除不存在的请求节点（从后往前删除，避免索引变化）
         for (int i = nodesToRemove.size() - 1; i >= 0; i--) {
@@ -2309,6 +2394,25 @@ public class PerformancePanel extends SingletonBasePanel {
             treeModel.removeNodeFromParent(nodeToRemove);
         }
 
+        // 在 treeModel.reload() 之前，先把当前节点刷新后的数据保存到局部变量。
+        // 原因：reload() 会触发 TreeSelectionListener（选中被清空），
+        // listener 会把 editSub 里当前（旧）的表单数据写回节点，覆盖刚从集合取到的最新数据。
+        // 使用局部变量可绕开这一覆盖，确保后续 initPanelData 拿到的是集合里的最新数据。
+        HttpRequestItem refreshedCurrentItem = null;
+        if (currentRequestNode != null) {
+            Object curUserObj = currentRequestNode.getUserObject();
+            if (curUserObj instanceof JMeterTreeNode curJmNode && curJmNode.type == NodeType.REQUEST
+                    && curJmNode.httpRequestItem != null) {
+                refreshedCurrentItem = curJmNode.httpRequestItem;
+                log.debug("[refreshFromCollections] reload 前保存当前节点最新数据: name={}, url={}, id={}",
+                        refreshedCurrentItem.getName(), refreshedCurrentItem.getUrl(), refreshedCurrentItem.getId());
+            }
+        } else {
+            log.debug("[refreshFromCollections] currentRequestNode 为 null，无需保存当前节点数据");
+        }
+        log.debug("[refreshFromCollections] reload 前 editSub.id={}, editSub.url={}",
+                requestEditSubPanel.getId(), requestEditSubPanel.getRequestLinePanel() != null ? "有requestLinePanel" : "null");
+
         // 保存当前选中节点的路径（用于重新定位）
         TreePath currentPath = null;
         if (currentRequestNode != null) {
@@ -2318,8 +2422,18 @@ public class PerformancePanel extends SingletonBasePanel {
         // 保存更新后的配置
         saveConfig();
 
-        // 刷新树显示
+        // 刷新树显示（注意：reload 会触发 TreeSelectionListener，可能覆盖节点数据）
+        log.debug("[refreshFromCollections] 即将调用 treeModel.reload()");
         treeModel.reload();
+        log.debug("[refreshFromCollections] treeModel.reload() 执行完毕，当前节点数据可能已被 listener 覆盖");
+        if (currentRequestNode != null) {
+            Object curObj = currentRequestNode.getUserObject();
+            if (curObj instanceof JMeterTreeNode curJmNode) {
+                log.debug("[refreshFromCollections] reload 后 currentRequestNode.httpRequestItem: name={}, url={}",
+                        curJmNode.httpRequestItem != null ? curJmNode.httpRequestItem.getName() : "null",
+                        curJmNode.httpRequestItem != null ? curJmNode.httpRequestItem.getUrl() : "null");
+            }
+        }
 
         // 展开所有节点
         for (int i = 0; i < jmeterTree.getRowCount(); i++) {
@@ -2330,23 +2444,38 @@ public class PerformancePanel extends SingletonBasePanel {
         if (currentPath != null) {
             // 尝试重新找到相同路径的节点
             TreePath newPath = findTreePathByPath(currentPath);
+            log.debug("[refreshFromCollections] findTreePathByPath 结果: {}", newPath != null ? "找到" : "未找到");
             if (newPath != null) {
                 jmeterTree.setSelectionPath(newPath);
                 DefaultMutableTreeNode newNode = (DefaultMutableTreeNode) newPath.getLastPathComponent();
                 Object userObj = newNode.getUserObject();
                 if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.REQUEST) {
                     currentRequestNode = newNode;
-                    // 刷新右侧编辑面板
-                    if (jtNode.httpRequestItem != null) {
-                        requestEditSubPanel.initPanelData(jtNode.httpRequestItem);
+                    // 优先使用 reload() 前保存的最新集合数据刷新右侧编辑面板，
+                    // 避免 listener 在 reload 过程中写回的旧表单数据污染 jtNode.httpRequestItem
+                    HttpRequestItem itemToLoad = refreshedCurrentItem != null
+                            ? refreshedCurrentItem : jtNode.httpRequestItem;
+                    log.debug("[refreshFromCollections] 准备 initPanelData: 使用{}，name={}, url={}",
+                            refreshedCurrentItem != null ? "reload前保存的数据" : "节点数据",
+                            itemToLoad != null ? itemToLoad.getName() : "null",
+                            itemToLoad != null ? itemToLoad.getUrl() : "null");
+                    if (itemToLoad != null) {
+                        // 同步到节点，保证节点与面板一致
+                        jtNode.httpRequestItem = itemToLoad;
+                        requestEditSubPanel.initPanelData(itemToLoad);
+                        log.debug("[refreshFromCollections] initPanelData 执行完毕，editSub.id={}", requestEditSubPanel.getId());
                     }
                 } else {
                     currentRequestNode = null;
+                    log.debug("[refreshFromCollections] newPath 最后节点不是 REQUEST 类型");
                 }
             } else {
                 // 路径找不到了（节点可能被删除），清空引用
                 currentRequestNode = null;
+                log.debug("[refreshFromCollections] 未找到匹配路径，currentRequestNode 已清空");
             }
+        } else {
+            log.debug("[refreshFromCollections] currentPath 为 null，跳过重新定位");
         }
 
         // 显示刷新结果
@@ -2357,6 +2486,7 @@ public class PerformancePanel extends SingletonBasePanel {
         } else {
             NotificationUtil.showInfo(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_NO_REQUEST_TO_REFRESH));
         }
+        log.debug("[refreshFromCollections] 全局刷新完成");
     }
 
     /**
@@ -2370,22 +2500,30 @@ public class PerformancePanel extends SingletonBasePanel {
             // 如果是请求节点，刷新请求数据
             if (jmNode.type == NodeType.REQUEST && jmNode.httpRequestItem != null) {
                 String requestId = jmNode.httpRequestItem.getId();
+                log.debug("[refreshTreeNode] 处理请求节点: name={}, requestId={}, url={}",
+                        jmNode.name, requestId, jmNode.httpRequestItem.getUrl());
                 // 检查 requestId 是否有效
                 if (requestId == null || requestId.trim().isEmpty()) {
-                    log.warn("Request node has null or empty ID, marking for removal");
+                    log.warn("[refreshTreeNode] 请求节点 id 为空，标记删除: name={}", jmNode.name);
                     nodesToRemove.add(treeNode);
                 } else {
                     HttpRequestItem latestRequestItem = persistenceService.findRequestItemById(requestId);
 
                     if (latestRequestItem == null) {
                         // 请求在集合中已被删除，标记为待删除
-                        log.warn("Request with ID {} not found in collections", requestId);
+                        log.warn("[refreshTreeNode] 集合中找不到 requestId={}，标记删除: name={}", requestId, jmNode.name);
                         nodesToRemove.add(treeNode);
                     } else {
+                        log.debug("[refreshTreeNode] 集合中找到最新数据: name={}, url={} -> name={}, url={}",
+                                jmNode.name, jmNode.httpRequestItem.getUrl(),
+                                latestRequestItem.getName(), latestRequestItem.getUrl());
                         // 更新请求数据
                         jmNode.httpRequestItem = latestRequestItem;
                         jmNode.name = latestRequestItem.getName();
                         treeModel.nodeChanged(treeNode);
+                        // 清除 InheritanceCache，防止执行时 PreparedRequestBuilder.build() 拿到旧缓存
+                        PreparedRequestBuilder.invalidateCacheForRequest(requestId);
+                        log.debug("[refreshTreeNode] 已清除 requestId={} 的 InheritanceCache", requestId);
                         updatedCount++;
                     }
                 }
@@ -2452,4 +2590,3 @@ public class PerformancePanel extends SingletonBasePanel {
         return new TreePath(newPath.toArray());
     }
 }
-
