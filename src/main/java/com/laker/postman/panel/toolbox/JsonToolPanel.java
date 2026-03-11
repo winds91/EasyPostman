@@ -1,6 +1,7 @@
 package com.laker.postman.panel.toolbox;
 
 import cn.hutool.json.JSONUtil;
+import com.laker.postman.common.component.SearchableTextArea;
 import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.JsonUtil;
@@ -8,7 +9,9 @@ import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.fife.ui.rtextarea.RTextScrollPane;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,8 +19,6 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * JSON工具面板 - 使用RSyntaxTextArea提供语法高亮和更好的编辑体验
@@ -98,9 +99,9 @@ public class JsonToolPanel extends JPanel {
 
         inputArea = createJsonTextArea();
         inputArea.setEditable(true);
-        RTextScrollPane inputScrollPane = new RTextScrollPane(inputArea);
-        inputScrollPane.setLineNumbersEnabled(true); // 显示行号
-        inputPanel.add(inputScrollPane, BorderLayout.CENTER);
+        SearchableTextArea searchableInputArea = new SearchableTextArea(inputArea);
+        searchableInputArea.setLineNumbersEnabled(true);
+        inputPanel.add(searchableInputArea, BorderLayout.CENTER);
 
         // 输出区域 - 使用RSyntaxTextArea
         JPanel outputPanel = new JPanel(new BorderLayout(5, 5));
@@ -109,9 +110,9 @@ public class JsonToolPanel extends JPanel {
 
         outputArea = createJsonTextArea();
         outputArea.setEditable(false);
-        RTextScrollPane outputScrollPane = new RTextScrollPane(outputArea);
-        outputScrollPane.setLineNumbersEnabled(true); // 显示行号
-        outputPanel.add(outputScrollPane, BorderLayout.CENTER);
+        SearchableTextArea searchableOutputArea = new SearchableTextArea(outputArea, false);
+        searchableOutputArea.setLineNumbersEnabled(true);
+        outputPanel.add(searchableOutputArea, BorderLayout.CENTER);
 
         splitPane.setTopComponent(inputPanel);
         splitPane.setBottomComponent(outputPanel);
@@ -155,7 +156,6 @@ public class JsonToolPanel extends JPanel {
         textArea.setTabSize(2); // Tab大小为2个空格
         textArea.setTabsEmulated(true); // 用空格模拟Tab
         textArea.setMarkOccurrences(true); // 标记相同内容
-        textArea.setPaintTabLines(true); // 显示缩进线
         textArea.setAnimateBracketMatching(true); // 括号匹配动画
         EditorThemeUtil.loadTheme(textArea);
         return textArea;
@@ -297,13 +297,7 @@ public class JsonToolPanel extends JPanel {
         }
 
         try {
-            // 转义引号、反斜杠、换行符等
-            String escaped = input
-                    .replace("\\", "\\\\")
-                    .replace("\"", "\\\"")
-                    .replace("\n", "\\n")
-                    .replace("\r", "\\r")
-                    .replace("\t", "\\t");
+            String escaped = JsonUtil.escapeJsonStringContent(input);
             outputArea.setText(escaped);
             updateStatus(I18nUtil.getMessage(MessageKeys.TOOLBOX_JSON_STATUS_ESCAPED), true);
         } catch (Exception ex) {
@@ -324,26 +318,7 @@ public class JsonToolPanel extends JPanel {
         }
 
         try {
-            // 反转义
-            String unescaped = input
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\")
-                    .replace("\\n", "\n")
-                    .replace("\\r", "\r")
-                    .replace("\\t", "\t");
-
-            // 处理Unicode转义
-            Pattern pattern = Pattern.compile("\\\\u([0-9a-fA-F]{4})");
-            Matcher matcher = pattern.matcher(unescaped);
-            StringBuilder sb = new StringBuilder();
-            while (matcher.find()) {
-                String unicode = matcher.group(1);
-                char ch = (char) Integer.parseInt(unicode, 16);
-                matcher.appendReplacement(sb, String.valueOf(ch));
-            }
-            matcher.appendTail(sb);
-
-            outputArea.setText(sb.toString());
+            outputArea.setText(unescapeJsonContent(input));
             updateStatus(I18nUtil.getMessage(MessageKeys.TOOLBOX_JSON_STATUS_UNESCAPED), true);
         } catch (Exception ex) {
             log.error("Unescape error", ex);
@@ -466,6 +441,86 @@ public class JsonToolPanel extends JPanel {
         inputArea.setText("");
         outputArea.setText("");
         updateStatus(I18nUtil.getMessage(MessageKeys.TOOLBOX_JSON_STATUS_CLEARED), true);
+    }
+
+    /**
+     * 智能反转义：
+     * 1. 如果输入本身是 JSON，对其中嵌套的 JSON 字符串递归展开
+     * 2. 如果输入是被转义的 JSON 字符串，优先还原成 JSON
+     * 3. 兜底再按普通文本反转义
+     */
+    private String unescapeJsonContent(String input) {
+        JsonNode root = tryReadJson(input);
+        if (root != null) {
+            JsonNode expanded = expandEscapedJson(root);
+            if (expanded.isTextual()) {
+                String text = expanded.asText();
+                JsonNode nestedJson = tryReadJsonContainer(text);
+                return nestedJson != null ? JsonUtil.toJsonPrettyStr(nestedJson) : text;
+            }
+            return JsonUtil.toJsonPrettyStr(expanded);
+        }
+
+        String unescaped = unescapePlainText(input);
+        JsonNode nestedJson = tryReadJsonContainer(unescaped);
+        return nestedJson != null ? JsonUtil.toJsonPrettyStr(nestedJson) : unescaped;
+    }
+
+    private JsonNode expandEscapedJson(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return node;
+        }
+        if (node.isObject()) {
+            ObjectNode objectNode = JsonUtil.createJsonNode();
+            for (java.util.Map.Entry<String, JsonNode> entry : node.properties()) {
+                objectNode.set(entry.getKey(), expandEscapedJson(entry.getValue()));
+            }
+            return objectNode;
+        }
+        if (node.isArray()) {
+            ArrayNode arrayNode = JsonUtil.createArrayNode();
+            for (JsonNode item : node) {
+                arrayNode.add(expandEscapedJson(item));
+            }
+            return arrayNode;
+        }
+        if (!node.isTextual()) {
+            return node;
+        }
+
+        String text = node.asText();
+        JsonNode nestedJson = tryReadJsonContainer(text);
+        if (nestedJson != null) {
+            return expandEscapedJson(nestedJson);
+        }
+
+        String unescaped = unescapePlainText(text);
+        JsonNode nestedUnescapedJson = tryReadJsonContainer(unescaped);
+        if (nestedUnescapedJson != null) {
+            return expandEscapedJson(nestedUnescapedJson);
+        }
+
+        return !text.equals(unescaped) ? JsonUtil.readTree(JsonUtil.toJsonStr(unescaped)) : node;
+    }
+
+    private JsonNode tryReadJson(String text) {
+        try {
+            return JsonUtil.readTree(text);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private JsonNode tryReadJsonContainer(String text) {
+        JsonNode jsonNode = tryReadJson(text);
+        if (jsonNode != null && (jsonNode.isObject() || jsonNode.isArray())) {
+            return jsonNode;
+        }
+        return null;
+    }
+
+    private String unescapePlainText(String input) {
+        return JsonUtil.unescapeJsonStringContent(input);
     }
 
     /**

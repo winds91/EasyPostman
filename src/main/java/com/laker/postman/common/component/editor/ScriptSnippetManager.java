@@ -37,16 +37,15 @@ public class ScriptSnippetManager {
             @Override
             public boolean isAutoActivateOkay(JTextComponent tc) {
                 Document doc = tc.getDocument();
-                int docLength = doc.getLength();
+                int caret = tc.getCaretPosition();
 
-                if (docLength == 0) {
+                if (caret <= 0) {
                     return false;
                 }
 
                 try {
-                    char ch = doc.getText(docLength - 1, 1).charAt(0);
-                    // 字母、数字、下划线、点号都触发自动补全
-                    return Character.isLetterOrDigit(ch) || ch == '_' || ch == '.';
+                    char ch = doc.getText(caret - 1, 1).charAt(0);
+                    return isCompletionTriggerChar(ch);
                 } catch (BadLocationException e) {
                     return false;
                 }
@@ -54,8 +53,7 @@ public class ScriptSnippetManager {
 
             @Override
             protected boolean isValidChar(char ch) {
-                // 点号也是有效字符，这样 pm. 会被当作一个整体
-                return Character.isLetterOrDigit(ch) || ch == '_' || ch == '.';
+                return isCompletionTriggerChar(ch);
             }
 
             @Override
@@ -87,6 +85,11 @@ public class ScriptSnippetManager {
         addAllCompletions(provider);
 
         return provider;
+    }
+
+    private static boolean isCompletionTriggerChar(char ch) {
+        // 点号也是有效字符，这样 pm. 会被当作一个整体
+        return Character.isLetterOrDigit(ch) || ch == '_' || ch == '.';
     }
 
     /**
@@ -689,7 +692,7 @@ public class ScriptSnippetManager {
     }
 
     /**
-     * Add data store APIs - pm.kafka / pm.redis / pm.es
+     * Add data store APIs - pm.kafka / pm.redis / pm.es / pm.influxdb
      */
     private static void addPmDataStoreApis(DefaultCompletionProvider provider) {
         provider.addCompletion(new BasicCompletion(provider, "pm.kafka", "Kafka script API"));
@@ -744,6 +747,44 @@ public class ScriptSnippetManager {
                   pm.expect(resp.code).to.equal(200);
                 });""",
                 "Elasticsearch query + assert"));
+
+        provider.addCompletion(new BasicCompletion(provider, "pm.influxdb", "InfluxDB script API"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.influx", "InfluxDB script API"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.influxdb.query", "pm.influxdb.query(options)"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.influxdb.write", "pm.influxdb.write(options)"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.influxdb.request", "pm.influxdb.request(options)"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.influx.query", "pm.influx.query(options)"));
+        provider.addCompletion(new BasicCompletion(provider, "pm.influx.write", "pm.influx.write(options)"));
+        provider.addCompletion(new ShorthandCompletion(provider, "influx.query",
+                """
+                const resp = pm.influx.query({
+                  baseUrl: "http://localhost:8086",
+                  version: "v1",
+                  db: "metrics",
+                  username: pm.environment.get("influxUser"),
+                  password: pm.environment.get("influxPassword"),
+                  query: "SELECT * FROM cpu ORDER BY time DESC LIMIT 1"
+                });
+                pm.test("Influx query success", function () {
+                  pm.expect(resp.code).to.equal(200);
+                  pm.expect(resp.json).to.exist();
+                });""",
+                "InfluxDB query + assert"));
+        provider.addCompletion(new ShorthandCompletion(provider, "influx.write",
+                """
+                const writeResp = pm.influxdb.write({
+                  baseUrl: "http://localhost:8086",
+                  version: "v1",
+                  db: "metrics",
+                  username: pm.environment.get("influxUser"),
+                  password: pm.environment.get("influxPassword"),
+                  precision: "ms",
+                  lineProtocol: "api_requests,service=order count=1i " + Date.now()
+                });
+                pm.test("Influx write success", function () {
+                  pm.expect(writeResp.code).to.equal(204);
+                });""",
+                "InfluxDB write + assert"));
     }
 
     // ========================================

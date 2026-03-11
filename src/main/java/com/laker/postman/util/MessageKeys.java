@@ -68,6 +68,9 @@ public final class MessageKeys {
     public static final String UPDATE_FETCH_RELEASE_FAILED = "update.fetch_release_failed";
     public static final String UPDATE_NO_VERSION_INFO = "update.no_version_info";
     public static final String UPDATE_ALREADY_LATEST = "update.already_latest";
+    public static final String UPDATE_AVAILABLE_NO_ASSET = "update.available_no_asset";
+    public static final String UPDATE_AVAILABLE_NO_ASSET_TITLE = "update.available_no_asset.title";
+    public static final String UPDATE_AVAILABLE_NO_ASSET_GO_GITHUB = "update.available_no_asset.go_github";
     // ============ 更新日志相关 ============
     public static final String CHANGELOG_TITLE = "changelog.title";
     public static final String CHANGELOG_CURRENT_VERSION = "changelog.current_version";
@@ -625,6 +628,7 @@ public final class MessageKeys {
     public static final String FUNCTIONAL_MENU_MOVE_DOWN = "functional.menu.move_down";
     public static final String FUNCTIONAL_MSG_REFRESH_SUCCESS = "functional.msg.refresh_success";
     public static final String FUNCTIONAL_MSG_REFRESH_WARNING = "functional.msg.refresh_warning";
+    public static final String FUNCTIONAL_MSG_DUPLICATE_SKIPPED = "functional.msg.duplicate_skipped";
 
     // ============ 集合导出导入相关 ============
     public static final String COLLECTIONS_EXPORT_DIALOG_TITLE = "collections.export.dialog_title";
@@ -1957,6 +1961,8 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_ERR_HOST_REQUIRED = "toolbox.kafka.err.host_required";
     public static final String TOOLBOX_KAFKA_ERR_OFFSET_VALUE_INVALID = "toolbox.kafka.err.offset_value_invalid";
     public static final String TOOLBOX_KAFKA_ERR_OFFSET_VALUE_REQUIRED = "toolbox.kafka.err.offset_value_required";
+    public static final String TOOLBOX_KAFKA_WARN_OFFSET_OUT_OF_RANGE = "toolbox.kafka.warn.offset_out_of_range";
+    public static final String TOOLBOX_KAFKA_WARN_TIMESTAMP_OUT_OF_RANGE = "toolbox.kafka.warn.timestamp_out_of_range";
     public static final String TOOLBOX_KAFKA_ERR_SASL_CREDENTIAL_REQUIRED = "toolbox.kafka.err.sasl_credential_required";
     public static final String TOOLBOX_KAFKA_ERR_TOPIC_REQUIRED = "toolbox.kafka.err.topic_required";
     public static final String TOOLBOX_KAFKA_GROUP_ID = "toolbox.kafka.group.id";
@@ -2008,6 +2014,10 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_TOPIC_SEARCH_PLACEHOLDER = "toolbox.kafka.topic.search.placeholder";
     public static final String TOOLBOX_KAFKA_USER = "toolbox.kafka.user";
     public static final String TOOLBOX_KAFKA_USER_PLACEHOLDER = "toolbox.kafka.user.placeholder";
+    public static final String TOOLBOX_KAFKA_ADVANCED_OPTIONS = "toolbox.kafka.advanced.options";
+    public static final String TOOLBOX_KAFKA_COPY_VALUE = "toolbox.kafka.copy.value";
+    public static final String TOOLBOX_KAFKA_CLOSE_DETAIL = "toolbox.kafka.close.detail";
+    public static final String TOOLBOX_KAFKA_VALUE_COPIED = "toolbox.kafka.value.copied";
     public static final String TOOLBOX_CRON = "toolbox.cron";
     public static final String TOOLBOX_CRON_EXPRESSION = "toolbox.cron.expression";
     public static final String TOOLBOX_CRON_PARSE = "toolbox.cron.parse";

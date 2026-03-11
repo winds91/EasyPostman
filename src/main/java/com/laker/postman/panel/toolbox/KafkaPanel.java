@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Kafka 工具面板：Topic 浏览 + 发送消息 + 实时消费。
@@ -88,6 +89,14 @@ public class KafkaPanel extends JPanel {
     private static final String LABEL_DISABLED_FG = "Label.disabledForeground";
     private static final String SEPARATOR_FG = "Separator.foreground";
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    private static final String CARD_CONNECT = "connect";
+    private static final String CARD_DISCONNECT = "disconnect";
+    private static final String CARD_CONSUME_START = "consume-start";
+    private static final String CARD_CONSUME_STOP = "consume-stop";
+    private static final String MIG_GROWX = "growx";
+    private static final String MIG_GROWX_WRAP = "growx, wrap";
+    private static final String ACTION_KAFKA_SEND = "kafka-send";
+    private static final String TIMEOUT_MS = "3000";
 
     private JTextField bootstrapField;
     private JTextField clientIdField;
@@ -99,7 +108,6 @@ public class KafkaPanel extends JPanel {
     private JComboBox<String> autoOffsetCombo;
     private JTextField consumeStartValueField;
     private PrimaryButton connectBtn;
-    private SecondaryButton disconnectBtn;
     private CardLayout btnCardLayout;
     private JPanel btnCard;
     private JLabel connectionStatusLabel;
@@ -124,17 +132,44 @@ public class KafkaPanel extends JPanel {
     private JSpinner consumerPollTimeoutSpinner;
     private JSpinner consumerBatchSizeSpinner;
     private JSpinner consumerMaxViewSpinner;
-    private PrimaryButton startConsumeBtn;
-    private StopButton stopConsumeBtn;
-    private ClearButton clearConsumeBtn;
+    private CardLayout consumeBtnCardLayout;
+    private JPanel consumeBtnCard;
     private JLabel consumerStatusLabel;
     private EnhancedTablePanel messageTablePanel;
     private RSyntaxTextArea detailArea;
-    private SearchableTextArea searchableDetailArea;
+    /**
+     * 消息详情分割面板（垂直，表格上 + 详情下）
+     */
+    private JSplitPane consumerDetailSplit;
+    /**
+     * 详情面板是否显示
+     */
+    private boolean detailPanelVisible = false;
+    /**
+     * 详情面板头部元数据标签
+     */
+    private JLabel detailTopicLabel;
+    private JLabel detailPartitionLabel;
+    private JLabel detailOffsetLabel;
+    private JLabel detailKeyLabel;
+    private JLabel detailTimeLabel;
+    /**
+     * 高级选项折叠面板
+     */
+    private JPanel advancedPanel;
+    private boolean advancedVisible = false;
 
     private final List<ConsumedMessage> consumedMessages = new ArrayList<>();
-    private volatile SwingWorker<Void, List<ConsumedMessage>> consumeWorker;
-    private volatile KafkaConsumer<String, String> runningConsumer;
+    private final AtomicReference<SwingWorker<Void, List<ConsumedMessage>>> consumeWorkerRef = new AtomicReference<>();
+    private final AtomicReference<KafkaConsumer<String, String>> runningConsumerRef = new AtomicReference<>();
+    /**
+     * 缓存可复用的 Producer，避免每次发送都重建连接
+     */
+    private final AtomicReference<KafkaProducer<String, String>> cachedProducerRef = new AtomicReference<>();
+    /**
+     * 缓存 Producer 对应的 bootstrap，bootstrap 变更时重建
+     */
+    private volatile String cachedProducerBootstrap;
 
     public KafkaPanel() {
         initUI();
@@ -190,13 +225,13 @@ public class KafkaPanel extends JPanel {
         saslMechanismCombo.setPreferredSize(new Dimension(0, 32));
 
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_HOST)));
-        form.add(bootstrapField, "growx");
+        form.add(bootstrapField, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_CLIENT_ID)));
-        form.add(clientIdField, "growx");
+        form.add(clientIdField, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_SECURITY_PROTOCOL)));
-        form.add(securityProtocolCombo, "growx");
+        form.add(securityProtocolCombo, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_SASL_MECHANISM)));
-        form.add(saslMechanismCombo, "growx, wrap");
+        form.add(saslMechanismCombo, MIG_GROWX_WRAP);
 
         // ── 第二行：user / pass / groupId / offsetReset ──
         usernameField = new JTextField("");
@@ -223,13 +258,13 @@ public class KafkaPanel extends JPanel {
         autoOffsetCombo.setPreferredSize(new Dimension(0, 32));
 
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_USER)));
-        form.add(usernameField, "growx");
+        form.add(usernameField, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_PASS)));
-        form.add(passwordField, "growx");
+        form.add(passwordField, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_GROUP_ID)));
-        form.add(groupIdField, "growx");
+        form.add(groupIdField, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_OFFSET_RESET)));
-        form.add(autoOffsetCombo, "growx, wrap");
+        form.add(autoOffsetCombo, MIG_GROWX_WRAP);
 
         // ── 第三行：startValue / 连接按钮 / 状态（span 全部列）──
         consumeStartValueField = new JTextField("");
@@ -239,15 +274,15 @@ public class KafkaPanel extends JPanel {
         connectBtn = new PrimaryButton(t(MessageKeys.TOOLBOX_KAFKA_CONNECT), "icons/connect.svg");
         connectBtn.addActionListener(e -> loadTopics());
 
-        disconnectBtn = new SecondaryButton(t(MessageKeys.TOOLBOX_KAFKA_DISCONNECT), "icons/ws-close.svg");
+        SecondaryButton disconnectBtn = new SecondaryButton(t(MessageKeys.TOOLBOX_KAFKA_DISCONNECT), "icons/ws-close.svg");
         disconnectBtn.addActionListener(e -> doDisconnect());
 
         btnCardLayout = new CardLayout();
         btnCard = new JPanel(btnCardLayout);
         btnCard.setOpaque(false);
-        btnCard.add(connectBtn, "connect");
-        btnCard.add(disconnectBtn, "disconnect");
-        btnCardLayout.show(btnCard, "connect");
+        btnCard.add(connectBtn, CARD_CONNECT);
+        btnCard.add(disconnectBtn, CARD_DISCONNECT);
+        btnCardLayout.show(btnCard, CARD_CONNECT);
 
         connectionStatusLabel = new JLabel("●");
         connectionStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
@@ -256,7 +291,7 @@ public class KafkaPanel extends JPanel {
 
         // 第三行跨越所有列，用 span + split 实现
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE)), "span, split 4");
-        form.add(consumeStartValueField, "growx");
+        form.add(consumeStartValueField, MIG_GROWX);
         form.add(btnCard);
         form.add(connectionStatusLabel);
 
@@ -352,12 +387,19 @@ public class KafkaPanel extends JPanel {
     }
 
     private JComponent buildWorkPanel() {
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, buildProducerPanel(), buildConsumerPanel());
-        split.setDividerLocation(300);
-        split.setDividerSize(5);
-        split.setResizeWeight(0.38);
-        split.setContinuousLayout(true);
-        return split;
+        JTabbedPane workTabs = new JTabbedPane(SwingConstants.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
+        workTabs.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, +1));
+        workTabs.addTab(
+                t(MessageKeys.TOOLBOX_KAFKA_PRODUCER_TITLE),
+                IconUtil.createThemed("icons/send.svg", 16, 16),
+                buildProducerPanel(),
+                t(MessageKeys.TOOLBOX_KAFKA_PRODUCER_TITLE));
+        workTabs.addTab(
+                t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_TITLE),
+                IconUtil.createThemed("icons/start.svg", 16, 16),
+                buildConsumerPanel(),
+                t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_TITLE));
+        return workTabs;
     }
 
     private JPanel buildProducerPanel() {
@@ -395,9 +437,9 @@ public class KafkaPanel extends JPanel {
 
         // 第一行：topic + key
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_TOPIC)));
-        form.add(producerTopicField, "growx");
+        form.add(producerTopicField, MIG_GROWX);
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_KEY)));
-        form.add(producerKeyField, "growx, wrap");
+        form.add(producerKeyField, MIG_GROWX_WRAP);
 
         // 第二行：partition + send（span 剩余列）
         form.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_PARTITION)), "span, split 3");
@@ -439,9 +481,9 @@ public class KafkaPanel extends JPanel {
         producerPayloadArea.setCodeFoldingEnabled(true);
         producerPayloadArea.setAntiAliasingEnabled(true);
         producerPayloadArea.setText("{\n  \"message\": \"hello kafka\"\n}");
-        producerPayloadArea.getInputMap().put(KeyStroke.getKeyStroke("control ENTER"), "kafka-send");
-        producerPayloadArea.getInputMap().put(KeyStroke.getKeyStroke("meta ENTER"), "kafka-send");
-        producerPayloadArea.getActionMap().put("kafka-send", new AbstractAction() {
+        producerPayloadArea.getInputMap().put(KeyStroke.getKeyStroke("control ENTER"), ACTION_KAFKA_SEND);
+        producerPayloadArea.getInputMap().put(KeyStroke.getKeyStroke("meta ENTER"), ACTION_KAFKA_SEND);
+        producerPayloadArea.getActionMap().put(ACTION_KAFKA_SEND, new AbstractAction() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
                 sendMessage();
@@ -477,65 +519,114 @@ public class KafkaPanel extends JPanel {
     private JPanel buildConsumerPanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 0));
 
-        // ---- 标题栏 ----
-        JPanel titleBar = new JPanel(new BorderLayout(0, 0));
-        titleBar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)),
-                BorderFactory.createEmptyBorder(6, 10, 6, 10)));
+        // ════════════════════════════════════════════════════════
+        // 标题栏
+        // ════════════════════════════════════════════════════════
+        JPanel titleBar = new JPanel(new MigLayout("insets 5 10 5 8, fillx", "[]push[]4[]4[]4[]", "[]"));
+        titleBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)));
+
         JLabel titleLbl = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_TITLE));
         titleLbl.setFont(titleLbl.getFont().deriveFont(Font.BOLD, 12f));
-        titleBar.add(titleLbl, BorderLayout.WEST);
 
-        // ---- 控制栏（合并为单一 MigLayout，避免子面板裁剪 FlatLaf focus 高亮）----
-        JPanel controls = new JPanel(new MigLayout(
-                "insets 8 10 6 10, fillx, gapy 6",
-                "[]8[grow,fill]8[]8[110!]8[]8[110!]",
+        // 详情切换按钮（底部抽屉）
+        JToggleButton detailToggleBtn = new JToggleButton();
+        detailToggleBtn.setIcon(IconUtil.createThemed("icons/detail.svg", 16, 16));
+        detailToggleBtn.setSelectedIcon(IconUtil.createColored("icons/detail.svg", 16, 16, ModernColors.PRIMARY));
+        detailToggleBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_MESSAGE_DETAIL));
+        detailToggleBtn.setSelected(false);
+        detailToggleBtn.setPreferredSize(new Dimension(28, 28));
+        detailToggleBtn.setFocusable(false);
+        detailToggleBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        detailToggleBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+
+        // 高级选项切换按钮
+        JToggleButton advancedToggleBtn = new JToggleButton();
+        advancedToggleBtn.setIcon(IconUtil.createThemed("icons/more.svg", 16, 16));
+        advancedToggleBtn.setSelectedIcon(IconUtil.createColored("icons/more.svg", 16, 16, ModernColors.PRIMARY));
+        advancedToggleBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_ADVANCED_OPTIONS));
+        advancedToggleBtn.setSelected(false);
+        advancedToggleBtn.setPreferredSize(new Dimension(28, 28));
+        advancedToggleBtn.setFocusable(false);
+        advancedToggleBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        advancedToggleBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+
+        ClearButton clearConsumeBtn = new ClearButton();
+        clearConsumeBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CLEAR));
+        clearConsumeBtn.addActionListener(e -> clearConsumedMessages());
+
+        titleBar.add(titleLbl);
+        titleBar.add(clearConsumeBtn);
+        titleBar.add(advancedToggleBtn);
+        titleBar.add(detailToggleBtn);
+
+        // ════════════════════════════════════════════════════════
+        // 主控制栏（紧凑，一行）：Topic + 按钮
+        // ════════════════════════════════════════════════════════
+        JPanel mainControls = new JPanel(new MigLayout(
+                "insets 6 10 6 8, fillx",
+                "[]8[grow,fill]8[]",
                 "[]"
         ));
 
         consumerTopicField = new JTextField("");
         consumerTopicField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, t(MessageKeys.TOOLBOX_KAFKA_TOPIC_PLACEHOLDER));
-        consumerTopicField.setPreferredSize(new Dimension(0, 32));
+        consumerTopicField.setPreferredSize(new Dimension(0, 30));
 
-        consumerPollTimeoutSpinner = new JSpinner(new SpinnerNumberModel(1000, 100, 30000, 100));
-        consumerPollTimeoutSpinner.setPreferredSize(new Dimension(110, 32));
-
-        consumerBatchSizeSpinner = new JSpinner(new SpinnerNumberModel(100, 1, 5000, 1));
-        consumerBatchSizeSpinner.setPreferredSize(new Dimension(110, 32));
-
-        consumerMaxViewSpinner = new JSpinner(new SpinnerNumberModel(500, 50, 10000, 50));
-        consumerMaxViewSpinner.setPreferredSize(new Dimension(110, 32));
-
-        startConsumeBtn = new PrimaryButton(t(MessageKeys.TOOLBOX_KAFKA_START_CONSUME), "icons/start.svg");
+        PrimaryButton startConsumeBtn = new PrimaryButton(t(MessageKeys.TOOLBOX_KAFKA_START_CONSUME), "icons/start.svg");
         startConsumeBtn.addActionListener(e -> startConsuming());
 
-        stopConsumeBtn = new StopButton();
-        stopConsumeBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_STOP_CONSUME));
-        stopConsumeBtn.setEnabled(false);
+        SecondaryButton stopConsumeBtn = new SecondaryButton(t(MessageKeys.TOOLBOX_KAFKA_STOP_CONSUME), "icons/stop.svg");
         stopConsumeBtn.addActionListener(e -> stopConsuming());
 
-        clearConsumeBtn = new ClearButton();
-        clearConsumeBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CLEAR));
-        clearConsumeBtn.addActionListener(e -> clearConsumedMessages());
+        consumeBtnCardLayout = new CardLayout();
+        consumeBtnCard = new JPanel(consumeBtnCardLayout);
+        consumeBtnCard.setOpaque(false);
+        consumeBtnCard.add(startConsumeBtn, CARD_CONSUME_START);
+        consumeBtnCard.add(stopConsumeBtn, CARD_CONSUME_STOP);
+        consumeBtnCardLayout.show(consumeBtnCard, CARD_CONSUME_START);
 
-        // 第一行：topic（span 所有列）
-        controls.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_TOPIC)));
-        controls.add(consumerTopicField, "span, growx, wrap");
+        mainControls.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_TOPIC)));
+        mainControls.add(consumerTopicField);
+        mainControls.add(consumeBtnCard);
 
-        // 第二行：poll timeout / batch size / max view
-        controls.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_POLL_TIMEOUT)));
-        controls.add(consumerPollTimeoutSpinner);
-        controls.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_BATCH_SIZE)));
-        controls.add(consumerBatchSizeSpinner);
-        controls.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_MAX_VIEW)));
-        controls.add(consumerMaxViewSpinner, "wrap");
+        // ════════════════════════════════════════════════════════
+        // 高级选项面板（默认折叠）
+        // ════════════════════════════════════════════════════════
+        advancedPanel = new JPanel(new MigLayout(
+                "insets 4 10 6 8, fillx",
+                "[]8[110!]16[]8[110!]16[]8[110!]",
+                "[]"
+        ));
+        advancedPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0,
+                UIManager.getColor(SEPARATOR_FG)));
 
-        // 第三行：操作按钮（span + 右对齐）
-        controls.add(clearConsumeBtn, "span, split 3, al right");
-        controls.add(stopConsumeBtn);
-        controls.add(startConsumeBtn);
+        consumerPollTimeoutSpinner = new JSpinner(new SpinnerNumberModel(1000, 100, 30000, 100));
+        consumerPollTimeoutSpinner.setPreferredSize(new Dimension(110, 28));
 
-        // ---- 消息表格 ----
+        consumerBatchSizeSpinner = new JSpinner(new SpinnerNumberModel(100, 1, 5000, 1));
+        consumerBatchSizeSpinner.setPreferredSize(new Dimension(110, 28));
+
+        consumerMaxViewSpinner = new JSpinner(new SpinnerNumberModel(500, 50, 10000, 50));
+        consumerMaxViewSpinner.setPreferredSize(new Dimension(110, 28));
+
+        advancedPanel.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_POLL_TIMEOUT)));
+        advancedPanel.add(consumerPollTimeoutSpinner);
+        advancedPanel.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_BATCH_SIZE)));
+        advancedPanel.add(consumerBatchSizeSpinner);
+        advancedPanel.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_MAX_VIEW)));
+        advancedPanel.add(consumerMaxViewSpinner);
+        advancedPanel.setVisible(false);
+
+        // 高级选项切换逻辑
+        advancedToggleBtn.addActionListener(e -> {
+            advancedVisible = advancedToggleBtn.isSelected();
+            advancedPanel.setVisible(advancedVisible);
+            advancedPanel.revalidate();
+        });
+
+        // ════════════════════════════════════════════════════════
+        // 消息表格
+        // ════════════════════════════════════════════════════════
         String[] columns = {
                 t(MessageKeys.TOOLBOX_KAFKA_COL_TIME),
                 t(MessageKeys.TOOLBOX_KAFKA_COL_RECORD_TIME),
@@ -548,41 +639,160 @@ public class KafkaPanel extends JPanel {
         };
         messageTablePanel = new EnhancedTablePanel(columns);
         messageTablePanel.getTable().getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) updateDetailBySelection();
+            if (!e.getValueIsAdjusting()) {
+                updateDetailBySelection();
+                // 选中行时若详情面板未展开则自动展开
+                if (!detailPanelVisible && messageTablePanel.getTable().getSelectedRow() >= 0) {
+                    detailToggleBtn.setSelected(true);
+                    showDetailPanel();
+                }
+            }
         });
 
-        detailArea = new RSyntaxTextArea();
-        detailArea.setEditable(false);
-        detailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-        detailArea.setCodeFoldingEnabled(true);
-        detailArea.setAntiAliasingEnabled(true);
-        detailArea.setLineWrap(false);
-        detailArea.setHighlightCurrentLine(false);
-        EditorThemeUtil.loadTheme(detailArea);
-        updateEditorFont();
-        detailArea.setText("");
-        searchableDetailArea = new SearchableTextArea(detailArea, false);
-        searchableDetailArea.setBorder(BorderFactory.createTitledBorder(t(MessageKeys.TOOLBOX_KAFKA_MESSAGE_DETAIL)));
+        // ════════════════════════════════════════════════════════
+        // 详情面板（底部抽屉）
+        // ════════════════════════════════════════════════════════
+        JPanel detailPanel = buildDetailPanel(detailToggleBtn);
 
-        JSplitPane centerSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, messageTablePanel, searchableDetailArea);
-        centerSplit.setDividerLocation(260);
-        centerSplit.setDividerSize(5);
-        centerSplit.setResizeWeight(0.72);
-        centerSplit.setContinuousLayout(true);
+        // ════════════════════════════════════════════════════════
+        // 垂直分割：表格（上）+ 详情（下），默认详情隐藏
+        // ════════════════════════════════════════════════════════
+        consumerDetailSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, messageTablePanel, detailPanel);
+        consumerDetailSplit.setDividerSize(4);
+        consumerDetailSplit.setResizeWeight(1.0);
+        consumerDetailSplit.setContinuousLayout(true);
+        consumerDetailSplit.setBorder(BorderFactory.createEmptyBorder());
+        // 初始折叠详情
+        SwingUtilities.invokeLater(() -> consumerDetailSplit.setDividerLocation(1.0));
 
+        // 切换详情
+        detailToggleBtn.addActionListener(e -> {
+            detailPanelVisible = detailToggleBtn.isSelected();
+            if (detailPanelVisible) {
+                showDetailPanel();
+            } else {
+                hideDetailPanel();
+            }
+        });
+
+        // ════════════════════════════════════════════════════════
+        // 状态栏
+        // ════════════════════════════════════════════════════════
         consumerStatusLabel = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_READY));
         consumerStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
-        consumerStatusLabel.setBorder(new EmptyBorder(4, 8, 4, 8));
+        consumerStatusLabel.setFont(consumerStatusLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        consumerStatusLabel.setBorder(new EmptyBorder(3, 10, 3, 8));
 
+        // ════════════════════════════════════════════════════════
+        // 组装
+        // ════════════════════════════════════════════════════════
         JPanel north = new JPanel(new BorderLayout());
         north.add(titleBar, BorderLayout.NORTH);
-        north.add(controls, BorderLayout.CENTER);
+        north.add(mainControls, BorderLayout.CENTER);
+        north.add(advancedPanel, BorderLayout.SOUTH);
 
         panel.add(north, BorderLayout.NORTH);
-        panel.add(centerSplit, BorderLayout.CENTER);
+        panel.add(consumerDetailSplit, BorderLayout.CENTER);
         panel.add(consumerStatusLabel, BorderLayout.SOUTH);
         return panel;
     }
+
+    /**
+     * 构建消息详情底部抽屉面板
+     */
+    private JPanel buildDetailPanel(JToggleButton detailToggleBtn) {
+        JPanel detailPanel = new JPanel(new BorderLayout(0, 0));
+        detailPanel.setMinimumSize(new Dimension(0, 0));
+
+        // ---- 详情头部（元数据 chips + 操作按钮）----
+        JPanel detailHeader = new JPanel(new MigLayout("insets 4 10 4 8, fillx", "[]8[]8[]8[]8[]push[]4[]", "[]"));
+        detailHeader.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)));
+
+        // 元数据标签（chip 风格）
+        detailTopicLabel = buildChipLabel("Topic: —", ModernColors.INFO);
+        detailPartitionLabel = buildChipLabel("Partition: —", new Color(120, 80, 200));
+        detailOffsetLabel = buildChipLabel("Offset: —", new Color(20, 150, 100));
+        detailKeyLabel = buildChipLabel("Key: —", new Color(180, 100, 0));
+        detailTimeLabel = buildChipLabel("—", null);
+        detailTimeLabel.setFont(detailTimeLabel.getFont().deriveFont(Font.PLAIN, 10f));
+        detailTimeLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
+
+        // 复制 Value 按钮
+        CopyButton copyValueBtn = new CopyButton();
+        copyValueBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_COPY_VALUE));
+        copyValueBtn.addActionListener(e -> {
+            String txt = detailArea.getText().trim();
+            if (!txt.isEmpty()) {
+                Toolkit.getDefaultToolkit().getSystemClipboard()
+                        .setContents(new java.awt.datatransfer.StringSelection(txt), null);
+                NotificationUtil.showSuccess(t(MessageKeys.TOOLBOX_KAFKA_VALUE_COPIED));
+            }
+        });
+
+        // 关闭详情按钮
+        CloseButton closeDetailBtn = new CloseButton();
+        closeDetailBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_CLOSE_DETAIL));
+        closeDetailBtn.addActionListener(e -> {
+            detailToggleBtn.setSelected(false);
+            hideDetailPanel();
+        });
+
+        detailHeader.add(detailTopicLabel);
+        detailHeader.add(detailPartitionLabel);
+        detailHeader.add(detailOffsetLabel);
+        detailHeader.add(detailKeyLabel);
+        detailHeader.add(detailTimeLabel);
+        detailHeader.add(copyValueBtn);
+        detailHeader.add(closeDetailBtn);
+
+        // ---- 详情内容区（JSON 高亮）----
+        detailArea = new RSyntaxTextArea();
+        detailArea.setEditable(false);
+        detailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JSON);
+        detailArea.setCodeFoldingEnabled(true);
+        detailArea.setAntiAliasingEnabled(true);
+        detailArea.setLineWrap(false);
+        detailArea.setHighlightCurrentLine(true);
+        EditorThemeUtil.loadTheme(detailArea);
+        updateEditorFont();
+        detailArea.setText("");
+        SearchableTextArea searchableDetail = new SearchableTextArea(detailArea, false);
+
+        detailPanel.add(detailHeader, BorderLayout.NORTH);
+        detailPanel.add(searchableDetail, BorderLayout.CENTER);
+        return detailPanel;
+    }
+
+    /**
+     * 构建 chip 风格元数据标签
+     */
+    private JLabel buildChipLabel(String text, Color bgColor) {
+        JLabel lbl = new JLabel(text) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                if (bgColor != null) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(new Color(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue(), 30));
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                    g2.setColor(new Color(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue(), 140));
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+                    g2.dispose();
+                }
+                super.paintComponent(g);
+            }
+        };
+        lbl.setFont(lbl.getFont().deriveFont(Font.PLAIN, 11f));
+        if (bgColor != null) {
+            lbl.setForeground(ModernColors.isDarkTheme()
+                    ? new Color(Math.min(bgColor.getRed() + 80, 255), Math.min(bgColor.getGreen() + 80, 255), Math.min(bgColor.getBlue() + 80, 255))
+                    : bgColor.darker());
+        }
+        lbl.setBorder(new EmptyBorder(2, 6, 2, 6));
+        lbl.setOpaque(false);
+        return lbl;
+    }
+
 
     private void updateSecurityFieldsEnabledState() {
         boolean saslEnabled = selectedSecurityProtocol().startsWith("SASL");
@@ -593,7 +803,19 @@ public class KafkaPanel extends JPanel {
 
     private void updateConsumeStartValueEnabledState() {
         ConsumeStartMode consumeStartMode = selectedConsumeStartMode();
-        consumeStartValueField.setEnabled(consumeStartMode.requiresStartValue());
+        boolean enabled = consumeStartMode.requiresStartValue();
+        consumeStartValueField.setEnabled(enabled);
+        if (consumeStartMode == ConsumeStartMode.TIMESTAMP) {
+            consumeStartValueField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
+                    t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_PLACEHOLDER) + " (e.g. 2024-01-01 00:00:00 or ms)");
+        } else if (consumeStartMode == ConsumeStartMode.OFFSET) {
+            consumeStartValueField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
+                    t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_PLACEHOLDER) + " (e.g. 100)");
+        } else {
+            consumeStartValueField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT,
+                    t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_PLACEHOLDER));
+        }
+        consumeStartValueField.repaint();
     }
 
     private void loadTopics() {
@@ -603,18 +825,28 @@ public class KafkaPanel extends JPanel {
             return;
         }
 
+        // 在 EDT 预先读取所有 UI 字段（含 passwordField），避免非 EDT 线程读取 Swing 组件
+        final Properties baseProps;
+        try {
+            baseProps = buildCommonClientProperties();
+        } catch (IllegalArgumentException ex) {
+            NotificationUtil.showWarning(rootMessage(ex));
+            return;
+        }
+
         connectBtn.setEnabled(false);
         setConnectionStatus(ModernColors.INFO, t(MessageKeys.TOOLBOX_KAFKA_STATUS_LOADING_TOPICS));
 
         SwingWorker<List<String>, Void> worker = new SwingWorker<>() {
             @Override
             protected List<String> doInBackground() throws Exception {
-                Properties props = buildCommonClientProperties();
-                props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000");
-                props.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, "10000");
+                Properties props = new Properties();
+                props.putAll(baseProps);
+                props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, TIMEOUT_MS);
+                props.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, TIMEOUT_MS);
                 try (AdminClient adminClient = AdminClient.create(props)) {
-                    ListTopicsOptions options = new ListTopicsOptions().listInternal(false).timeoutMs(10000);
-                    List<String> topics = new ArrayList<>(adminClient.listTopics(options).names().get(10, TimeUnit.SECONDS));
+                    ListTopicsOptions options = new ListTopicsOptions().listInternal(false).timeoutMs(Integer.parseInt(TIMEOUT_MS));
+                    List<String> topics = new ArrayList<>(adminClient.listTopics(options).names().get(Integer.parseInt(TIMEOUT_MS), TimeUnit.MILLISECONDS));
                     Collections.sort(topics);
                     return topics;
                 }
@@ -636,9 +868,12 @@ public class KafkaPanel extends JPanel {
                     }
                     String status = t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECTED, bootstrap);
                     setConnectionStatus(ModernColors.SUCCESS, status);
-                    btnCardLayout.show(btnCard, "disconnect");
+                    btnCardLayout.show(btnCard, CARD_DISCONNECT);
                     producerStatusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_TOPICS_LOADED, topics.size()));
                     NotificationUtil.showSuccess(t(MessageKeys.TOOLBOX_KAFKA_STATUS_TOPICS_LOADED, topics.size()));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Load kafka topics interrupted", ex);
                 } catch (Exception ex) {
                     Throwable cause = unwrapException(ex);
                     setConnectionStatus(ModernColors.ERROR, t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONNECT_FAILED, rootMessage(cause)));
@@ -692,6 +927,16 @@ public class KafkaPanel extends JPanel {
             return;
         }
 
+        // 在 EDT 预先读取所有 UI 字段（含 passwordField），避免非 EDT 线程读取 Swing 组件
+        final Properties baseProps;
+        try {
+            baseProps = buildCommonClientProperties();
+        } catch (IllegalArgumentException ex) {
+            NotificationUtil.showWarning(rootMessage(ex));
+            return;
+        }
+        final String currentBootstrap = baseProps.getProperty(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "");
+
         sendBtn.setEnabled(false);
         producerStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
         producerStatusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SENDING));
@@ -699,25 +944,18 @@ public class KafkaPanel extends JPanel {
         SwingWorker<RecordMetadata, Void> worker = new SwingWorker<>() {
             @Override
             protected RecordMetadata doInBackground() throws Exception {
-                Properties props = buildCommonClientProperties();
-                props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-                props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-                props.put(ProducerConfig.ACKS_CONFIG, "all");
-                props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000");
-                props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, "15000");
-                try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
-                    ProducerRecord<String, String> record;
-                    String finalKey = key.isBlank() ? null : key;
-                    if (partition != null && partition >= 0) {
-                        record = new ProducerRecord<>(topic, partition, finalKey, payload);
-                    } else {
-                        record = new ProducerRecord<>(topic, finalKey, payload);
-                    }
-                    for (Header header : headers) {
-                        record.headers().add(header);
-                    }
-                    return producer.send(record).get(15, TimeUnit.SECONDS);
+                KafkaProducer<String, String> producer = getOrCreateProducer(baseProps, currentBootstrap);
+                ProducerRecord<String, String> producerRecord;
+                String finalKey = key.isBlank() ? null : key;
+                if (partition != null && partition >= 0) {
+                    producerRecord = new ProducerRecord<>(topic, partition, finalKey, payload);
+                } else {
+                    producerRecord = new ProducerRecord<>(topic, finalKey, payload);
                 }
+                for (Header header : headers) {
+                    producerRecord.headers().add(header);
+                }
+                return producer.send(producerRecord).get(15, TimeUnit.SECONDS);
             }
 
             @Override
@@ -729,8 +967,13 @@ public class KafkaPanel extends JPanel {
                     producerStatusLabel.setForeground(ModernColors.SUCCESS);
                     producerStatusLabel.setText(msg);
                     NotificationUtil.showSuccess(msg);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Send kafka message interrupted", ex);
                 } catch (Exception ex) {
                     Throwable cause = unwrapException(ex);
+                    // 发送失败时关闭缓存的 Producer，下次重建
+                    closeAndClearCachedProducer();
                     producerStatusLabel.setForeground(ModernColors.ERROR);
                     producerStatusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, rootMessage(cause)));
                     NotificationUtil.showError(t(MessageKeys.TOOLBOX_KAFKA_STATUS_SEND_FAILED, rootMessage(cause)));
@@ -741,8 +984,56 @@ public class KafkaPanel extends JPanel {
         worker.execute();
     }
 
+    /**
+     * 获取或创建可复用的 KafkaProducer。
+     * bootstrap 变更时自动关闭旧 Producer 并重建。
+     */
+    private synchronized KafkaProducer<String, String> getOrCreateProducer(Properties baseProps, String bootstrap) {
+        KafkaProducer<String, String> existing = cachedProducerRef.get();
+        if (existing != null && !bootstrap.equals(cachedProducerBootstrap)) {
+            try {
+                existing.close(Duration.ofSeconds(5));
+            } catch (Exception e) {
+                log.warn("Close old producer failed", e);
+            }
+            cachedProducerRef.set(null);
+            cachedProducerBootstrap = null;
+            existing = null;
+        }
+        if (existing == null) {
+            Properties props = new Properties();
+            props.putAll(baseProps);
+            props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+            props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+            props.put(ProducerConfig.ACKS_CONFIG, "all");
+            props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, TIMEOUT_MS);
+            props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, "15000");
+            KafkaProducer<String, String> newProducer = new KafkaProducer<>(props);
+            cachedProducerRef.set(newProducer);
+            cachedProducerBootstrap = bootstrap;
+            return newProducer;
+        }
+        return existing;
+    }
+
+    /**
+     * 发送失败或断开连接时，关闭并清理缓存的 Producer
+     */
+    private synchronized void closeAndClearCachedProducer() {
+        KafkaProducer<String, String> producer = cachedProducerRef.getAndSet(null);
+        if (producer != null) {
+            try {
+                producer.close(Duration.ofSeconds(5));
+            } catch (Exception e) {
+                log.warn("Close cached producer failed", e);
+            }
+            cachedProducerBootstrap = null;
+        }
+    }
+
     private void startConsuming() {
-        if (consumeWorker != null && !consumeWorker.isDone()) {
+        SwingWorker<Void, List<ConsumedMessage>> existing = consumeWorkerRef.get();
+        if (existing != null && !existing.isDone()) {
             return;
         }
 
@@ -763,28 +1054,40 @@ public class KafkaPanel extends JPanel {
             return;
         }
 
+        // 在 EDT 预先读取所有 UI 字段（含 passwordField），避免非 EDT 线程读取 Swing 组件
+        final Properties baseProps;
+        try {
+            baseProps = buildCommonClientProperties();
+        } catch (IllegalArgumentException ex) {
+            NotificationUtil.showWarning(rootMessage(ex));
+            return;
+        }
+
+        // groupId 为空时生成临时唯一 groupId，避免干扰生产环境消费组
+        String configuredGroupId = groupIdField.getText().trim();
+        final String finalGroupId = configuredGroupId.isBlank()
+                ? "easy-postman-consumer-" + System.currentTimeMillis()
+                : configuredGroupId;
+
         setConsuming(true);
         consumerStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
         consumerStatusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_CONSUMING, topic));
 
-        consumeWorker = new SwingWorker<>() {
+        SwingWorker<Void, List<ConsumedMessage>> worker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() throws Exception {
-                Properties props = buildCommonClientProperties();
+                Properties props = new Properties();
+                props.putAll(baseProps);
                 props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
                 props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-
-                String groupId = groupIdField.getText().trim();
-                if (groupId.isBlank()) {
-                    groupId = "easy-postman-consumer-" + System.currentTimeMillis();
-                }
-                props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+                props.put(ConsumerConfig.GROUP_ID_CONFIG, finalGroupId);
                 props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, consumeStartMode.autoOffsetReset());
-                props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
+                // 禁用自动提交：工具类消费不应修改服务端 group offset
+                props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
                 props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, String.valueOf(maxPollRecords));
 
                 try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
-                    runningConsumer = consumer;
+                    runningConsumerRef.set(consumer);
                     AtomicBoolean startPositionApplied = new AtomicBoolean(false);
                     consumer.subscribe(Collections.singletonList(topic), new org.apache.kafka.clients.consumer.ConsumerRebalanceListener() {
                         @Override
@@ -824,7 +1127,7 @@ public class KafkaPanel extends JPanel {
                         throw wakeupException;
                     }
                 } finally {
-                    runningConsumer = null;
+                    runningConsumerRef.compareAndSet(runningConsumerRef.get(), null);
                 }
                 return null;
             }
@@ -852,6 +1155,9 @@ public class KafkaPanel extends JPanel {
                     get();
                     consumerStatusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
                     consumerStatusLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_STATUS_STOPPED));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Consume kafka interrupted", ex);
                 } catch (Exception ex) {
                     Throwable cause = unwrapException(ex);
                     consumerStatusLabel.setForeground(ModernColors.ERROR);
@@ -861,15 +1167,16 @@ public class KafkaPanel extends JPanel {
                 }
             }
         };
-        consumeWorker.execute();
+        consumeWorkerRef.set(worker);
+        worker.execute();
     }
 
     private void stopConsuming() {
-        SwingWorker<Void, List<ConsumedMessage>> worker = consumeWorker;
+        SwingWorker<Void, List<ConsumedMessage>> worker = consumeWorkerRef.get();
         if (worker != null && !worker.isDone()) {
             worker.cancel(true);
         }
-        KafkaConsumer<String, String> consumer = runningConsumer;
+        KafkaConsumer<String, String> consumer = runningConsumerRef.get();
         if (consumer != null) {
             consumer.wakeup();
         }
@@ -879,7 +1186,9 @@ public class KafkaPanel extends JPanel {
         consumedMessages.clear();
         messageTablePanel.clearData();
         detailArea.setText("");
-        boolean consuming = consumeWorker != null && !consumeWorker.isDone();
+        clearDetailChips();
+        SwingWorker<Void, List<ConsumedMessage>> worker = consumeWorkerRef.get();
+        boolean consuming = worker != null && !worker.isDone();
         if (consuming) {
             String topic = consumerTopicField.getText().trim();
             consumerStatusLabel.setForeground(ModernColors.INFO);
@@ -891,8 +1200,7 @@ public class KafkaPanel extends JPanel {
     }
 
     private void setConsuming(boolean consuming) {
-        startConsumeBtn.setEnabled(!consuming);
-        stopConsumeBtn.setEnabled(consuming);
+        consumeBtnCardLayout.show(consumeBtnCard, consuming ? CARD_CONSUME_STOP : CARD_CONSUME_START);
     }
 
     private void trimConsumedMessages() {
@@ -902,9 +1210,14 @@ public class KafkaPanel extends JPanel {
         }
         int removeCount = consumedMessages.size() - maxView;
         consumedMessages.subList(0, removeCount).clear();
+        // 超出上限后全量重建表格（保证表格与 consumedMessages 同步）
+        rebuildMessageTable();
     }
 
-    private void refreshMessageTable() {
+    /**
+     * 全量重建消息表格（用于 trim 后或 clear 后）
+     */
+    private void rebuildMessageTable() {
         List<Object[]> rows = consumedMessages.stream()
                 .map(item -> new Object[]{
                         item.receiveTime(),
@@ -917,50 +1230,105 @@ public class KafkaPanel extends JPanel {
                         item.value()
                 }).toList();
         messageTablePanel.setData(rows);
+    }
+
+    private void refreshMessageTable() {
+        int tableRowCount = messageTablePanel.getTable().getRowCount();
+        // 若 consumedMessages 因 trim 缩减，全量重建
+        if (consumedMessages.size() < tableRowCount) {
+            rebuildMessageTable();
+            return;
+        }
+        // 增量追加新行，避免全量 setData 导致 UI 闪烁和性能开销
+        for (int i = tableRowCount; i < consumedMessages.size(); i++) {
+            ConsumedMessage item = consumedMessages.get(i);
+            messageTablePanel.addRow(new Object[]{
+                    item.receiveTime(),
+                    item.recordTime(),
+                    item.topic(),
+                    item.partition(),
+                    item.offset(),
+                    item.key(),
+                    item.headers(),
+                    item.value()
+            });
+        }
+        // 自动滚动到最新行
         if (messageTablePanel.getTable().getRowCount() > 0) {
             int last = messageTablePanel.getTable().getRowCount() - 1;
-            messageTablePanel.getTable().setRowSelectionInterval(last, last);
+            messageTablePanel.getTable().scrollRectToVisible(
+                    messageTablePanel.getTable().getCellRect(last, 0, true));
         }
     }
 
+    /**
+     * 展开消息详情面板（底部抽屉，约40%高度）
+     */
+    private void showDetailPanel() {
+        detailPanelVisible = true;
+        int total = consumerDetailSplit.getHeight();
+        int loc = total > 0 ? (int) (total * 0.60) : 300;
+        consumerDetailSplit.setDividerLocation(loc);
+    }
+
+    /**
+     * 折叠消息详情面板
+     */
+    private void hideDetailPanel() {
+        detailPanelVisible = false;
+        consumerDetailSplit.setDividerLocation(1.0);
+    }
+
     private void updateDetailBySelection() {
-        int row = messageTablePanel.getTable().getSelectedRow();
-        if (row < 0) {
+        int viewRow = messageTablePanel.getTable().getSelectedRow();
+        if (viewRow < 0) {
             detailArea.setText("");
+            clearDetailChips();
             return;
         }
-        String time = String.valueOf(messageTablePanel.getTable().getValueAt(row, 0));
-        String recordTime = String.valueOf(messageTablePanel.getTable().getValueAt(row, 1));
-        String topic = String.valueOf(messageTablePanel.getTable().getValueAt(row, 2));
-        String partition = String.valueOf(messageTablePanel.getTable().getValueAt(row, 3));
-        String offset = String.valueOf(messageTablePanel.getTable().getValueAt(row, 4));
-        String key = String.valueOf(messageTablePanel.getTable().getValueAt(row, 5));
-        String headers = String.valueOf(messageTablePanel.getTable().getValueAt(row, 6));
-        String value = String.valueOf(messageTablePanel.getTable().getValueAt(row, 7));
+        // 将视图行索引转换为模型行索引，防止排序后错位
+        int modelRow = messageTablePanel.getTable().convertRowIndexToModel(viewRow);
+        if (modelRow < 0 || modelRow >= consumedMessages.size()) {
+            detailArea.setText("");
+            clearDetailChips();
+            return;
+        }
+        ConsumedMessage msg = consumedMessages.get(modelRow);
 
-        String detail = """
-                Receive Time: %s
-                Record Time: %s
-                Topic: %s
-                Partition: %s
-                Offset: %s
-                
-                Key:
-                %s
-                
-                Headers:
-                %s
-                
-                Value:
-                %s
-                """.formatted(time, recordTime, topic, partition, offset, key, headers, value);
-        detailArea.setText(detail);
+        // 更新 chip 标签
+        detailTopicLabel.setText("Topic: " + msg.topic());
+        detailPartitionLabel.setText("Partition: " + msg.partition());
+        detailOffsetLabel.setText("Offset: " + msg.offset());
+        detailKeyLabel.setText("Key: " + (msg.key() == null || msg.key().isBlank() ? "—" : msg.key()));
+        detailTimeLabel.setText(msg.receiveTime());
+
+        // Value 区域：尝试 JSON 高亮，否则纯文本
+        String value = msg.value() == null ? "" : msg.value().trim();
+        if (JsonUtil.isTypeJSON(value)) {
+            detailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JSON);
+            String pretty = JsonUtil.toJsonPrettyStr(value);
+            detailArea.setText(pretty != null ? pretty : value);
+        } else {
+            detailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+            detailArea.setText(value);
+        }
         detailArea.setCaretPosition(0);
+    }
+
+    private void clearDetailChips() {
+        if (detailTopicLabel != null) detailTopicLabel.setText("Topic: —");
+        if (detailPartitionLabel != null) detailPartitionLabel.setText("Partition: —");
+        if (detailOffsetLabel != null) detailOffsetLabel.setText("Offset: —");
+        if (detailKeyLabel != null) detailKeyLabel.setText("Key: —");
+        if (detailTimeLabel != null) detailTimeLabel.setText("—");
     }
 
     private void updateEditorFont() {
         if (detailArea != null) {
             detailArea.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
+        }
+        if (producerPayloadArea != null) {
+            producerPayloadArea.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
         }
     }
 
@@ -1030,6 +1398,30 @@ public class KafkaPanel extends JPanel {
         if (valueText.isBlank()) {
             throw new IllegalArgumentException(t(MessageKeys.TOOLBOX_KAFKA_ERR_OFFSET_VALUE_REQUIRED));
         }
+        if (consumeStartMode == ConsumeStartMode.TIMESTAMP) {
+            // 优先尝试解析 "yyyy-MM-dd HH:mm:ss" 或 "yyyy-MM-dd HH:mm:ss.SSS" 格式
+            String[] datePatterns = {"yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"};
+            for (String pattern : datePatterns) {
+                try {
+                    DateTimeFormatter fmt = DateTimeFormatter.ofPattern(pattern);
+                    LocalDateTime ldt = (pattern.equals("yyyy-MM-dd"))
+                            ? java.time.LocalDate.parse(valueText, fmt).atStartOfDay()
+                            : LocalDateTime.parse(valueText, fmt);
+                    return ldt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                } catch (Exception ignored) {
+                    // 继续尝试下一个格式
+                }
+            }
+            // 尝试纯数字毫秒时间戳
+            try {
+                long value = Long.parseLong(valueText);
+                if (value < 0) throw new NumberFormatException("negative");
+                return value;
+            } catch (NumberFormatException ignored) {
+                throw new IllegalArgumentException(t(MessageKeys.TOOLBOX_KAFKA_ERR_OFFSET_VALUE_INVALID, valueText));
+            }
+        }
+        // OFFSET 模式：纯数字
         try {
             long value = Long.parseLong(valueText);
             if (value < 0) {
@@ -1074,23 +1466,41 @@ public class KafkaPanel extends JPanel {
         if (partitions == null || partitions.isEmpty()) {
             return;
         }
-        // Keep Kafka default semantics for latest/earliest/none:
-        // if committed offsets exist, resume from committed;
-        // otherwise rely on auto.offset.reset.
+        // For latest/earliest/none, rely on Kafka's auto.offset.reset and committed offsets semantics.
         if (consumeStartMode == ConsumeStartMode.LATEST
                 || consumeStartMode == ConsumeStartMode.EARLIEST
                 || consumeStartMode == ConsumeStartMode.NONE) {
             return;
         }
         if (consumeStartMode == ConsumeStartMode.OFFSET) {
-            long offset = consumeStartValue == null ? 0L : consumeStartValue;
+            final long offset = consumeStartValue == null ? 0L : consumeStartValue;
+            Map<TopicPartition, Long> beginningOffsets = consumer.beginningOffsets(partitions);
+            Map<TopicPartition, Long> endOffsets = consumer.endOffsets(partitions);
             for (TopicPartition partition : partitions) {
-                consumer.seek(partition, offset);
+                long beginOffset = beginningOffsets.getOrDefault(partition, 0L);
+                long endOffset = endOffsets.getOrDefault(partition, 0L);
+                long seekOffset = offset;
+                if (offset < beginOffset) {
+                    seekOffset = beginOffset;
+                    final long adjusted = seekOffset;
+                    final String msg = t(MessageKeys.TOOLBOX_KAFKA_WARN_OFFSET_OUT_OF_RANGE,
+                            offset, partition.partition(), beginOffset, endOffset, adjusted);
+                    SwingUtilities.invokeLater(() -> NotificationUtil.showWarning(msg));
+                    log.warn("Offset {} is before beginning offset {} for {}, seeking to {}", offset, beginOffset, partition, adjusted);
+                } else if (offset > endOffset) {
+                    seekOffset = endOffset;
+                    final long adjusted = seekOffset;
+                    final String msg = t(MessageKeys.TOOLBOX_KAFKA_WARN_OFFSET_OUT_OF_RANGE,
+                            offset, partition.partition(), beginOffset, endOffset, adjusted);
+                    SwingUtilities.invokeLater(() -> NotificationUtil.showWarning(msg));
+                    log.warn("Offset {} is after end offset {} for {}, seeking to {}", offset, endOffset, partition, adjusted);
+                }
+                consumer.seek(partition, seekOffset);
             }
             return;
         }
         if (consumeStartMode == ConsumeStartMode.TIMESTAMP) {
-            long timestamp = consumeStartValue == null ? 0L : consumeStartValue;
+            final long timestamp = consumeStartValue == null ? 0L : consumeStartValue;
             Map<TopicPartition, Long> targetTimestamps = new HashMap<>();
             for (TopicPartition partition : partitions) {
                 targetTimestamps.put(partition, timestamp);
@@ -1099,7 +1509,12 @@ public class KafkaPanel extends JPanel {
             for (TopicPartition partition : partitions) {
                 OffsetAndTimestamp offsetAndTimestamp = offsetsByTimestamp.get(partition);
                 if (offsetAndTimestamp == null) {
+                    // 没有消息的时间戳 >= 用户指定的时间戳，说明时间戳超出了分区最新消息的范围
                     consumer.seekToEnd(Collections.singletonList(partition));
+                    final String msg = t(MessageKeys.TOOLBOX_KAFKA_WARN_TIMESTAMP_OUT_OF_RANGE,
+                            timestamp, partition.partition());
+                    SwingUtilities.invokeLater(() -> NotificationUtil.showWarning(msg));
+                    log.warn("Timestamp {} has no matching offset in {}, seeking to end", timestamp, partition);
                 } else {
                     consumer.seek(partition, offsetAndTimestamp.offset());
                 }
@@ -1150,9 +1565,10 @@ public class KafkaPanel extends JPanel {
 
     private void doDisconnect() {
         stopConsuming();
+        closeAndClearCachedProducer();
         topicListModel.clear();
         topicFilteredModel.clear();
-        btnCardLayout.show(btnCard, "connect");
+        btnCardLayout.show(btnCard, CARD_CONNECT);
         setConnectionStatus(UIManager.getColor(LABEL_DISABLED_FG), t(MessageKeys.TOOLBOX_KAFKA_STATUS_NOT_CONNECTED));
         NotificationUtil.showInfo(t(MessageKeys.TOOLBOX_KAFKA_DISCONNECT_SUCCESS));
     }
