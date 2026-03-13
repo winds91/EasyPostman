@@ -1,5 +1,6 @@
 package com.laker.postman.panel.performance;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import com.laker.postman.common.SingletonBasePanel;
 import com.laker.postman.common.SingletonFactory;
@@ -10,15 +11,15 @@ import com.laker.postman.common.component.button.StartButton;
 import com.laker.postman.common.component.button.StopButton;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.model.HttpRequestItem;
-import com.laker.postman.model.HttpResponse;
 import com.laker.postman.model.PreparedRequest;
 import com.laker.postman.model.RequestItemProtocolEnum;
-import com.laker.postman.model.script.TestResult;
 import com.laker.postman.panel.collections.right.request.RequestEditSubPanel;
-import com.laker.postman.panel.performance.assertion.AssertionData;
 import com.laker.postman.panel.performance.assertion.AssertionPropertyPanel;
 import com.laker.postman.panel.performance.component.JMeterTreeCellRenderer;
 import com.laker.postman.panel.performance.component.TreeNodeTransferHandler;
+import com.laker.postman.panel.performance.execution.PerformanceRequestExecutionResult;
+import com.laker.postman.panel.performance.execution.PerformanceRequestExecutor;
+import com.laker.postman.panel.performance.execution.PerformanceResultRecorder;
 import com.laker.postman.panel.performance.model.*;
 import com.laker.postman.panel.performance.result.PerformanceReportPanel;
 import com.laker.postman.panel.performance.result.PerformanceResultTablePanel;
@@ -28,13 +29,10 @@ import com.laker.postman.panel.performance.threadgroup.ThreadGroupPropertyPanel;
 import com.laker.postman.panel.performance.timer.TimerPropertyPanel;
 import com.laker.postman.service.PerformancePersistenceService;
 import com.laker.postman.service.collections.RequestCollectionsService;
-import com.laker.postman.service.http.HttpSingleRequestExecutor;
+import com.laker.postman.service.http.HttpUtil;
 import com.laker.postman.service.http.PreparedRequestBuilder;
 import com.laker.postman.service.http.okhttp.OkHttpClientManager;
-import com.laker.postman.service.js.ScriptExecutionPipeline;
-import com.laker.postman.service.js.ScriptExecutionResult;
 import com.laker.postman.service.setting.SettingManager;
-import com.laker.postman.service.variable.VariableResolver;
 import com.laker.postman.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.jfree.data.time.Second;
@@ -56,6 +54,8 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import okhttp3.WebSocket;
+import okhttp3.sse.EventSource;
 
 /**
  * 左侧多层级树（用户组-请求-断言-定时器），右侧属性区，底部Tab结果区
@@ -67,6 +67,12 @@ public class PerformancePanel extends SingletonBasePanel {
     public static final String REQUEST = "request";
     public static final String ASSERTION = "assertion";
     public static final String TIMER = "timer";
+    public static final String SSE_CONNECT = "sseConnect";
+    public static final String SSE_AWAIT = "sseAwait";
+    public static final String WS_CONNECT = "wsConnect";
+    public static final String WS_SEND = "wsSend";
+    public static final String WS_AWAIT = "wsAwait";
+    public static final String WS_CLOSE = "wsClose";
     private JTree jmeterTree;
     private DefaultTreeModel treeModel;
     private JPanel propertyPanel; // 右侧属性区（CardLayout）
@@ -75,7 +81,15 @@ public class PerformancePanel extends SingletonBasePanel {
     private ThreadGroupPropertyPanel threadGroupPanel;
     private AssertionPropertyPanel assertionPanel;
     private TimerPropertyPanel timerPanel;
+    private SseStagePropertyPanel sseConnectPanel;
+    private SseStagePropertyPanel sseAwaitPanel;
+    private WebSocketStagePropertyPanel wsConnectPanel;
+    private WebSocketStagePropertyPanel wsSendPanel;
+    private WebSocketStagePropertyPanel wsAwaitPanel;
+    private WebSocketStagePropertyPanel wsClosePanel;
     private RequestEditSubPanel requestEditSubPanel;
+    private JPanel requestEditorHost;
+    private RequestItemProtocolEnum currentRequestEditorProtocol = RequestItemProtocolEnum.HTTP;
     private volatile boolean running = false;
     private transient Thread runThread;
     private StartButton runBtn;
@@ -111,14 +125,20 @@ public class PerformancePanel extends SingletonBasePanel {
 
     // CSV 数据管理面板
     private CsvDataPanel csvDataPanel;
-    // CSV行索引分配器
-    private final AtomicInteger csvRowIndex = new AtomicInteger(0);
+    // 虚拟用户（线程）编号分配器，每个线程启动时分配一个唯一编号
+    private final AtomicInteger virtualUserCounter = new AtomicInteger(0);
+    // 每个线程持有自己的虚拟用户编号，用于绑定 CSV 行
+    private final transient ThreadLocal<Integer> threadVirtualUserIndex = new ThreadLocal<>();
 
     // 持久化服务
     private transient PerformancePersistenceService persistenceService;
 
     // 当前选中的请求节点
     private DefaultMutableTreeNode currentRequestNode;
+    private final transient Set<EventSource> activeSseSources = ConcurrentHashMap.newKeySet();
+    private final transient Set<WebSocket> activeWebSockets = ConcurrentHashMap.newKeySet();
+    private transient PerformanceRequestExecutor requestExecutor;
+    private transient PerformanceResultRecorder resultRecorder;
 
     @Override
     protected void initUI() {
@@ -174,6 +194,18 @@ public class PerformancePanel extends SingletonBasePanel {
         propertyPanel.add(assertionPanel, ASSERTION);
         timerPanel = new TimerPropertyPanel();
         propertyPanel.add(timerPanel, TIMER);
+        sseConnectPanel = new SseStagePropertyPanel(SseStagePropertyPanel.Stage.CONNECT);
+        propertyPanel.add(sseConnectPanel, SSE_CONNECT);
+        sseAwaitPanel = new SseStagePropertyPanel(SseStagePropertyPanel.Stage.AWAIT);
+        propertyPanel.add(sseAwaitPanel, SSE_AWAIT);
+        wsConnectPanel = new WebSocketStagePropertyPanel(WebSocketStagePropertyPanel.Stage.CONNECT);
+        propertyPanel.add(wsConnectPanel, WS_CONNECT);
+        wsSendPanel = new WebSocketStagePropertyPanel(WebSocketStagePropertyPanel.Stage.SEND);
+        propertyPanel.add(wsSendPanel, WS_SEND);
+        wsAwaitPanel = new WebSocketStagePropertyPanel(WebSocketStagePropertyPanel.Stage.AWAIT);
+        propertyPanel.add(wsAwaitPanel, WS_AWAIT);
+        wsClosePanel = new WebSocketStagePropertyPanel(WebSocketStagePropertyPanel.Stage.CLOSE);
+        propertyPanel.add(wsClosePanel, WS_CLOSE);
         propertyCardLayout.show(propertyPanel, EMPTY);
 
         // 3. 结果区
@@ -188,6 +220,21 @@ public class PerformancePanel extends SingletonBasePanel {
         resultTabbedPane.addTab(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TAB_TREND), performanceTrendPanel);
         resultTabbedPane.addTab(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TAB_REPORT), performanceReportPanel);
         resultTabbedPane.addTab(I18nUtil.getMessage(MessageKeys.PERFORMANCE_TAB_RESULT_TREE), performanceResultTablePanel);
+        requestExecutor = new PerformanceRequestExecutor(
+                () -> running,
+                this::isCancelledOrInterrupted,
+                activeSseSources,
+                activeWebSockets
+        );
+        resultRecorder = new PerformanceResultRecorder(
+                allRequestResults,
+                apiCostMap,
+                apiSuccessMap,
+                apiFailMap,
+                statsLock,
+                performanceResultTablePanel,
+                PerformancePanel::getJmeterSlowRequestThreshold
+        );
 
         // 主分割（左树-右属性）
         JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treeScroll, propertyPanel);
@@ -261,6 +308,7 @@ public class PerformancePanel extends SingletonBasePanel {
         });
         btnPanel.add(efficientCheckBox);
         csvDataPanel = new CsvDataPanel();
+        csvDataPanel.setContextHelpText(I18nUtil.getMessage(MessageKeys.PERFORMANCE_CSV_USAGE_NOTE));
         btnPanel.add(csvDataPanel);
         topPanel.add(btnPanel, BorderLayout.WEST);
         // ========== 执行进度指示器 ==========
@@ -279,6 +327,8 @@ public class PerformancePanel extends SingletonBasePanel {
 
         topPanel.add(progressPanel, BorderLayout.EAST);
         add(topPanel, BorderLayout.NORTH);
+
+        syncAllRequestStructures((DefaultMutableTreeNode) treeModel.getRoot());
 
         runBtn.addActionListener(e -> startRun(progressLabel));
         stopBtn.addActionListener(e -> stopRun());
@@ -362,9 +412,473 @@ public class PerformancePanel extends SingletonBasePanel {
 
         // 组装
         wrapper.add(infoBar, BorderLayout.NORTH);
-        wrapper.add(requestEditSubPanel, BorderLayout.CENTER);
+        requestEditorHost = new JPanel(new BorderLayout());
+        requestEditorHost.add(requestEditSubPanel, BorderLayout.CENTER);
+        wrapper.add(requestEditorHost, BorderLayout.CENTER);
 
         return wrapper;
+    }
+
+    private RequestItemProtocolEnum resolveRequestProtocol(HttpRequestItem item) {
+        return item != null && item.getProtocol() != null ? item.getProtocol() : RequestItemProtocolEnum.HTTP;
+    }
+
+    private boolean isSsePerfRequest(HttpRequestItem item) {
+        RequestItemProtocolEnum protocol = resolveRequestProtocol(item);
+        return protocol.isSseProtocol() || (protocol.isHttpProtocol() && HttpUtil.isSSERequest(item));
+    }
+
+    private boolean isSsePerfRequest(HttpRequestItem item, PreparedRequest req) {
+        RequestItemProtocolEnum protocol = resolveRequestProtocol(item);
+        return protocol.isSseProtocol() || (protocol.isHttpProtocol() && HttpUtil.isSSERequest(req));
+    }
+
+    private boolean isWebSocketPerfRequest(HttpRequestItem item) {
+        RequestItemProtocolEnum protocol = resolveRequestProtocol(item);
+        return protocol.isWebSocketProtocol();
+    }
+
+    private DefaultMutableTreeNode getParentRequestNode(DefaultMutableTreeNode node) {
+        DefaultMutableTreeNode current = node;
+        while (current != null) {
+            Object userObj = current.getUserObject();
+            if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.REQUEST) {
+                return current;
+            }
+            current = (DefaultMutableTreeNode) current.getParent();
+        }
+        return null;
+    }
+
+    private DefaultMutableTreeNode findChildNode(DefaultMutableTreeNode parent, NodeType type) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) parent.getChildAt(i);
+            Object userObj = child.getUserObject();
+            if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == type) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private DefaultMutableTreeNode ensureFixedChildNode(DefaultMutableTreeNode parent, NodeType type, String name, int index) {
+        DefaultMutableTreeNode existing = findChildNode(parent, type);
+        if (existing != null) {
+            Object userObj = existing.getUserObject();
+            if (userObj instanceof JMeterTreeNode jtNode) {
+                jtNode.name = name;
+            }
+            if (parent.getIndex(existing) != index) {
+                treeModel.removeNodeFromParent(existing);
+                treeModel.insertNodeInto(existing, parent, Math.min(index, parent.getChildCount()));
+            } else {
+                treeModel.nodeChanged(existing);
+            }
+            return existing;
+        }
+        DefaultMutableTreeNode child = new DefaultMutableTreeNode(new JMeterTreeNode(name, type));
+        treeModel.insertNodeInto(child, parent, Math.min(index, parent.getChildCount()));
+        return child;
+    }
+
+    private void moveChildrenByType(DefaultMutableTreeNode from, DefaultMutableTreeNode to, NodeType type) {
+        if (from == null || to == null) {
+            return;
+        }
+        List<DefaultMutableTreeNode> toMove = new ArrayList<>();
+        for (int i = 0; i < from.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) from.getChildAt(i);
+            Object userObj = child.getUserObject();
+            if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == type) {
+                toMove.add(child);
+            }
+        }
+        for (DefaultMutableTreeNode child : toMove) {
+            treeModel.removeNodeFromParent(child);
+            treeModel.insertNodeInto(child, to, to.getChildCount());
+        }
+    }
+
+    private void syncRequestStructure(DefaultMutableTreeNode requestNode, JMeterTreeNode requestData) {
+        if (requestNode == null || requestData == null || requestData.httpRequestItem == null) {
+            return;
+        }
+
+        boolean isSse = isSsePerfRequest(requestData.httpRequestItem);
+        boolean isWebSocket = isWebSocketPerfRequest(requestData.httpRequestItem);
+
+        cleanupSseRequestStructure(requestNode, !isSse);
+        cleanupWebSocketRequestStructure(requestNode, !isWebSocket);
+
+        if (isSse) {
+            if (requestData.ssePerformanceData == null) {
+                requestData.ssePerformanceData = new SsePerformanceData();
+            }
+            DefaultMutableTreeNode connectNode = ensureFixedChildNode(requestNode, NodeType.SSE_CONNECT,
+                    I18nUtil.getMessage(MessageKeys.PERFORMANCE_SSE_NODE_CONNECT), 0);
+            DefaultMutableTreeNode awaitNode = ensureFixedChildNode(requestNode, NodeType.SSE_AWAIT,
+                    buildSseAwaitNodeTitle(requestData.ssePerformanceData), 1);
+            moveChildrenByType(requestNode, awaitNode, NodeType.ASSERTION);
+            treeModel.nodeChanged(connectNode);
+            treeModel.nodeChanged(awaitNode);
+        } else if (isWebSocket) {
+            if (requestData.webSocketPerformanceData == null) {
+                requestData.webSocketPerformanceData = new WebSocketPerformanceData();
+            }
+            DefaultMutableTreeNode connectNode = ensureFixedChildNode(requestNode, NodeType.WS_CONNECT,
+                    I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_CONNECT), 0);
+            refreshWebSocketStepTitles(requestNode);
+            treeModel.nodeChanged(connectNode);
+        }
+    }
+
+    private void cleanupSseRequestStructure(DefaultMutableTreeNode requestNode, boolean removeNodes) {
+        DefaultMutableTreeNode connectNode = findChildNode(requestNode, NodeType.SSE_CONNECT);
+        DefaultMutableTreeNode awaitNode = findChildNode(requestNode, NodeType.SSE_AWAIT);
+        if (removeNodes && awaitNode != null) {
+            moveChildrenByType(awaitNode, requestNode, NodeType.ASSERTION);
+        }
+        if (removeNodes && connectNode != null) {
+            treeModel.removeNodeFromParent(connectNode);
+        }
+        if (removeNodes && awaitNode != null) {
+            treeModel.removeNodeFromParent(awaitNode);
+        }
+    }
+
+    private void cleanupWebSocketRequestStructure(DefaultMutableTreeNode requestNode, boolean removeNodes) {
+        DefaultMutableTreeNode connectNode = findChildNode(requestNode, NodeType.WS_CONNECT);
+        List<DefaultMutableTreeNode> wsStepNodes = new ArrayList<>();
+        for (int i = 0; i < requestNode.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) requestNode.getChildAt(i);
+            Object userObj = child.getUserObject();
+            if (userObj instanceof JMeterTreeNode jtNode) {
+                if (jtNode.type == NodeType.WS_AWAIT) {
+                    moveChildrenByType(child, requestNode, NodeType.ASSERTION);
+                }
+                if (jtNode.type == NodeType.WS_SEND || jtNode.type == NodeType.WS_AWAIT || jtNode.type == NodeType.WS_CLOSE) {
+                    wsStepNodes.add(child);
+                }
+            }
+        }
+        if (removeNodes && connectNode != null) {
+            treeModel.removeNodeFromParent(connectNode);
+        }
+        if (removeNodes) {
+            for (DefaultMutableTreeNode wsStepNode : wsStepNodes) {
+                treeModel.removeNodeFromParent(wsStepNode);
+            }
+        }
+    }
+
+    private void refreshWebSocketStepTitles(DefaultMutableTreeNode requestNode) {
+        for (int i = 0; i < requestNode.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) requestNode.getChildAt(i);
+            Object userObj = child.getUserObject();
+            if (!(userObj instanceof JMeterTreeNode jtNode)) {
+                continue;
+            }
+            switch (jtNode.type) {
+                case WS_SEND -> jtNode.name = buildWebSocketSendNodeTitle(jtNode.webSocketPerformanceData);
+                case WS_AWAIT -> jtNode.name = buildWebSocketAwaitNodeTitle(jtNode.webSocketPerformanceData);
+                case WS_CLOSE -> jtNode.name = I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_CLOSE);
+                default -> {
+                }
+            }
+            treeModel.nodeChanged(child);
+        }
+    }
+
+    private WebSocketPerformanceData copyWebSocketData(WebSocketPerformanceData source) {
+        WebSocketPerformanceData target = new WebSocketPerformanceData();
+        if (source == null) {
+            return target;
+        }
+        target.connectTimeoutMs = source.connectTimeoutMs;
+        target.sendMode = source.sendMode;
+        target.sendContentSource = source.sendContentSource;
+        target.customSendBody = source.customSendBody;
+        target.sendCount = source.sendCount;
+        target.sendIntervalMs = source.sendIntervalMs;
+        target.completionMode = source.completionMode;
+        target.firstMessageTimeoutMs = source.firstMessageTimeoutMs;
+        target.holdConnectionMs = source.holdConnectionMs;
+        target.targetMessageCount = source.targetMessageCount;
+        target.messageFilter = source.messageFilter;
+        return target;
+    }
+
+    private boolean isWebSocketStepNode(NodeType type) {
+        return type == NodeType.WS_SEND || type == NodeType.WS_AWAIT || type == NodeType.WS_CLOSE;
+    }
+
+    private DefaultMutableTreeNode resolveWebSocketStepParent(DefaultMutableTreeNode selectedNode) {
+        if (selectedNode == null || !(selectedNode.getUserObject() instanceof JMeterTreeNode jtNode)) {
+            return null;
+        }
+        if (jtNode.type == NodeType.REQUEST && isWebSocketPerfRequest(jtNode.httpRequestItem)) {
+            return selectedNode;
+        }
+        if (jtNode.type == NodeType.WS_CONNECT || isWebSocketStepNode(jtNode.type)) {
+            return getParentRequestNode(selectedNode);
+        }
+        return null;
+    }
+
+    private DefaultMutableTreeNode createWebSocketStepNode(NodeType type, WebSocketPerformanceData requestDefaults) {
+        JMeterTreeNode nodeData;
+        switch (type) {
+            case WS_SEND -> {
+                nodeData = new JMeterTreeNode(I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_SEND), NodeType.WS_SEND);
+                WebSocketPerformanceData stepData = copyWebSocketData(requestDefaults);
+                stepData.sendMode = WebSocketPerformanceData.SendMode.REQUEST_BODY_ON_CONNECT;
+                stepData.sendCount = 1;
+                stepData.sendIntervalMs = 1000;
+                nodeData.webSocketPerformanceData = stepData;
+                nodeData.name = buildWebSocketSendNodeTitle(stepData);
+            }
+            case WS_AWAIT -> {
+                nodeData = new JMeterTreeNode(I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_AWAIT), NodeType.WS_AWAIT);
+                WebSocketPerformanceData stepData = copyWebSocketData(requestDefaults);
+                stepData.completionMode = WebSocketPerformanceData.CompletionMode.FIRST_MESSAGE;
+                stepData.firstMessageTimeoutMs = Math.max(100, stepData.firstMessageTimeoutMs);
+                stepData.targetMessageCount = 1;
+                nodeData.webSocketPerformanceData = stepData;
+                nodeData.name = buildWebSocketAwaitNodeTitle(stepData);
+            }
+            case WS_CLOSE -> {
+                nodeData = new JMeterTreeNode(I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_CLOSE), NodeType.WS_CLOSE);
+                nodeData.webSocketPerformanceData = copyWebSocketData(requestDefaults);
+            }
+            default -> throw new IllegalArgumentException("Unsupported WebSocket step type: " + type);
+        }
+        return new DefaultMutableTreeNode(nodeData);
+    }
+
+    private void addWebSocketStepNode(NodeType type) {
+        DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
+        DefaultMutableTreeNode requestNode = resolveWebSocketStepParent(selectedNode);
+        if (requestNode == null || !(requestNode.getUserObject() instanceof JMeterTreeNode requestJtNode)) {
+            return;
+        }
+        WebSocketPerformanceData defaults = requestJtNode.webSocketPerformanceData != null
+                ? requestJtNode.webSocketPerformanceData
+                : new WebSocketPerformanceData();
+        DefaultMutableTreeNode newNode = createWebSocketStepNode(type, defaults);
+        int insertIndex = requestNode.getChildCount();
+        if (selectedNode != null && selectedNode.getParent() == requestNode) {
+            insertIndex = requestNode.getIndex(selectedNode) + 1;
+        }
+        insertIndex = Math.max(1, insertIndex);
+        treeModel.insertNodeInto(newNode, requestNode, Math.min(insertIndex, requestNode.getChildCount()));
+        refreshWebSocketStepTitles(requestNode);
+        jmeterTree.expandPath(new TreePath(requestNode.getPath()));
+        jmeterTree.setSelectionPath(new TreePath(newNode.getPath()));
+        saveConfig();
+    }
+
+    private void addTimerNode() {
+        DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
+        if (selectedNode == null) {
+            return;
+        }
+        DefaultMutableTreeNode parentNode = selectedNode;
+        int insertIndex = parentNode.getChildCount();
+        DefaultMutableTreeNode wsParent = resolveWebSocketStepParent(selectedNode);
+        if (wsParent != null) {
+            parentNode = wsParent;
+            insertIndex = selectedNode.getParent() == wsParent ? wsParent.getIndex(selectedNode) + 1 : wsParent.getChildCount();
+            insertIndex = Math.max(1, insertIndex);
+        }
+        DefaultMutableTreeNode timer = new DefaultMutableTreeNode(new JMeterTreeNode("Timer", NodeType.TIMER));
+        treeModel.insertNodeInto(timer, parentNode, Math.min(insertIndex, parentNode.getChildCount()));
+        jmeterTree.expandPath(new TreePath(parentNode.getPath()));
+        jmeterTree.setSelectionPath(new TreePath(timer.getPath()));
+        saveConfig();
+    }
+
+    private String buildSseAwaitNodeTitle(SsePerformanceData data) {
+        if (data == null) {
+            return I18nUtil.getMessage(MessageKeys.PERFORMANCE_SSE_NODE_AWAIT);
+        }
+        StringJoiner joiner = new StringJoiner(" | ",
+                I18nUtil.getMessage(MessageKeys.PERFORMANCE_SSE_NODE_AWAIT) + " [",
+                "]");
+        joiner.add(getSseCompletionModeLabel(data.completionMode));
+        switch (data.completionMode) {
+            case FIRST_MESSAGE -> joiner.add(formatSseDuration(data.firstMessageTimeoutMs));
+            case MESSAGE_COUNT -> {
+                joiner.add(String.valueOf(Math.max(1, data.targetMessageCount)));
+                joiner.add(formatSseDuration(data.holdConnectionMs));
+            }
+            case FIXED_DURATION -> joiner.add(formatSseDuration(data.holdConnectionMs));
+        }
+        if (CharSequenceUtil.isNotBlank(data.eventNameFilter)) {
+            joiner.add("event=" + data.eventNameFilter.trim());
+        }
+        return joiner.toString();
+    }
+
+    private String getSseCompletionModeLabel(SsePerformanceData.CompletionMode mode) {
+        if (mode == null) {
+            mode = SsePerformanceData.CompletionMode.FIRST_MESSAGE;
+        }
+        return switch (mode) {
+            case FIRST_MESSAGE -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_SSE_COMPLETION_FIRST_MESSAGE);
+            case FIXED_DURATION -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_SSE_COMPLETION_FIXED_DURATION);
+            case MESSAGE_COUNT -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_SSE_COMPLETION_MESSAGE_COUNT);
+        };
+    }
+
+    private String formatSseDuration(int durationMs) {
+        if (durationMs >= 1000 && durationMs % 1000 == 0) {
+            return (durationMs / 1000) + "s";
+        }
+        return durationMs + "ms";
+    }
+
+    private String buildWebSocketSendNodeTitle(WebSocketPerformanceData data) {
+        if (data == null) {
+            return I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_SEND);
+        }
+        String modeLabel = switch (data.sendMode) {
+            case NONE -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_SEND_NONE);
+            case REQUEST_BODY_ON_CONNECT -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_SEND_REQUEST_BODY);
+            case REQUEST_BODY_REPEAT -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_SEND_REQUEST_BODY_REPEAT);
+        };
+        StringJoiner joiner = new StringJoiner(" | ",
+                I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_SEND) + " [",
+                "]");
+        joiner.add(modeLabel);
+        WebSocketPerformanceData.SendContentSource contentSource = data.sendContentSource != null
+                ? data.sendContentSource
+                : WebSocketPerformanceData.SendContentSource.REQUEST_BODY;
+        if (data.sendMode != WebSocketPerformanceData.SendMode.NONE
+                && contentSource == WebSocketPerformanceData.SendContentSource.CUSTOM_TEXT) {
+            joiner.add(I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_SEND_CONTENT_CUSTOM_TEXT));
+        }
+        if (data.sendMode == WebSocketPerformanceData.SendMode.REQUEST_BODY_REPEAT) {
+            joiner.add(Math.max(1, data.sendCount) + "x");
+            joiner.add(formatSseDuration(Math.max(0, data.sendIntervalMs)));
+        }
+        return joiner.toString();
+    }
+
+    private String buildWebSocketAwaitNodeTitle(WebSocketPerformanceData data) {
+        if (data == null) {
+            return I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_AWAIT);
+        }
+        StringJoiner joiner = new StringJoiner(" | ",
+                I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_NODE_AWAIT) + " [",
+                "]");
+        joiner.add(getWebSocketCompletionModeLabel(data.completionMode));
+        switch (data.completionMode) {
+            case FIRST_MESSAGE -> joiner.add(formatSseDuration(data.firstMessageTimeoutMs));
+            case MATCHED_MESSAGE -> joiner.add(formatSseDuration(data.firstMessageTimeoutMs));
+            case MESSAGE_COUNT -> {
+                joiner.add(String.valueOf(Math.max(1, data.targetMessageCount)));
+                joiner.add(formatSseDuration(data.holdConnectionMs));
+            }
+            case FIXED_DURATION -> joiner.add(formatSseDuration(data.holdConnectionMs));
+        }
+        if (CharSequenceUtil.isNotBlank(data.messageFilter)) {
+            joiner.add("contains=" + data.messageFilter.trim());
+        }
+        return joiner.toString();
+    }
+
+    private String getWebSocketCompletionModeLabel(WebSocketPerformanceData.CompletionMode mode) {
+        if (mode == null) {
+            mode = WebSocketPerformanceData.CompletionMode.FIRST_MESSAGE;
+        }
+        return switch (mode) {
+            case FIRST_MESSAGE -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_COMPLETION_FIRST_MESSAGE);
+            case MATCHED_MESSAGE -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_COMPLETION_MATCHED_MESSAGE);
+            case FIXED_DURATION -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_COMPLETION_FIXED_DURATION);
+            case MESSAGE_COUNT -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_WS_COMPLETION_MESSAGE_COUNT);
+        };
+    }
+
+    private void saveSseStageNode(DefaultMutableTreeNode stageNode) {
+        if (stageNode == null || !(stageNode.getUserObject() instanceof JMeterTreeNode stageJtNode)) {
+            return;
+        }
+        DefaultMutableTreeNode requestNode = getParentRequestNode(stageNode);
+        if (requestNode == null || !(requestNode.getUserObject() instanceof JMeterTreeNode requestJtNode)) {
+            return;
+        }
+        switch (stageJtNode.type) {
+            case SSE_CONNECT -> sseConnectPanel.saveData();
+            case SSE_AWAIT -> sseAwaitPanel.saveData();
+            default -> {
+                return;
+            }
+        }
+        syncRequestStructure(requestNode, requestJtNode);
+    }
+
+    private void saveWebSocketStageNode(DefaultMutableTreeNode stageNode) {
+        if (stageNode == null || !(stageNode.getUserObject() instanceof JMeterTreeNode stageJtNode)) {
+            return;
+        }
+        DefaultMutableTreeNode requestNode = getParentRequestNode(stageNode);
+        if (requestNode == null || !(requestNode.getUserObject() instanceof JMeterTreeNode requestJtNode)) {
+            return;
+        }
+        switch (stageJtNode.type) {
+            case WS_CONNECT -> {
+                wsConnectPanel.saveData();
+                treeModel.nodeChanged(stageNode);
+            }
+            case WS_SEND -> wsSendPanel.saveData();
+            case WS_AWAIT -> wsAwaitPanel.saveData();
+            case WS_CLOSE -> wsClosePanel.saveData();
+            default -> {
+                return;
+            }
+        }
+        syncRequestStructure(requestNode, requestJtNode);
+    }
+
+    private void syncAllRequestStructures(DefaultMutableTreeNode node) {
+        Object userObj = node.getUserObject();
+        if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.REQUEST) {
+            syncRequestStructure(node, jtNode);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            syncAllRequestStructures((DefaultMutableTreeNode) node.getChildAt(i));
+        }
+    }
+
+    private void switchRequestEditor(HttpRequestItem item) {
+        RequestItemProtocolEnum protocol = resolveRequestProtocol(item);
+        if (requestEditSubPanel == null || requestEditorHost == null || protocol != currentRequestEditorProtocol) {
+            if (requestEditorHost != null && requestEditSubPanel != null) {
+                requestEditorHost.remove(requestEditSubPanel);
+            }
+            requestEditSubPanel = new RequestEditSubPanel("", protocol);
+            currentRequestEditorProtocol = protocol;
+            if (requestEditorHost != null) {
+                requestEditorHost.add(requestEditSubPanel, BorderLayout.CENTER);
+                requestEditorHost.revalidate();
+                requestEditorHost.repaint();
+            }
+        }
+
+        if (item != null) {
+            requestEditSubPanel.initPanelData(item);
+        }
+    }
+
+    private void saveRequestNodeData(DefaultMutableTreeNode node) {
+        if (requestEditSubPanel == null || node == null) {
+            return;
+        }
+        Object userObj = node.getUserObject();
+        if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.REQUEST) {
+            jtNode.httpRequestItem = requestEditSubPanel.getCurrentRequest();
+            syncRequestStructure(node, jtNode);
+        }
     }
 
     /**
@@ -423,6 +937,7 @@ public class PerformancePanel extends SingletonBasePanel {
 
         // 更新节点中的请求数据
         jmNode.httpRequestItem = latestRequestItem;
+        syncRequestStructure(currentRequestNode, jmNode);
         jmNode.name = latestRequestItem.getName();
         treeModel.nodeChanged(currentRequestNode);
         // 清除 InheritanceCache，防止下次执行时 PreparedRequestBuilder.build() 拿到旧缓存
@@ -431,7 +946,7 @@ public class PerformancePanel extends SingletonBasePanel {
 
         // 用从集合取回的最新数据直接刷新右侧编辑面板（不依赖节点引用，避免被 listener 覆盖）
         log.debug("[refreshCurrentRequest] 调用 initPanelData, url={}", latestRequestItem.getUrl());
-        requestEditSubPanel.initPanelData(latestRequestItem);
+        switchRequestEditor(latestRequestItem);
         log.debug("[refreshCurrentRequest] initPanelData 执行完毕，editSub.id={}", requestEditSubPanel.getId());
 
         // 保存配置
@@ -485,6 +1000,11 @@ public class PerformancePanel extends SingletonBasePanel {
     private void handleSaveShortcut() {
         // 1. 强制提交所有 EasyJSpinner 的值
         threadGroupPanel.forceCommitAllSpinners();
+        sseConnectPanel.forceCommitAllSpinners();
+        sseAwaitPanel.forceCommitAllSpinners();
+        wsConnectPanel.forceCommitAllSpinners();
+        wsSendPanel.forceCommitAllSpinners();
+        wsAwaitPanel.forceCommitAllSpinners();
 
         // 2. 保存所有属性面板数据
         saveAllPropertyPanelData();
@@ -498,15 +1018,21 @@ public class PerformancePanel extends SingletonBasePanel {
     }
 
     private void saveAllPropertyPanelData() {
-        // 保存所有属性区数据到树节点
-        threadGroupPanel.saveThreadGroupData();
-        assertionPanel.saveAssertionData();
-        timerPanel.saveTimerData();
-        if (requestEditSubPanel != null && currentRequestNode != null) {
-            // 保存RequestEditSubPanel表单到当前选中的请求节点
-            Object userObj = currentRequestNode.getUserObject();
-            if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.REQUEST) {
-                jtNode.httpRequestItem = requestEditSubPanel.getCurrentRequest();
+        DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
+        if (selectedNode != null && selectedNode.getUserObject() instanceof JMeterTreeNode jtNode) {
+            switch (jtNode.type) {
+                case THREAD_GROUP -> threadGroupPanel.saveThreadGroupData();
+                case REQUEST -> {
+                    if (requestEditSubPanel != null && currentRequestNode != null) {
+                        saveRequestNodeData(currentRequestNode);
+                    }
+                }
+                case ASSERTION -> assertionPanel.saveAssertionData();
+                case TIMER -> timerPanel.saveTimerData();
+                case SSE_CONNECT, SSE_AWAIT -> saveSseStageNode(selectedNode);
+                case WS_CONNECT, WS_SEND, WS_AWAIT, WS_CLOSE -> saveWebSocketStageNode(selectedNode);
+                default -> {
+                }
             }
         }
     }
@@ -576,8 +1102,8 @@ public class PerformancePanel extends SingletonBasePanel {
         apiFailMap.clear();
         allRequestResults.clear();
         ApiMetadata.clear(); // 清理API元数据
-        // CSV行索引重置
-        csvRowIndex.set(0);
+        // 虚拟用户编号重置（每次测试重新从0分配）
+        virtualUserCounter.set(0);
 
         // 启动所有定时器（趋势图采样 + 报表刷新）
         timerManager.startAll();
@@ -1026,7 +1552,9 @@ public class PerformancePanel extends SingletonBasePanel {
                 executor.shutdownNow();
                 return;
             }
+            final int vuIndex = virtualUserCounter.getAndIncrement();
             executor.submit(() -> {
+                threadVirtualUserIndex.set(vuIndex);
                 activeThreads.incrementAndGet();
                 SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                 try {
@@ -1043,6 +1571,7 @@ public class PerformancePanel extends SingletonBasePanel {
                 } finally {
                     activeThreads.decrementAndGet();
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
+                    threadVirtualUserIndex.remove();
                 }
             });
         }
@@ -1064,8 +1593,8 @@ public class PerformancePanel extends SingletonBasePanel {
             if (!terminated || !running) {
                 log.warn("线程池未能在预期时间内完成，强制关闭剩余线程");
 
-                // 取消所有正在执行的 HTTP 请求
-                cancelAllHttpCalls();
+                // 取消所有正在执行的网络请求
+                cancelAllNetworkCalls();
 
                 // 强制关闭线程池
                 List<Runnable> pendingTasks = executor.shutdownNow();
@@ -1132,7 +1661,9 @@ public class PerformancePanel extends SingletonBasePanel {
                     if (!activeWorkerThreads.compareAndSet(current, current + 1)) {
                         continue;
                     }
+                    final int vuIndex = virtualUserCounter.getAndIncrement();
                     executor.submit(() -> {
+                        threadVirtualUserIndex.set(vuIndex);
                         activeThreads.incrementAndGet();
                         SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                         try {
@@ -1144,6 +1675,7 @@ public class PerformancePanel extends SingletonBasePanel {
                             activeWorkerThreads.decrementAndGet();
                             activeThreads.decrementAndGet();
                             SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
+                            threadVirtualUserIndex.remove();
                         }
                     });
                 }
@@ -1204,7 +1736,9 @@ public class PerformancePanel extends SingletonBasePanel {
                 return;
             }
             activeWorkerThreads.incrementAndGet();
+            final int vuIndex = virtualUserCounter.getAndIncrement();
             Thread thread = new Thread(() -> {
+                threadVirtualUserIndex.set(vuIndex);
                 activeThreads.incrementAndGet();
                 SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                 try {
@@ -1220,6 +1754,7 @@ public class PerformancePanel extends SingletonBasePanel {
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     // 从跟踪Map中移除此线程
                     threadEndTimes.remove(Thread.currentThread());
+                    threadVirtualUserIndex.remove();
                 }
             });
             // 将线程添加到跟踪Map
@@ -1345,7 +1880,9 @@ public class PerformancePanel extends SingletonBasePanel {
                 return;
             }
             activeWorkerThreads.incrementAndGet();
+            final int vuIndex = virtualUserCounter.getAndIncrement();
             Thread thread = new Thread(() -> {
+                threadVirtualUserIndex.set(vuIndex);
                 activeThreads.incrementAndGet();
                 SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                 try {
@@ -1361,6 +1898,7 @@ public class PerformancePanel extends SingletonBasePanel {
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     // 从跟踪Map中移除此线程
                     threadEndTimes.remove(Thread.currentThread());
+                    threadVirtualUserIndex.remove();
                 }
             });
             // 将线程添加到跟踪Map
@@ -1460,7 +1998,9 @@ public class PerformancePanel extends SingletonBasePanel {
                 if (!running) return;
 
                 activeWorkerThreads.incrementAndGet();
+                final int vuIndex = virtualUserCounter.getAndIncrement();
                 Thread thread = new Thread(() -> {
+                    threadVirtualUserIndex.set(vuIndex);
                     activeThreads.incrementAndGet();
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     try {
@@ -1476,6 +2016,7 @@ public class PerformancePanel extends SingletonBasePanel {
                         SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                         // 从跟踪Map中移除此线程
                         threadEndTimes.remove(Thread.currentThread());
+                        threadVirtualUserIndex.remove();
                     }
                 });
                 // 将线程添加到跟踪Map
@@ -1537,7 +2078,9 @@ public class PerformancePanel extends SingletonBasePanel {
                 if (!running) return;
 
                 activeWorkerThreads.incrementAndGet();
+                final int vuIndex = virtualUserCounter.getAndIncrement();
                 Thread thread = new Thread(() -> {
+                    threadVirtualUserIndex.set(vuIndex);
                     activeThreads.incrementAndGet();
                     SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                     try {
@@ -1553,6 +2096,7 @@ public class PerformancePanel extends SingletonBasePanel {
                         SwingUtilities.invokeLater(() -> progressLabel.setText(activeThreads.get() + "/" + totalThreads));
                         // 从跟踪Map中移除此线程
                         threadEndTimes.remove(Thread.currentThread());
+                        threadVirtualUserIndex.remove();
                     }
                 });
                 // 将线程添加到跟踪Map
@@ -1586,7 +2130,10 @@ public class PerformancePanel extends SingletonBasePanel {
      * 检查异常是否是被取消或中断的请求
      * 包括：InterruptedIOException、IOException: Canceled 等
      */
-    private boolean isCancelledOrInterrupted(Exception ex) {
+    private boolean isCancelledOrInterrupted(Throwable ex) {
+        if (ex == null) {
+            return false;
+        }
         // 1. InterruptedIOException（线程中断）
         if (ex instanceof java.io.InterruptedIOException) {
             return true;
@@ -1606,12 +2153,7 @@ public class PerformancePanel extends SingletonBasePanel {
         }
 
         // 4. 检查异常链中是否包含上述异常
-        Throwable cause = ex.getCause();
-        if (cause instanceof Exception exception) {
-            return isCancelledOrInterrupted(exception);
-        }
-
-        return false;
+        return isCancelledOrInterrupted(ex.getCause());
     }
 
     // 执行单个请求节点
@@ -1622,202 +2164,12 @@ public class PerformancePanel extends SingletonBasePanel {
         }
 
         if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.REQUEST && jtNode.httpRequestItem != null) {
-            // 使用 ID 而不是 Name，避免重名问题
-            String apiId = jtNode.httpRequestItem.getId();
-            String apiName = jtNode.httpRequestItem.getName();
-
-            // 注册API元数据（集中管理，避免重复存储）
-            ApiMetadata.register(apiId, apiName);
-
-            PreparedRequest req;
-            HttpResponse resp = null;
-            String errorMsg = "";
-            List<TestResult> testResults = new ArrayList<>();
-            boolean executionFailed = false; // 执行层面失败：前置脚本崩溃 / HTTP异常 / 后置脚本崩溃
-
-            // 清理上次的临时变量
-            VariableResolver.clearTemporaryVariables();
-
-            // ====== CSV变量注入 ======
-            Map<String, String> csvRow = null;
-            if (csvDataPanel != null && csvDataPanel.hasData()) {
-                int rowCount = csvDataPanel.getRowCount();
-                if (rowCount > 0) {
-                    int rowIdx = csvRowIndex.getAndIncrement() % rowCount;
-                    csvRow = csvDataPanel.getRowData(rowIdx);
-                }
-            }
-            // ====== 前置脚本 ======
-            // build() 会自动应用 group 继承，并将合并后的脚本存储在 req 中
-            req = PreparedRequestBuilder.build(jtNode.httpRequestItem);
-
-            // 创建脚本执行流水线（使用 req 中合并后的脚本）
-            ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
-                    .request(req)
-                    .preScript(req.prescript)
-                    .postScript(req.postscript)
-                    .build();
-
-            // 注入 CSV 变量
-            if (csvRow != null) {
-                pipeline.addCsvDataBindings(csvRow);
-            }
-
-            // 执行前置脚本
-            ScriptExecutionResult preResult = pipeline.executePreScript();
-            boolean preOk = preResult.isSuccess();
-            if (!preOk) {
-                log.error("前置脚本: {}", preResult.getErrorMessage());
-                errorMsg = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_PRE_SCRIPT_FAILED, preResult.getErrorMessage());
-                executionFailed = true;
-            }
-
-            // 前置脚本执行完后再次检查是否已停止
-            if (!running) {
+            PerformanceRequestExecutionResult executionResult = requestExecutor.execute(child, jtNode, resolveCsvRowForCurrentThread());
+            if (executionResult == null) {
                 return;
             }
-
-            // 前置脚本执行完成后，进行变量替换
-            if (preOk) {
-                PreparedRequestBuilder.replaceVariablesAfterPreScript(req);
-            }
-
-            long requestStartTime = System.currentTimeMillis();
-            long costMs = 0;
-            boolean interrupted = false; // 标记是否被中断
-
-            if (preOk && running) {  // 执行HTTP请求前再次检查running状态
-                try {
-                    // Performance 场景：精细化控制事件收集
-                    req.collectBasicInfo = true; // 始终收集基本信息（headers、body），用于结果展示
-                    req.collectEventInfo = SettingManager.isPerformanceEventLoggingEnabled(); // 根据设置决定是否收集完整事件信息
-                    req.enableNetworkLog = false; // 压测场景不输出 NetworkLog，避免 UI 线程阻塞
-
-                    resp = HttpSingleRequestExecutor.executeHttp(req);
-                } catch (Exception ex) {
-                    // 检查是否是被取消/中断的请求
-                    // 注意：cancelAllHttpCalls() 只在停止时调用，所以 Canceled 异常就是停止导致的
-                    boolean isCancelled = isCancelledOrInterrupted(ex);
-
-                    if (isCancelled) {
-                        // 被取消/中断的请求，不算作失败
-                        log.debug("请求被取消/中断（压测已停止）: {}", ex.getMessage());
-                        interrupted = true; // 标记为中断
-                    } else {
-                        // 真正的错误
-                        log.error("请求执行失败: {}", ex.getMessage(), ex);
-                        errorMsg = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_REQUEST_FAILED, ex.getMessage());
-                        executionFailed = true;
-                    }
-                } finally {
-                    costMs = System.currentTimeMillis() - requestStartTime;
-                }
-                // 断言处理（JMeter树断言）
-                for (int j = 0; j < child.getChildCount() && resp != null && running; j++) {
-                    DefaultMutableTreeNode sub = (DefaultMutableTreeNode) child.getChildAt(j);
-                    Object subObj = sub.getUserObject();
-                    if (subObj instanceof JMeterTreeNode subNode && subNode.type == NodeType.ASSERTION && subNode.assertionData != null) {
-                        // 跳过已停用的断言
-                        if (!subNode.enabled) {
-                            continue;
-                        }
-                        AssertionData assertion = subNode.assertionData;
-                        String type = assertion.type;
-                        boolean pass = false;
-                        if ("Response Code".equals(type)) {
-                            String op = assertion.operator;
-                            String valStr = assertion.value;
-                            try {
-                                int expect = Integer.parseInt(valStr);
-                                if ("=".equals(op)) pass = (resp.code == expect);
-                                else if (">".equals(op)) pass = (resp.code > expect);
-                                else if ("<".equals(op)) pass = (resp.code < expect);
-                            } catch (Exception ignored) {
-                                log.warn("断言响应码格式错误: {}", valStr);
-                            }
-                        } else if ("Contains".equals(type)) {
-                            pass = resp.body.contains(assertion.content);
-                        } else if ("JSONPath".equals(type)) {
-                            String jsonPath = assertion.value;
-                            String expect = assertion.content;
-                            String actual = JsonPathUtil.extractJsonPath(resp.body, jsonPath);
-                            pass = Objects.equals(actual, expect);
-                        }
-                        if (!pass) {
-                            errorMsg = I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_ASSERTION_FAILED, type, assertion.content);
-                        }
-                        testResults.add(new TestResult(type, pass, pass ? null : "断言失败"));
-                    }
-                }
-                // ====== 后置脚本 ======
-                if (resp != null && running) {  // 执行后置脚本前检查是否已停止
-                    // 执行后置脚本（自动处理响应绑定和测试结果收集）
-                    ScriptExecutionResult postResult = pipeline.executePostScript(resp);
-                    if (postResult.hasTestResults()) {
-                        testResults.addAll(postResult.getTestResults());
-                        // 取第一条失败的断言名作为 errorMsg（展示用）
-                        if (!postResult.allTestsPassed()) {
-                            errorMsg = postResult.getTestResults().stream()
-                                    .filter(t -> !t.passed)
-                                    .map(t -> t.name)
-                                    .findFirst()
-                                    .orElse("pm.test assertion failed");
-                        }
-                    }
-                    if (!postResult.isSuccess()) {
-                        log.error("后置脚本执行失败: {}", postResult.getErrorMessage());
-                        errorMsg = postResult.getErrorMessage();
-                        executionFailed = true;
-                    }
-                }
-            } else {
-                // 前置脚本失败的情况，也需要记录costMs
-                costMs = System.currentTimeMillis() - requestStartTime;
-            }
-
-            // ====== 统计请求结果（断言和后置脚本后，sleep前） ======
-            long cost = resp == null ? costMs : resp.costMs;
-            long endTime = requestStartTime + cost; // 如果响应时间有记录，则使用，否则使用计算的cost
-            if (resp != null) {
-                endTime = resp.endTime > 0 ? resp.endTime : requestStartTime + cost;
-            }
-
-            // 如果请求被中断（压测停止），跳过统计，不计入成功或失败
-            if (!interrupted) {
-                // ✨ 优化：简化 req 和 resp 对象，移除渲染时不需要的字段
-                req.simplify();  // 移除 id, body, bodyType, headersList, paramsList
-                if (resp != null) {
-                    resp.simplify();  // 移除 filePath, fileName
-                    if (!req.collectEventInfo) {
-                        resp.httpEventInfo = null;
-                    }
-                }
-
-                // 统一用 ResultNodeInfo.isActuallySuccessful() 判断成功/失败
-                // 确保趋势图、报表、结果表格三处使用完全一致的判断逻辑：
-                //   有断言 → 以断言结果为准；无断言 → 以 HTTP 状态码（2xx/3xx）为准
-                ResultNodeInfo resultNodeInfo = new ResultNodeInfo(apiName, errorMsg, req, resp, testResults, executionFailed);
-                boolean actualSuccess = resultNodeInfo.isActuallySuccessful();
-
-                // 使用statsLock保护统计数据写入，确保与读取的一致性
-                synchronized (statsLock) {
-                    allRequestResults.add(new RequestResult(requestStartTime, endTime, actualSuccess, apiId));
-
-                    apiCostMap.computeIfAbsent(apiId, k -> Collections.synchronizedList(new ArrayList<>())).add(cost);
-                    if (actualSuccess) {
-                        apiSuccessMap.merge(apiId, 1, Integer::sum);
-                    } else {
-                        apiFailMap.merge(apiId, 1, Integer::sum);
-                    }
-                }
-
-                performanceResultTablePanel.addResult(
-                        resultNodeInfo,
-                        efficientMode,
-                        getJmeterSlowRequestThreshold()
-                );
-            } else {
-                // 被中断的请求，记录日志但不计入统计
+            resultRecorder.record(executionResult, efficientMode);
+            if (executionResult.interrupted) {
                 log.debug("跳过被中断请求的统计: {}", jtNode.httpRequestItem.getName());
             }
 
@@ -1827,7 +2179,7 @@ public class PerformancePanel extends SingletonBasePanel {
                 return;
             }
 
-            for (int j = 0; j < child.getChildCount() && running; j++) {
+            for (int j = 0; j < child.getChildCount() && running && !executionResult.webSocketRequest; j++) {
                 DefaultMutableTreeNode sub = (DefaultMutableTreeNode) child.getChildAt(j);
                 Object subObj = sub.getUserObject();
                 if (subObj instanceof JMeterTreeNode subNode2 && subNode2.type == NodeType.TIMER && subNode2.timerData != null) {
@@ -1846,107 +2198,153 @@ public class PerformancePanel extends SingletonBasePanel {
         }
     }
 
+    private Map<String, String> resolveCsvRowForCurrentThread() {
+        if (csvDataPanel == null || !csvDataPanel.hasData()) {
+            return null;
+        }
+        int rowCount = csvDataPanel.getRowCount();
+        if (rowCount <= 0) {
+            return null;
+        }
+        Integer vuIndex = threadVirtualUserIndex.get();
+        int rowIdx = (vuIndex != null ? vuIndex : 0) % rowCount;
+        return csvDataPanel.getRowData(rowIdx);
+    }
+
     @Override
     protected void registerListeners() {
-        // 节点选中切换属性区
         jmeterTree.addTreeSelectionListener(new TreeSelectionListener() {
             private DefaultMutableTreeNode lastNode = null;
 
             @Override
             public void valueChanged(TreeSelectionEvent e) {
-                // 检查是否多选
                 TreePath[] selectedPaths = jmeterTree.getSelectionPaths();
                 if (selectedPaths != null && selectedPaths.length > 1) {
-                    // 多选模式：不切换属性面板，保持当前显示
                     return;
                 }
 
-                // 保存上一个节点的数据
-                if (lastNode != null) {
-                    Object userObj = lastNode.getUserObject();
-                    if (userObj instanceof JMeterTreeNode jtNode) {
-                        switch (jtNode.type) {
-                            case THREAD_GROUP -> threadGroupPanel.saveThreadGroupData();
-                            case REQUEST -> {
-                                HttpRequestItem fromEditSub = requestEditSubPanel.getCurrentRequest();
-                                log.debug("[TreeSelectionListener] lastNode REQUEST 写回: name={}, url={} -> editSub: name={}, url={}",
-                                        jtNode.httpRequestItem != null ? jtNode.httpRequestItem.getName() : "null",
-                                        jtNode.httpRequestItem != null ? jtNode.httpRequestItem.getUrl() : "null",
-                                        fromEditSub.getName(), fromEditSub.getUrl());
-                                jtNode.httpRequestItem = fromEditSub;
-                            }
-                            case ASSERTION -> assertionPanel.saveAssertionData();
-                            case TIMER -> timerPanel.saveTimerData();
-                            default -> {
-                                // 其他类型节点不需要保存数据
-                            }
+                if (lastNode != null && lastNode.getUserObject() instanceof JMeterTreeNode jtNode) {
+                    switch (jtNode.type) {
+                        case THREAD_GROUP -> threadGroupPanel.saveThreadGroupData();
+                        case REQUEST -> saveRequestNodeData(lastNode);
+                        case ASSERTION -> assertionPanel.saveAssertionData();
+                        case TIMER -> timerPanel.saveTimerData();
+                        case SSE_CONNECT, SSE_AWAIT -> saveSseStageNode(lastNode);
+                        case WS_CONNECT, WS_SEND, WS_AWAIT, WS_CLOSE -> saveWebSocketStageNode(lastNode);
+                        default -> {
                         }
                     }
                 }
-                // 回填当前节点数据
+
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
-                if (node == null) {
+                if (node == null || !(node.getUserObject() instanceof JMeterTreeNode jtNode)) {
                     propertyCardLayout.show(propertyPanel, EMPTY);
-                    currentRequestNode = null; // 清空当前请求节点引用
-                    lastNode = null;
-                    return;
-                }
-                Object userObj = node.getUserObject();
-                if (!(userObj instanceof JMeterTreeNode jtNode)) {
-                    propertyCardLayout.show(propertyPanel, EMPTY);
-                    currentRequestNode = null; // 清空当前请求节点引用
+                    currentRequestNode = null;
                     lastNode = node;
                     return;
                 }
+
                 switch (jtNode.type) {
                     case THREAD_GROUP -> {
                         propertyCardLayout.show(propertyPanel, THREAD_GROUP);
                         threadGroupPanel.setThreadGroupData(jtNode);
-                        currentRequestNode = null; // 清空当前请求节点引用
+                        currentRequestNode = null;
                     }
                     case REQUEST -> {
                         propertyCardLayout.show(propertyPanel, REQUEST);
-                        currentRequestNode = node; // 记录当前请求节点
+                        currentRequestNode = node;
                         if (jtNode.httpRequestItem != null) {
-                            requestEditSubPanel.initPanelData(jtNode.httpRequestItem);
+                            syncRequestStructure(node, jtNode);
+                            switchRequestEditor(jtNode.httpRequestItem);
                         }
                     }
                     case ASSERTION -> {
                         propertyCardLayout.show(propertyPanel, ASSERTION);
                         assertionPanel.setAssertionData(jtNode);
-                        currentRequestNode = null; // 清空当前请求节点引用
+                        currentRequestNode = null;
                     }
                     case TIMER -> {
                         propertyCardLayout.show(propertyPanel, TIMER);
                         timerPanel.setTimerData(jtNode);
-                        currentRequestNode = null; // 清空当前请求节点引用
+                        currentRequestNode = null;
+                    }
+                    case SSE_CONNECT -> {
+                        DefaultMutableTreeNode requestNode = getParentRequestNode(node);
+                        if (requestNode != null && requestNode.getUserObject() instanceof JMeterTreeNode requestJtNode) {
+                            propertyCardLayout.show(propertyPanel, SSE_CONNECT);
+                            sseConnectPanel.setRequestNode(requestJtNode);
+                        } else {
+                            propertyCardLayout.show(propertyPanel, EMPTY);
+                        }
+                        currentRequestNode = null;
+                    }
+                    case SSE_AWAIT -> {
+                        DefaultMutableTreeNode requestNode = getParentRequestNode(node);
+                        if (requestNode != null && requestNode.getUserObject() instanceof JMeterTreeNode requestJtNode) {
+                            propertyCardLayout.show(propertyPanel, SSE_AWAIT);
+                            sseAwaitPanel.setRequestNode(requestJtNode);
+                        } else {
+                            propertyCardLayout.show(propertyPanel, EMPTY);
+                        }
+                        currentRequestNode = null;
+                    }
+                    case WS_CONNECT -> {
+                        DefaultMutableTreeNode requestNode = getParentRequestNode(node);
+                        if (requestNode != null && requestNode.getUserObject() instanceof JMeterTreeNode requestJtNode) {
+                            propertyCardLayout.show(propertyPanel, WS_CONNECT);
+                            wsConnectPanel.setNode(requestJtNode);
+                        } else {
+                            propertyCardLayout.show(propertyPanel, EMPTY);
+                        }
+                        currentRequestNode = null;
+                    }
+                    case WS_SEND -> {
+                        propertyCardLayout.show(propertyPanel, WS_SEND);
+                        wsSendPanel.setNode(jtNode);
+                        currentRequestNode = null;
+                    }
+                    case WS_AWAIT -> {
+                        propertyCardLayout.show(propertyPanel, WS_AWAIT);
+                        wsAwaitPanel.setNode(jtNode);
+                        currentRequestNode = null;
+                    }
+                    case WS_CLOSE -> {
+                        propertyCardLayout.show(propertyPanel, WS_CLOSE);
+                        wsClosePanel.setNode(jtNode);
+                        currentRequestNode = null;
                     }
                     default -> {
                         propertyCardLayout.show(propertyPanel, EMPTY);
-                        currentRequestNode = null; // 清空当前请求节点引用
+                        currentRequestNode = null;
                     }
                 }
                 lastNode = node;
             }
         });
 
-        // 右键菜单
         JPopupMenu treeMenu = new JPopupMenu();
         JMenuItem addThreadGroup = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_THREAD_GROUP));
         JMenuItem addRequest = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_REQUEST));
+        JMenuItem addWsSend = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_WS_SEND));
+        JMenuItem addWsAwait = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_WS_AWAIT));
+        JMenuItem addWsClose = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_WS_CLOSE));
         JMenuItem addAssertion = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_ASSERTION));
         JMenuItem addTimer = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ADD_TIMER));
         JMenuItem renameNode = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_RENAME));
         JMenuItem deleteNode = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_DELETE));
         JMenuItem enableNode = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_ENABLE));
         JMenuItem disableNode = new JMenuItem(I18nUtil.getMessage(MessageKeys.PERFORMANCE_MENU_DISABLE));
+        renameNode.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F2, 0));
+        deleteNode.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DELETE, 0));
 
-        // 创建两个分割线，以便可以单独控制显示
         JSeparator separator1 = new JSeparator();
         JSeparator separator2 = new JSeparator();
 
         treeMenu.add(addThreadGroup);
         treeMenu.add(addRequest);
+        treeMenu.add(addWsSend);
+        treeMenu.add(addWsAwait);
+        treeMenu.add(addWsClose);
         treeMenu.add(addAssertion);
         treeMenu.add(addTimer);
         treeMenu.add(separator1);
@@ -1956,7 +2354,16 @@ public class PerformancePanel extends SingletonBasePanel {
         treeMenu.add(renameNode);
         treeMenu.add(deleteNode);
 
-        // 添加用户组（仅根节点可添加）
+        Runnable updateMenuSeparators = () -> {
+            boolean hasAddGroup = addThreadGroup.isVisible() || addRequest.isVisible()
+                    || addWsSend.isVisible() || addWsAwait.isVisible() || addWsClose.isVisible()
+                    || addAssertion.isVisible() || addTimer.isVisible();
+            boolean hasToggleGroup = enableNode.isVisible() || disableNode.isVisible();
+            boolean hasEditGroup = renameNode.isVisible() || deleteNode.isVisible();
+            separator1.setVisible(hasAddGroup && (hasToggleGroup || hasEditGroup));
+            separator2.setVisible(hasToggleGroup && hasEditGroup);
+        };
+
         addThreadGroup.addActionListener(e -> {
             DefaultMutableTreeNode root1 = (DefaultMutableTreeNode) treeModel.getRoot();
             DefaultMutableTreeNode group = new DefaultMutableTreeNode(new JMeterTreeNode("Thread Group", NodeType.THREAD_GROUP));
@@ -1964,7 +2371,6 @@ public class PerformancePanel extends SingletonBasePanel {
             jmeterTree.expandPath(new TreePath(root1.getPath()));
             saveConfig();
         });
-        // 添加请求
         addRequest.addActionListener(e -> {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
             if (node == null) return;
@@ -1973,102 +2379,127 @@ public class PerformancePanel extends SingletonBasePanel {
                 JOptionPane.showMessageDialog(PerformancePanel.this, I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_SELECT_THREAD_GROUP), I18nUtil.getMessage(MessageKeys.GENERAL_INFO), JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            // 多选请求弹窗
             RequestCollectionsService.showMultiSelectRequestDialog(selectedList -> {
                 if (selectedList == null || selectedList.isEmpty()) return;
 
-                // 过滤只保留HTTP类型的请求
-                List<HttpRequestItem> httpOnlyList = selectedList.stream()
-                        .filter(reqItem -> reqItem.getProtocol() != null && reqItem.getProtocol().isHttpProtocol())
+                List<HttpRequestItem> supportedList = selectedList.stream()
+                        .filter(reqItem -> {
+                            RequestItemProtocolEnum protocol = resolveRequestProtocol(reqItem);
+                            return protocol.isHttpProtocol() || protocol.isSseProtocol() || protocol.isWebSocketProtocol();
+                        })
                         .toList();
 
-                if (httpOnlyList.isEmpty()) {
-                    NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.MSG_ONLY_HTTP_SUPPORTED));
+                if (supportedList.isEmpty()) {
+                    NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.MSG_ONLY_HTTP_SSE_WS_SUPPORTED));
                     return;
                 }
 
                 List<DefaultMutableTreeNode> newNodes = new ArrayList<>();
-                for (HttpRequestItem reqItem : httpOnlyList) {
+                for (HttpRequestItem reqItem : supportedList) {
                     DefaultMutableTreeNode req = new DefaultMutableTreeNode(new JMeterTreeNode(reqItem.getName(), NodeType.REQUEST, reqItem));
                     treeModel.insertNodeInto(req, node, node.getChildCount());
+                    syncRequestStructure(req, (JMeterTreeNode) req.getUserObject());
                     newNodes.add(req);
                 }
                 jmeterTree.expandPath(new TreePath(node.getPath()));
-                // 选中第一个新加的请求节点
                 TreePath newPath = new TreePath(newNodes.get(0).getPath());
                 jmeterTree.setSelectionPath(newPath);
                 propertyCardLayout.show(propertyPanel, REQUEST);
-                requestEditSubPanel.initPanelData(((JMeterTreeNode) newNodes.get(0).getUserObject()).httpRequestItem);
+                JMeterTreeNode newRequestNode = (JMeterTreeNode) newNodes.get(0).getUserObject();
+                switchRequestEditor(newRequestNode.httpRequestItem);
                 saveConfig();
             });
         });
-        // 添加断言
+        addWsSend.addActionListener(e -> addWebSocketStepNode(NodeType.WS_SEND));
+        addWsAwait.addActionListener(e -> addWebSocketStepNode(NodeType.WS_AWAIT));
+        addWsClose.addActionListener(e -> addWebSocketStepNode(NodeType.WS_CLOSE));
         addAssertion.addActionListener(e -> {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
             if (node == null) return;
-            DefaultMutableTreeNode assertion = new DefaultMutableTreeNode(new JMeterTreeNode("Assertion", NodeType.ASSERTION));
-            treeModel.insertNodeInto(assertion, node, node.getChildCount());
-            jmeterTree.expandPath(new TreePath(node.getPath()));
-            saveConfig();
-        });
-        // 添加定时器
-        addTimer.addActionListener(e -> {
-            DefaultMutableTreeNode node = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
-            if (node == null) return;
-            DefaultMutableTreeNode timer = new DefaultMutableTreeNode(new JMeterTreeNode("Timer", NodeType.TIMER));
-            treeModel.insertNodeInto(timer, node, node.getChildCount());
-            jmeterTree.expandPath(new TreePath(node.getPath()));
-            saveConfig();
-        });
-        // 重命名
-        renameNode.addActionListener(e -> {
-            DefaultMutableTreeNode node = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
-            if (node == null) return;
+            DefaultMutableTreeNode parentNode = node;
             Object userObj = node.getUserObject();
-            if (!(userObj instanceof JMeterTreeNode jtNode)) return;
-            if (jtNode.type == NodeType.ROOT) return;
-            String oldName = jtNode.name;
-            String newName = JOptionPane.showInputDialog(PerformancePanel.this,
-                    I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_RENAME_NODE), oldName);
-            if (newName != null && !newName.trim().isEmpty()) {
-                jtNode.name = newName.trim();
-                // 同步更新 request 类型的 httpRequestItem name 字段
-                if (jtNode.type == NodeType.REQUEST && jtNode.httpRequestItem != null) {
-                    jtNode.httpRequestItem.setName(newName.trim());
-                    requestEditSubPanel.initPanelData(jtNode.httpRequestItem);
+            if (userObj instanceof JMeterTreeNode jtNode
+                    && (jtNode.type == NodeType.SSE_AWAIT || jtNode.type == NodeType.WS_AWAIT)) {
+                parentNode = node;
+            }
+            DefaultMutableTreeNode assertion = new DefaultMutableTreeNode(new JMeterTreeNode("Assertion", NodeType.ASSERTION));
+            treeModel.insertNodeInto(assertion, parentNode, parentNode.getChildCount());
+            jmeterTree.expandPath(new TreePath(parentNode.getPath()));
+            saveConfig();
+        });
+        addTimer.addActionListener(e -> {
+            addTimerNode();
+        });
+
+        Action renameAction = new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                DefaultMutableTreeNode node = (DefaultMutableTreeNode) jmeterTree.getLastSelectedPathComponent();
+                if (node == null) return;
+                Object userObj = node.getUserObject();
+                if (!(userObj instanceof JMeterTreeNode jtNode)) return;
+                if (jtNode.type == NodeType.ROOT
+                        || jtNode.type == NodeType.SSE_CONNECT
+                        || jtNode.type == NodeType.SSE_AWAIT
+                        || jtNode.type == NodeType.WS_CONNECT
+                        || isWebSocketStepNode(jtNode.type)) {
+                    return;
                 }
-                treeModel.nodeChanged(node);
+                String oldName = jtNode.name;
+                String newName = JOptionPane.showInputDialog(PerformancePanel.this,
+                        I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_RENAME_NODE), oldName);
+                if (newName != null && !newName.trim().isEmpty()) {
+                    jtNode.name = newName.trim();
+                    if (jtNode.type == NodeType.REQUEST && jtNode.httpRequestItem != null) {
+                        jtNode.httpRequestItem.setName(newName.trim());
+                        switchRequestEditor(jtNode.httpRequestItem);
+                    }
+                    treeModel.nodeChanged(node);
+                    saveConfig();
+                }
+            }
+        };
+        renameNode.addActionListener(renameAction);
+
+        Action deleteAction = new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                TreePath[] selectedPaths = jmeterTree.getSelectionPaths();
+                if (selectedPaths == null || selectedPaths.length == 0) return;
+
+                List<DefaultMutableTreeNode> nodesToDelete = new ArrayList<>();
+                for (TreePath path : selectedPaths) {
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                    Object userObj = node.getUserObject();
+                    if (userObj instanceof JMeterTreeNode jtNode
+                            && jtNode.type != NodeType.ROOT
+                            && jtNode.type != NodeType.SSE_CONNECT
+                            && jtNode.type != NodeType.SSE_AWAIT
+                            && jtNode.type != NodeType.WS_CONNECT) {
+                        nodesToDelete.add(node);
+                    }
+                }
+
+                if (nodesToDelete.isEmpty()) return;
+
+                for (DefaultMutableTreeNode node : nodesToDelete) {
+                    if (node == currentRequestNode) {
+                        currentRequestNode = null;
+                    }
+                    treeModel.removeNodeFromParent(node);
+                }
                 saveConfig();
             }
-        });
-        // 删除（自动支持单个和批量操作）
-        deleteNode.addActionListener(e -> {
-            TreePath[] selectedPaths = jmeterTree.getSelectionPaths();
-            if (selectedPaths == null || selectedPaths.length == 0) return;
+        };
+        deleteNode.addActionListener(deleteAction);
 
-            // 收集要删除的节点（过滤掉ROOT节点）
-            List<DefaultMutableTreeNode> nodesToDelete = new ArrayList<>();
-            for (TreePath path : selectedPaths) {
-                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-                Object userObj = node.getUserObject();
-                if (userObj instanceof JMeterTreeNode jtNode && jtNode.type != NodeType.ROOT) {
-                    nodesToDelete.add(node);
-                }
-            }
+        InputMap treeInputMap = jmeterTree.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap treeActionMap = jmeterTree.getActionMap();
+        treeInputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F2, 0), "renamePerformanceNode");
+        treeActionMap.put("renamePerformanceNode", renameAction);
+        treeInputMap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DELETE, 0), "deletePerformanceNode");
+        treeActionMap.put("deletePerformanceNode", deleteAction);
 
-            if (nodesToDelete.isEmpty()) return;
-
-            // 批量删除节点
-            for (DefaultMutableTreeNode node : nodesToDelete) {
-                // 如果删除的是当前选中的请求节点，清空引用
-                if (node == currentRequestNode) {
-                    currentRequestNode = null;
-                }
-                treeModel.removeNodeFromParent(node);
-            }
-            saveConfig();
-        });
-        // 启用（自动支持单个和批量操作）
         enableNode.addActionListener(e -> {
             TreePath[] selectedPaths = jmeterTree.getSelectionPaths();
             if (selectedPaths == null || selectedPaths.length == 0) return;
@@ -2082,7 +2513,6 @@ public class PerformancePanel extends SingletonBasePanel {
             }
             saveConfig();
         });
-        // 停用（自动支持单个和批量操作）
         disableNode.addActionListener(e -> {
             TreePath[] selectedPaths = jmeterTree.getSelectionPaths();
             if (selectedPaths == null || selectedPaths.length == 0) return;
@@ -2097,7 +2527,6 @@ public class PerformancePanel extends SingletonBasePanel {
             saveConfig();
         });
 
-        // 右键弹出逻辑
         jmeterTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -2105,7 +2534,6 @@ public class PerformancePanel extends SingletonBasePanel {
                     int row = jmeterTree.getClosestRowForLocation(e.getX(), e.getY());
                     if (row < 0) return;
 
-                    // 如果右键点击的节点不在选中列表中，则只选中该节点
                     TreePath clickedPath = jmeterTree.getPathForLocation(e.getX(), e.getY());
                     if (clickedPath != null) {
                         TreePath[] selectedPaths = jmeterTree.getSelectionPaths();
@@ -2123,22 +2551,25 @@ public class PerformancePanel extends SingletonBasePanel {
                         }
                     }
 
+                    if (currentRequestNode != null) {
+                        saveRequestNodeData(currentRequestNode);
+                    }
+
                     TreePath[] selectedPaths = jmeterTree.getSelectionPaths();
                     if (selectedPaths == null || selectedPaths.length == 0) return;
-
-                    // 判断是单选还是多选
                     boolean isMultiSelection = selectedPaths.length > 1;
 
                     if (isMultiSelection) {
-                        // 多选模式：只显示批量操作相关菜单
                         addThreadGroup.setVisible(false);
                         addRequest.setVisible(false);
+                        addWsSend.setVisible(false);
+                        addWsAwait.setVisible(false);
+                        addWsClose.setVisible(false);
                         addAssertion.setVisible(false);
                         addTimer.setVisible(false);
                         renameNode.setVisible(false);
-                        deleteNode.setVisible(true); // 允许批量删除
+                        deleteNode.setVisible(true);
 
-                        // 检查选中节点的启用状态，智能显示启用/停用
                         boolean hasDisabled = false;
                         boolean hasEnabled = false;
                         for (TreePath path : selectedPaths) {
@@ -2154,10 +2585,8 @@ public class PerformancePanel extends SingletonBasePanel {
                         }
                         enableNode.setVisible(hasDisabled);
                         disableNode.setVisible(hasEnabled);
-                        separator1.setVisible(true);
-                        separator2.setVisible(true);
+                        updateMenuSeparators.run();
                     } else {
-                        // 单选模式：显示常规菜单
                         DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent();
                         Object userObj = node.getUserObject();
                         if (!(userObj instanceof JMeterTreeNode jtNode)) return;
@@ -2165,35 +2594,44 @@ public class PerformancePanel extends SingletonBasePanel {
                         if (jtNode.type == NodeType.ROOT) {
                             addThreadGroup.setVisible(true);
                             addRequest.setVisible(false);
+                            addWsSend.setVisible(false);
+                            addWsAwait.setVisible(false);
+                            addWsClose.setVisible(false);
                             addAssertion.setVisible(false);
                             addTimer.setVisible(false);
                             renameNode.setVisible(false);
                             deleteNode.setVisible(false);
                             enableNode.setVisible(false);
                             disableNode.setVisible(false);
-                            separator1.setVisible(false);
-                            separator2.setVisible(false);
+                            updateMenuSeparators.run();
                             treeMenu.show(jmeterTree, e.getX(), e.getY());
                             return;
                         }
                         addThreadGroup.setVisible(false);
                         addRequest.setVisible(jtNode.type == NodeType.THREAD_GROUP);
-                        addAssertion.setVisible(jtNode.type == NodeType.REQUEST);
-                        addTimer.setVisible(jtNode.type == NodeType.REQUEST);
-                        renameNode.setVisible(true);
-                        deleteNode.setVisible(true);
-                        // 根据当前启用状态显示启用或停用菜单
-                        enableNode.setVisible(!jtNode.enabled);
-                        disableNode.setVisible(jtNode.enabled);
-                        // 显示分割线
-                        separator1.setVisible(true);
-                        separator2.setVisible(true);
+                        boolean isSseRequestNode = jtNode.type == NodeType.REQUEST && isSsePerfRequest(jtNode.httpRequestItem);
+                        boolean isWebSocketRequestNode = jtNode.type == NodeType.REQUEST && isWebSocketPerfRequest(jtNode.httpRequestItem);
+                        boolean canManageWsSteps = resolveWebSocketStepParent(node) != null;
+                        addWsSend.setVisible(canManageWsSteps);
+                        addWsAwait.setVisible(canManageWsSteps);
+                        addWsClose.setVisible(canManageWsSteps);
+                        addAssertion.setVisible((jtNode.type == NodeType.REQUEST && !isSseRequestNode && !isWebSocketRequestNode)
+                                || jtNode.type == NodeType.SSE_AWAIT
+                                || jtNode.type == NodeType.WS_AWAIT);
+                        addTimer.setVisible(jtNode.type == NodeType.REQUEST || canManageWsSteps);
+                        boolean structuralNode = jtNode.type == NodeType.SSE_CONNECT
+                                || jtNode.type == NodeType.SSE_AWAIT
+                                || jtNode.type == NodeType.WS_CONNECT;
+                        renameNode.setVisible(!structuralNode && !isWebSocketStepNode(jtNode.type));
+                        deleteNode.setVisible(!structuralNode);
+                        enableNode.setVisible(!structuralNode && !jtNode.enabled);
+                        disableNode.setVisible(!structuralNode && jtNode.enabled);
+                        updateMenuSeparators.run();
                     }
                     treeMenu.show(jmeterTree, e.getX(), e.getY());
                 }
             }
         });
-
     }
 
     private void stopRun() {
@@ -2204,7 +2642,7 @@ public class PerformancePanel extends SingletonBasePanel {
 
         // 立即取消所有正在执行的 OkHttp 请求
         // 这会中断所有网络 I/O，让线程快速退出
-        cancelAllHttpCalls();
+        cancelAllNetworkCalls();
 
         runBtn.setEnabled(true);
         stopBtn.setEnabled(false);
@@ -2249,11 +2687,31 @@ public class PerformancePanel extends SingletonBasePanel {
     }
 
     /**
-     * 取消所有正在执行的 HTTP 请求
-     * 通过取消 OkHttpClient 的 Dispatcher 中的所有 Call 来实现快速停止
+     * 取消所有正在执行的 HTTP / SSE / WebSocket 请求
+     * HTTP 通过 Dispatcher 中的 Call 中断，SSE 通过 EventSource.cancel() 中断，WebSocket 通过 close/cancel 中断。
      */
-    private void cancelAllHttpCalls() {
+    private void cancelAllNetworkCalls() {
         OkHttpClientManager.cancelAllCalls();
+        for (EventSource eventSource : new ArrayList<>(activeSseSources)) {
+            try {
+                eventSource.cancel();
+            } catch (Exception e) {
+                log.debug("取消 SSE EventSource 失败", e);
+            }
+        }
+        activeSseSources.clear();
+        for (WebSocket webSocket : new ArrayList<>(activeWebSockets)) {
+            try {
+                webSocket.close(1000, "Performance stopped");
+            } catch (Exception ignored) {
+            }
+            try {
+                webSocket.cancel();
+            } catch (Exception e) {
+                log.debug("取消 WebSocket 失败", e);
+            }
+        }
+        activeWebSockets.clear();
     }
 
     private static int getJmeterMaxIdleConnections() {
@@ -2318,11 +2776,12 @@ public class PerformancePanel extends SingletonBasePanel {
                 && jtNode.httpRequestItem != null
                 && item.getId().equals(jtNode.httpRequestItem.getId())) {
             jtNode.httpRequestItem = item;
+            syncRequestStructure(node, jtNode);
             jtNode.name = item.getName();
             treeModel.nodeChanged(node);
             // 如果当前正在编辑面板里展示的就是这个请求，也同步更新面板
             if (node == currentRequestNode) {
-                requestEditSubPanel.initPanelData(item);
+                switchRequestEditor(item);
             }
             log.debug("PerformancePanel syncRequestItem: id={}, name={}", item.getId(), item.getName());
         }
@@ -2370,7 +2829,7 @@ public class PerformancePanel extends SingletonBasePanel {
         apiFailMap.clear();
         allRequestResults.clear();
         ApiMetadata.clear(); // 清理API元数据
-        csvRowIndex.set(0);
+        virtualUserCounter.set(0);
 
         // 主动触发GC，及时释放清除的缓存数据占用的内存
         System.gc();
@@ -2462,7 +2921,7 @@ public class PerformancePanel extends SingletonBasePanel {
                     if (itemToLoad != null) {
                         // 同步到节点，保证节点与面板一致
                         jtNode.httpRequestItem = itemToLoad;
-                        requestEditSubPanel.initPanelData(itemToLoad);
+                        switchRequestEditor(itemToLoad);
                         log.debug("[refreshFromCollections] initPanelData 执行完毕，editSub.id={}", requestEditSubPanel.getId());
                     }
                 } else {
@@ -2519,6 +2978,7 @@ public class PerformancePanel extends SingletonBasePanel {
                                 latestRequestItem.getName(), latestRequestItem.getUrl());
                         // 更新请求数据
                         jmNode.httpRequestItem = latestRequestItem;
+                        syncRequestStructure(treeNode, jmNode);
                         jmNode.name = latestRequestItem.getName();
                         treeModel.nodeChanged(treeNode);
                         // 清除 InheritanceCache，防止执行时 PreparedRequestBuilder.build() 拿到旧缓存

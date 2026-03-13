@@ -30,6 +30,7 @@ public class CsvDataPanel extends JPanel {
     private List<String> csvHeaders; // 保存CSV列标题的顺序
     private JPanel csvStatusPanel;  // CSV 状态显示面板
     private JLabel csvStatusLabel;  // CSV 状态标签
+    private String contextHelpText; // 调用方注入的场景说明
 
 
     public CsvDataPanel() {
@@ -157,6 +158,16 @@ public class CsvDataPanel extends JPanel {
     }
 
     /**
+     * 设置调用场景专属说明，仅在说明面板中追加展示。
+     */
+    public void setContextHelpText(String contextHelpText) {
+        this.contextHelpText = contextHelpText;
+        if (csvStatusLabel != null) {
+            csvStatusLabel.setToolTipText(buildStatusTooltip());
+        }
+    }
+
+    /**
      * 清除 CSV 数据
      */
     public void clearCsvData() {
@@ -176,10 +187,28 @@ public class CsvDataPanel extends JPanel {
         } else {
             csvStatusLabel.setText(I18nUtil.getMessage(MessageKeys.CSV_STATUS_LOADED, csvData.size()));
             csvStatusLabel.setForeground(ModernColors.getTextSecondary()); // 使用次要文本颜色
+            csvStatusLabel.setToolTipText(buildStatusTooltip());
             csvStatusPanel.setVisible(true);
         }
         revalidate();
         repaint();
+    }
+
+    private String buildStatusTooltip() {
+        if (CharSequenceUtil.isBlank(contextHelpText)) {
+            return I18nUtil.getMessage(MessageKeys.CSV_MENU_MANAGE_DATA);
+        }
+        return "<html>" + I18nUtil.getMessage(MessageKeys.CSV_MENU_MANAGE_DATA)
+                + "<br><br>"
+                + contextHelpText.replace("\n", "<br>")
+                + "</html>";
+    }
+
+    private String buildHelpText(String baseText) {
+        if (CharSequenceUtil.isBlank(contextHelpText)) {
+            return baseText;
+        }
+        return baseText + "\n\n" + contextHelpText;
     }
 
     /**
@@ -321,39 +350,52 @@ public class CsvDataPanel extends JPanel {
 
     /**
      * 增强的 CSV 文件管理对话框
+     * 布局：标题固定 → 说明文字可滚动 → 当前状态+操作按钮固定 → 关闭按钮固定
      */
     private void showEnhancedCsvManagementDialog() {
         JDialog dialog = new JDialog(SingletonFactory.getInstance(MainFrame.class),
                 I18nUtil.getMessage(MessageKeys.CSV_DIALOG_MANAGEMENT_TITLE), true);
-        dialog.setSize(600, 480);
+        dialog.setSize(480, 520);
+        dialog.setResizable(false);
         dialog.setLocationRelativeTo(SingletonFactory.getInstance(MainFrame.class));
         dialog.setLayout(new BorderLayout());
 
-        // 顶部说明面板
+        // ── NORTH：标题 + 可滚动说明文字 ──
         JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 10, 15));
+        topPanel.setBorder(BorderFactory.createEmptyBorder(14, 16, 0, 16));
 
         JLabel titleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.CSV_DATA_DRIVEN_TEST));
-        titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, +4)); // 比标准字体大4号
+        titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, +2));
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
         topPanel.add(titleLabel, BorderLayout.NORTH);
 
-        JTextArea descArea = new JTextArea(I18nUtil.getMessage(MessageKeys.CSV_DIALOG_DESCRIPTION));
-        descArea.setFont(FontsUtil.getDefaultFont(Font.PLAIN)); // 使用标准字体大小
+        // 说明文字只读区域，超出高度出现滚动条
+        JTextArea descArea = new JTextArea(buildHelpText(I18nUtil.getMessage(MessageKeys.CSV_DIALOG_DESCRIPTION)));
+        descArea.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
         descArea.setEditable(false);
         descArea.setOpaque(false);
         descArea.setLineWrap(true);
         descArea.setWrapStyleWord(true);
-        topPanel.add(descArea, BorderLayout.CENTER);
+        JScrollPane descScroll = new JScrollPane(descArea,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        descScroll.setBorder(BorderFactory.createEmptyBorder());
+        descScroll.setPreferredSize(new Dimension(0, 180));
+        descScroll.getVerticalScrollBar().setUnitIncrement(10);
+        topPanel.add(descScroll, BorderLayout.CENTER);
 
         dialog.add(topPanel, BorderLayout.NORTH);
 
-        // 中间内容面板
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        contentPanel.setBorder(BorderFactory.createEmptyBorder(0, 15, 15, 15));
+        // ── CENTER：当前状态 + 操作按钮（固定，始终可见）──
+        JPanel fixedPanel = new JPanel();
+        fixedPanel.setLayout(new BoxLayout(fixedPanel, BoxLayout.Y_AXIS));
+        fixedPanel.setBorder(BorderFactory.createEmptyBorder(8, 16, 4, 16));
 
-        // 当前状态显示
-        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // 当前状态
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         statusPanel.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.CSV_CURRENT_STATUS)));
+        statusPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        statusPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
 
         JLabel currentStatusLabel = new JLabel();
         if (csvData == null || csvData.isEmpty()) {
@@ -366,55 +408,57 @@ public class CsvDataPanel extends JPanel {
             currentStatusLabel.setForeground(ModernColors.getTextSecondary());
         }
         statusPanel.add(currentStatusLabel);
-        contentPanel.add(statusPanel, BorderLayout.NORTH);
+        fixedPanel.add(statusPanel);
+        fixedPanel.add(Box.createVerticalStrut(6));
 
-        // 操作按钮面板 - 改为4行
-        JPanel actionPanel = new JPanel(new GridLayout(4, 1, 5, 10));
+        // 操作按钮区（BoxLayout，按钮全宽自适应，不受语言影响）
+        JPanel actionPanel = new JPanel();
+        actionPanel.setLayout(new BoxLayout(actionPanel, BoxLayout.Y_AXIS));
         actionPanel.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.CSV_OPERATIONS)));
+        actionPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        // 选择文件按钮
         JButton selectFileBtn = new JButton(I18nUtil.getMessage(MessageKeys.CSV_BUTTON_SELECT_FILE));
         selectFileBtn.setIcon(IconUtil.createThemed("icons/file.svg", 16, 16));
-        selectFileBtn.setPreferredSize(new Dimension(200, 35));
+        selectFileBtn.setHorizontalAlignment(SwingConstants.LEFT);
+        selectFileBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        selectFileBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
 
-        // 手动创建按钮
         JButton createManualBtn = new JButton(I18nUtil.getMessage(MessageKeys.CSV_MENU_CREATE_MANUAL));
         createManualBtn.setIcon(new FlatSVGIcon("icons/plus.svg", 16, 16));
-        createManualBtn.setPreferredSize(new Dimension(200, 35));
+        createManualBtn.setHorizontalAlignment(SwingConstants.LEFT);
+        createManualBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        createManualBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
 
-        // 管理数据按钮
         JButton manageDataBtn = new JButton(I18nUtil.getMessage(MessageKeys.CSV_BUTTON_MANAGE_DATA));
         manageDataBtn.setIcon(IconUtil.createThemed("icons/code.svg", 16, 16));
-        manageDataBtn.setPreferredSize(new Dimension(200, 35));
+        manageDataBtn.setHorizontalAlignment(SwingConstants.LEFT);
+        manageDataBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        manageDataBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
         manageDataBtn.setEnabled(csvData != null && !csvData.isEmpty());
 
-        // 清除数据按钮
         JButton clearBtn = new JButton(I18nUtil.getMessage(MessageKeys.CSV_BUTTON_CLEAR_DATA));
         clearBtn.setIcon(IconUtil.createThemed("icons/clear.svg", 16, 16));
-        clearBtn.setPreferredSize(new Dimension(200, 35));
+        clearBtn.setHorizontalAlignment(SwingConstants.LEFT);
+        clearBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        clearBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
         clearBtn.setEnabled(csvData != null && !csvData.isEmpty());
 
-        // 为按钮添加事件监听器，并确保状态更新
+        // 事件
         selectFileBtn.addActionListener(e -> {
             if (selectCsvFile()) {
                 currentStatusLabel.setText(I18nUtil.getMessage(MessageKeys.CSV_STATUS_LOADED, csvData.size()));
                 currentStatusLabel.setIcon(IconUtil.createThemed("icons/check.svg", 16, 16));
                 currentStatusLabel.setForeground(ModernColors.getTextSecondary());
                 updateCsvStatus();
-
-                // 立即更新按钮状态
-                manageDataBtn.setEnabled(csvData != null && !csvData.isEmpty());
-                clearBtn.setEnabled(csvData != null && !csvData.isEmpty());
+                manageDataBtn.setEnabled(true);
+                clearBtn.setEnabled(true);
             }
         });
-
         createManualBtn.addActionListener(e -> {
             dialog.dispose();
             showManualCreateDialog();
         });
-
         manageDataBtn.addActionListener(e -> showCsvDataManageDialog());
-
         clearBtn.addActionListener(e -> {
             clearCsvData();
             currentStatusLabel.setText(I18nUtil.getMessage(MessageKeys.CSV_STATUS_NO_DATA));
@@ -424,16 +468,22 @@ public class CsvDataPanel extends JPanel {
             clearBtn.setEnabled(false);
         });
 
+        actionPanel.add(Box.createVerticalStrut(4));
         actionPanel.add(selectFileBtn);
+        actionPanel.add(Box.createVerticalStrut(6));
         actionPanel.add(createManualBtn);
+        actionPanel.add(Box.createVerticalStrut(6));
         actionPanel.add(manageDataBtn);
+        actionPanel.add(Box.createVerticalStrut(6));
         actionPanel.add(clearBtn);
+        actionPanel.add(Box.createVerticalStrut(4));
 
-        contentPanel.add(actionPanel, BorderLayout.CENTER);
-        dialog.add(contentPanel, BorderLayout.CENTER);
+        fixedPanel.add(actionPanel);
+        dialog.add(fixedPanel, BorderLayout.CENTER);
 
-        // 底部按钮
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        // ── SOUTH：关闭按钮（固定，始终可见）──
+        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 8));
+        bottomPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, ModernColors.getDividerBorderColor()));
         JButton closeBtn = new JButton(I18nUtil.getMessage(MessageKeys.BUTTON_CLOSE));
         closeBtn.addActionListener(e -> dialog.dispose());
         bottomPanel.add(closeBtn);
@@ -702,7 +752,7 @@ public class CsvDataPanel extends JPanel {
         // 使用说明
         JPanel helpPanel = new JPanel(new BorderLayout());
         helpPanel.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.CSV_USAGE_INSTRUCTIONS)));
-        JTextArea helpText = new JTextArea(I18nUtil.getMessage(MessageKeys.CSV_USAGE_TEXT));
+        JTextArea helpText = new JTextArea(buildHelpText(I18nUtil.getMessage(MessageKeys.CSV_USAGE_TEXT)));
         helpText.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
         helpText.setEditable(false);
         helpText.setOpaque(false);
@@ -921,15 +971,10 @@ public class CsvDataPanel extends JPanel {
         // 清空现有数据
         tableModel.setRowCount(0);
 
-        String[] lines = text.split("\n");
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty()) {
-                continue; // 忽略空行
+        for (List<String> values : CsvDataUtil.parseCsvText(buildBulkEditCsvText(headers, text)).rows()) {
+            if (values.isEmpty()) {
+                continue;
             }
-
-            // 解析 CSV 行，支持引号包裹的值
-            List<String> values = parseCsvLine(line);
 
             // 创建新行
             Object[] rowData = new Object[headers.size()];
@@ -951,41 +996,32 @@ public class CsvDataPanel extends JPanel {
         }
     }
 
-    /**
-     * 解析 CSV 行，支持引号包裹的值
-     * 只支持逗号作为分隔符（标准 CSV 格式）
-     */
-    private List<String> parseCsvLine(String line) {
-        List<String> values = new ArrayList<>();
+    private String buildBulkEditCsvText(List<String> headers, String text) {
+        StringBuilder csvText = new StringBuilder();
+        csvText.append(buildCsvHeaderLine(headers)).append('\n');
+        csvText.append(text);
+        return csvText.toString();
+    }
 
-        StringBuilder currentValue = new StringBuilder();
-        boolean inQuotes = false;
-
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-
-            if (c == '"') {
-                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
-                    // 转义的引号（""）
-                    currentValue.append('"');
-                    i++; // 跳过下一个引号
-                } else {
-                    // 开始或结束引号包裹
-                    inQuotes = !inQuotes;
-                }
-            } else if (c == ',' && !inQuotes) {
-                // 逗号分隔符，且不在引号内
-                values.add(currentValue.toString().trim());
-                currentValue = new StringBuilder();
-            } else {
-                currentValue.append(c);
+    private String buildCsvHeaderLine(List<String> headers) {
+        StringBuilder headerLine = new StringBuilder();
+        for (int i = 0; i < headers.size(); i++) {
+            if (i > 0) {
+                headerLine.append(',');
             }
+            headerLine.append(escapeCsvValue(headers.get(i)));
         }
+        return headerLine.toString();
+    }
 
-        // 添加最后一个值
-        values.add(currentValue.toString().trim());
-
-        return values;
+    private String escapeCsvValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        if (value.contains(",") || value.contains("\n") || value.contains("\"")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 
     /**

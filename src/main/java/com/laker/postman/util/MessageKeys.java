@@ -268,6 +268,21 @@ public final class MessageKeys {
     // ============ SSE相关 ============
     public static final String SSE_FAILED = "sse.failed";
     public static final String SSE_ERROR = "sse.error";
+    public static final String SSE_COLUMN_EVENT_ID = "sse.column.event_id";
+    public static final String SSE_COLUMN_EVENT_TYPE = "sse.column.event_type";
+    public static final String SSE_COLUMN_RETRY = "sse.column.retry";
+    public static final String SSE_DETAIL_TITLE = "sse.detail.title";
+    public static final String SSE_DETAIL_TYPE = "sse.detail.type";
+    public static final String SSE_DETAIL_TIME = "sse.detail.time";
+    public static final String SSE_DETAIL_EVENT_ID = "sse.detail.event_id";
+    public static final String SSE_DETAIL_EVENT_TYPE = "sse.detail.event_type";
+    public static final String SSE_DETAIL_RETRY = "sse.detail.retry";
+    public static final String SSE_DETAIL_CONTENT = "sse.detail.content";
+    public static final String SSE_VALUE_NONE = "sse.value.none";
+    public static final String SSE_RETRY_UPDATED = "sse.retry.updated";
+    public static final String SSE_STREAM_CONNECTED = "sse.stream.connected";
+    public static final String SSE_STREAM_CLOSED = "sse.stream.closed";
+    public static final String SSE_STREAM_FAILED = "sse.stream.failed";
 
     // ============ 脚本相关 ============
     public static final String SCRIPT_BUTTON_SNIPPETS = "script.button.snippets";
@@ -498,6 +513,9 @@ public final class MessageKeys {
     public static final String PERFORMANCE_MSG_NO_REQUEST_TO_REFRESH = "performance.msg.no_request_to_refresh";
     public static final String PERFORMANCE_MENU_ADD_THREAD_GROUP = "performance.menu.add_thread_group";
     public static final String PERFORMANCE_MENU_ADD_REQUEST = "performance.menu.add_request";
+    public static final String PERFORMANCE_MENU_ADD_WS_SEND = "performance.menu.add_ws_send";
+    public static final String PERFORMANCE_MENU_ADD_WS_AWAIT = "performance.menu.add_ws_await";
+    public static final String PERFORMANCE_MENU_ADD_WS_CLOSE = "performance.menu.add_ws_close";
     public static final String PERFORMANCE_MENU_ADD_ASSERTION = "performance.menu.add_assertion";
     public static final String PERFORMANCE_MENU_ADD_TIMER = "performance.menu.add_timer";
     public static final String PERFORMANCE_MENU_RENAME = "performance.menu.rename";
@@ -518,7 +536,55 @@ public final class MessageKeys {
     public static final String PERFORMANCE_MSG_NO_REQUEST_SELECTED = "performance.msg.no_request_selected";
     public static final String PERFORMANCE_MSG_REQUEST_NOT_FOUND_IN_COLLECTIONS = "performance.msg.request_not_found_in_collections";
     public static final String PERFORMANCE_MSG_REQUEST_REFRESHED = "performance.msg.request_refreshed";
+    public static final String PERFORMANCE_CSV_USAGE_NOTE = "performance.csv.usage_note";
+    public static final String PERFORMANCE_SSE_TITLE = "performance.sse.title";
+    public static final String PERFORMANCE_SSE_EVENT_FILTER = "performance.sse.event_filter";
+    public static final String PERFORMANCE_SSE_COMPLETION_FIRST_MESSAGE = "performance.sse.completion.first_message";
+    public static final String PERFORMANCE_SSE_COMPLETION_FIXED_DURATION = "performance.sse.completion.fixed_duration";
+    public static final String PERFORMANCE_SSE_COMPLETION_MESSAGE_COUNT = "performance.sse.completion.message_count";
+    public static final String PERFORMANCE_SSE_NODE_CONNECT = "performance.sse.node.connect";
+    public static final String PERFORMANCE_SSE_NODE_AWAIT = "performance.sse.node.await";
+    public static final String PERFORMANCE_SSE_CONNECT_TIMEOUT = "performance.sse.connect_timeout";
+    public static final String PERFORMANCE_SSE_AWAIT_MODE = "performance.sse.await_mode";
+    public static final String PERFORMANCE_SSE_AWAIT_TIMEOUT = "performance.sse.await_timeout";
+    public static final String PERFORMANCE_SSE_FIXED_DURATION_HINT = "performance.sse.fixed_duration_hint";
+    public static final String PERFORMANCE_SSE_FIRST_MESSAGE_TIMEOUT = "performance.sse.first_message_timeout";
+    public static final String PERFORMANCE_SSE_HOLD_CONNECTION = "performance.sse.hold_connection";
+    public static final String PERFORMANCE_SSE_OBSERVE_DURATION = "performance.sse.observe_duration";
+    public static final String PERFORMANCE_SSE_MAX_WAIT_DURATION = "performance.sse.max_wait_duration";
+    public static final String PERFORMANCE_SSE_TARGET_MESSAGE_COUNT = "performance.sse.target_message_count";
+    public static final String PERFORMANCE_WS_TITLE = "performance.ws.title";
+    public static final String PERFORMANCE_WS_NODE_CONNECT = "performance.ws.node.connect";
+    public static final String PERFORMANCE_WS_NODE_SEND = "performance.ws.node.send";
+    public static final String PERFORMANCE_WS_NODE_AWAIT = "performance.ws.node.await";
+    public static final String PERFORMANCE_WS_NODE_CLOSE = "performance.ws.node.close";
+    public static final String PERFORMANCE_WS_CONNECT_TIMEOUT = "performance.ws.connect_timeout";
+    public static final String PERFORMANCE_WS_SEND_MODE = "performance.ws.send_mode";
+    public static final String PERFORMANCE_WS_SEND_CONTENT_SOURCE = "performance.ws.send_content_source";
+    public static final String PERFORMANCE_WS_SEND_CONTENT_REQUEST_BODY = "performance.ws.send_content.request_body";
+    public static final String PERFORMANCE_WS_SEND_CONTENT_CUSTOM_TEXT = "performance.ws.send_content.custom_text";
+    public static final String PERFORMANCE_WS_SEND_CUSTOM_BODY = "performance.ws.send_custom_body";
+    public static final String PERFORMANCE_WS_SEND_NONE = "performance.ws.send.none";
+    public static final String PERFORMANCE_WS_SEND_REQUEST_BODY = "performance.ws.send.request_body";
+    public static final String PERFORMANCE_WS_SEND_REQUEST_BODY_REPEAT = "performance.ws.send.request_body_repeat";
+    public static final String PERFORMANCE_WS_SEND_COUNT = "performance.ws.send_count";
+    public static final String PERFORMANCE_WS_SEND_INTERVAL = "performance.ws.send_interval";
+    public static final String PERFORMANCE_WS_SEND_HINT = "performance.ws.send.hint";
+    public static final String PERFORMANCE_WS_AWAIT_MODE = "performance.ws.await_mode";
+    public static final String PERFORMANCE_WS_COMPLETION_FIRST_MESSAGE = "performance.ws.completion.first_message";
+    public static final String PERFORMANCE_WS_COMPLETION_MATCHED_MESSAGE = "performance.ws.completion.matched_message";
+    public static final String PERFORMANCE_WS_COMPLETION_FIXED_DURATION = "performance.ws.completion.fixed_duration";
+    public static final String PERFORMANCE_WS_COMPLETION_MESSAGE_COUNT = "performance.ws.completion.message_count";
+    public static final String PERFORMANCE_WS_MESSAGE_FILTER = "performance.ws.message_filter";
+    public static final String PERFORMANCE_WS_FIRST_MESSAGE_TIMEOUT = "performance.ws.first_message_timeout";
+    public static final String PERFORMANCE_WS_OBSERVE_DURATION = "performance.ws.observe_duration";
+    public static final String PERFORMANCE_WS_MAX_WAIT_DURATION = "performance.ws.max_wait_duration";
+    public static final String PERFORMANCE_WS_FIXED_DURATION_HINT = "performance.ws.fixed_duration_hint";
+    public static final String PERFORMANCE_WS_TARGET_MESSAGE_COUNT = "performance.ws.target_message_count";
+    public static final String PERFORMANCE_WS_CLOSE_HINT = "performance.ws.close_hint";
     public static final String MSG_ONLY_HTTP_SUPPORTED = "msg.only_http_supported";
+    public static final String MSG_ONLY_HTTP_SSE_SUPPORTED = "msg.only_http_sse_supported";
+    public static final String MSG_ONLY_HTTP_SSE_WS_SUPPORTED = "msg.only_http_sse_ws_supported";
     public static final String PERFORMANCE_MSG_SAVE_SUCCESS = "performance.msg.save_success";
 
     // ============ 性能报表列相关 ============

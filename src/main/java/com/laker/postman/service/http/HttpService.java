@@ -132,10 +132,10 @@ public class HttpService {
     /**
      * 发送 WebSocket 请求，支持动态 eventListenerFactory 和超时配置
      */
-    public static void sendWebSocket(PreparedRequest req, WebSocketListener listener) {
+    public static WebSocket sendWebSocket(PreparedRequest req, WebSocketListener listener) {
         OkHttpClient customClient = buildCustomClient(req);
         Request request = buildRequestByType(req);
-        customClient.newWebSocket(request, new LogWebSocketListener(listener));
+        return customClient.newWebSocket(request, new LogWebSocketListener(listener));
     }
 
 
@@ -149,7 +149,7 @@ public class HttpService {
         try {
             okResponse = call.execute();
         } finally {
-            fillHttpEventInfo(httpResponse, startTime);
+            attachHttpEventInfo(httpResponse, startTime);
         }
         OkHttpResponseHandler.handleResponse(okResponse, httpResponse, callback);
         httpResponse.endTime = System.currentTimeMillis();
@@ -160,7 +160,7 @@ public class HttpService {
     }
 
 
-    private static void fillHttpEventInfo(HttpResponse httpResponse, long startTime) {
+    public static void attachHttpEventInfo(HttpResponse httpResponse, long startTime) {
         HttpEventInfo httpEventInfo = EasyConsoleEventListener.getAndRemove();
         if (httpEventInfo != null) {
             httpEventInfo.setQueueStart(startTime);
