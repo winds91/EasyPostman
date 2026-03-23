@@ -759,7 +759,6 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
                 String key = lines[2 * i].trim();
                 String value = lines[2 * i + 1].trim();
                 if (!key.isEmpty()) {
-                    System.out.println(key + "=" + value);
                     headers.add(new HttpHeader(true, key, value));
                 }
             }
