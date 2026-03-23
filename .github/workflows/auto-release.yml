@@ -76,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-jar
-          path: target/easy-postman-${{ needs.get-version.outputs.version }}.jar
+          path: easy-postman-app/target/easy-postman-${{ needs.get-version.outputs.version }}.jar
           retention-days: 1
 
 
@@ -791,112 +791,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 同步到码云（Gitee）
-  sync-to-gitee:
-    name: Sync to Gitee Release（同步到码云发行版）
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    needs: [ get-version, publish-to-release ]
-    runs-on: ubuntu-latest
-    continue-on-error: true
 
-    steps:
-      - name: Checkout（检出代码）
-        uses: actions/checkout@v4
-
-      - name: Download All Artifacts（下载所有产物）
-        uses: actions/download-artifact@v4
-        with:
-          path: all-artifacts
-
-      - name: Create Gitee Release（创建码云发行版）
-        id: create_release
-        run: |
-          # 移除 strict mode，避免 curl 失败导致整个脚本退出
-          set -u
-          
-          VERSION="${{ needs.get-version.outputs.version }}"
-          # 使用时间戳确保唯一性，完全避免冲突
-          TIMESTAMP=$(date -u +%s)
-          CLEAN_TAG="v${VERSION}-build-${{ github.run_number }}-${TIMESTAMP}"
-          
-          echo "Using unique tag: $CLEAN_TAG"
-          
-          # 创建 release body
-          RELEASE_BODY="EasyPostman Auto Build Release\n\nDownload packages: Windows/macOS/Linux/JAR"
-          
-          echo "Creating Gitee release: $CLEAN_TAG"
-          
-          # 使用 echo 构建 JSON，避免所有复杂语法
-          PAYLOAD=$(echo '{"tag_name":"'"$CLEAN_TAG"'","name":"Auto Build #'"${{ github.run_number }}"' - v'"$VERSION"'","body":"EasyPostman Auto Build Release\n\nDownload packages: Windows/macOS/Linux/JAR","prerelease":false,"target_commitish":"'"${{ github.sha }}"'"}')
-  
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/releases?access_token=${{ secrets.GITEE_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" )
-          
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-
-          echo "HTTP Status: $HTTP_CODE"
-
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            RELEASE_ID=$(echo "$BODY" | jq -r '.id // empty')
-            if [ -z "$RELEASE_ID" ]; then
-              echo "❌ Could not extract release id"
-              exit 1
-            fi
-            echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
-            echo "✅ Gitee Release created with ID: $RELEASE_ID"
-          else
-            echo "❌ Failed to create Gitee Release (HTTP $HTTP_CODE)"
-            echo "$BODY"
-            exit 1
-          fi
-
-      - name: Upload Files to Gitee Release（上传文件到码云）
-        if: steps.create_release.outputs.release_id != ''
-        run: |
-          RELEASE_ID="${{ steps.create_release.outputs.release_id }}"
-          UPLOADED=0
-          FAILED=0
-          
-          for file in gitee-files/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "📦 Uploading: $filename"
-          
-              for attempt in {1..3}; do
-                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-                  "https://gitee.com/api/v5/repos/ssff_admin/EasyPostman/releases/$RELEASE_ID/attach_files" \
-                  -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-                  -F "file=@$file")
-          
-                if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-                  echo "✅ $filename uploaded (HTTP $HTTP_CODE)"
-                  ((UPLOADED++))
-                  break
-                else
-                  echo "⚠️ Attempt $attempt/3 failed (HTTP $HTTP_CODE)"
-                  if [ $attempt -lt 3 ]; then
-                    sleep 5
-                  else
-                    ((FAILED++))
-                  fi
-                fi
-              done
-            fi
-          done
-          
-          echo ""
-          echo "📊 Upload Summary:"
-          echo "✅ Successful: $UPLOADED"
-          echo "❌ Failed: $FAILED"
-
-      - name: Print Release Info（显示发行版信息）
-        run: |
-          echo "🎉 Release Sync Complete!"
-          echo ""
-          echo "📍 GitHub Release:"
-          echo "https://github.com/winds91/EasyPostman/releases/tag/auto-build-${{ github.run_number }}"
-          echo ""
-          echo "📍 Gitee Release:"
-          echo "https://gitee.com/ssff_admin/EasyPostman/releases/tag/auto-build-${{ github.run_number }}"
