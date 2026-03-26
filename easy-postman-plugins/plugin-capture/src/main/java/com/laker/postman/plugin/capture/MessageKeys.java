@@ -24,6 +24,10 @@ public final class MessageKeys {
     public static final String TOOLBOX_CAPTURE_STARTING = "toolbox.capture.starting";
     public static final String TOOLBOX_CAPTURE_STOPPING = "toolbox.capture.stopping";
     public static final String TOOLBOX_CAPTURE_CLEAR = "toolbox.capture.clear";
+    public static final String TOOLBOX_CAPTURE_IMPORT = "toolbox.capture.import";
+    public static final String TOOLBOX_CAPTURE_IMPORT_EMPTY = "toolbox.capture.import.empty";
+    public static final String TOOLBOX_CAPTURE_IMPORT_SUCCESS = "toolbox.capture.import.success";
+    public static final String TOOLBOX_CAPTURE_IMPORT_DEFAULT_BATCH_NAME = "toolbox.capture.import.default_batch_name";
     public static final String TOOLBOX_CAPTURE_CA_ACTIONS = "toolbox.capture.ca_actions";
     public static final String TOOLBOX_CAPTURE_STATUS_DETAILS = "toolbox.capture.status.details";
     public static final String TOOLBOX_CAPTURE_REFRESH_STATUS = "toolbox.capture.refresh_status";
@@ -36,6 +40,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_CAPTURE_CURL_COPIED_PARTIAL = "toolbox.capture.curl_copied_partial";
     public static final String TOOLBOX_CAPTURE_TAB_REQUEST = "toolbox.capture.tab.request";
     public static final String TOOLBOX_CAPTURE_TAB_RESPONSE = "toolbox.capture.tab.response";
+    public static final String TOOLBOX_CAPTURE_TAB_STREAM = "toolbox.capture.tab.stream";
     public static final String TOOLBOX_CAPTURE_INSTALL_CA = "toolbox.capture.install_ca";
     public static final String TOOLBOX_CAPTURE_OPEN_CA = "toolbox.capture.open_ca";
     public static final String TOOLBOX_CAPTURE_COPY_CA_PATH = "toolbox.capture.copy_ca_path";
@@ -63,6 +68,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_CAPTURE_SYSTEM_PROXY_SYNCED = "toolbox.capture.system_proxy.synced";
     public static final String TOOLBOX_CAPTURE_FILTER_ALL = "toolbox.capture.filter.all";
     public static final String TOOLBOX_CAPTURE_FILTER_RULES = "toolbox.capture.filter.rules";
+    public static final String TOOLBOX_CAPTURE_FILTER_INVALID = "toolbox.capture.filter.invalid";
     public static final String TOOLBOX_CAPTURE_IDLE_DETAILS = "toolbox.capture.idle_details";
     public static final String TOOLBOX_CAPTURE_WARN_BIND_HOST_REQUIRED = "toolbox.capture.warn.bind_host_required";
     public static final String TOOLBOX_CAPTURE_START_SUCCESS = "toolbox.capture.start.success";
@@ -89,6 +95,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_CAPTURE_MANUAL_TRUST_GUIDE = "toolbox.capture.manual_trust.guide";
     public static final String TOOLBOX_CAPTURE_MANUAL_TRUST_GUIDE_WINDOWS = "toolbox.capture.manual_trust.guide.windows";
     public static final String TOOLBOX_CAPTURE_COLUMN_ID = "toolbox.capture.column.id";
+    public static final String TOOLBOX_CAPTURE_COLUMN_SEQ = "toolbox.capture.column.seq";
     public static final String TOOLBOX_CAPTURE_COLUMN_TIME = "toolbox.capture.column.time";
     public static final String TOOLBOX_CAPTURE_COLUMN_METHOD = "toolbox.capture.column.method";
     public static final String TOOLBOX_CAPTURE_COLUMN_HOST = "toolbox.capture.column.host";
@@ -101,18 +108,26 @@ public final class MessageKeys {
     public static final String TOOLBOX_CAPTURE_DETAIL_TIME = "toolbox.capture.detail.time";
     public static final String TOOLBOX_CAPTURE_DETAIL_METHOD = "toolbox.capture.detail.method";
     public static final String TOOLBOX_CAPTURE_DETAIL_URL = "toolbox.capture.detail.url";
+    public static final String TOOLBOX_CAPTURE_DETAIL_PROTOCOL = "toolbox.capture.detail.protocol";
     public static final String TOOLBOX_CAPTURE_DETAIL_STATUS = "toolbox.capture.detail.status";
     public static final String TOOLBOX_CAPTURE_DETAIL_DURATION = "toolbox.capture.detail.duration";
     public static final String TOOLBOX_CAPTURE_DETAIL_HEADERS = "toolbox.capture.detail.headers";
     public static final String TOOLBOX_CAPTURE_DETAIL_BYTES = "toolbox.capture.detail.bytes";
+    public static final String TOOLBOX_CAPTURE_DETAIL_EVENTS = "toolbox.capture.detail.events";
     public static final String TOOLBOX_CAPTURE_DETAIL_CONTENT_TYPE = "toolbox.capture.detail.content_type";
     public static final String TOOLBOX_CAPTURE_DETAIL_ERROR = "toolbox.capture.detail.error";
     public static final String TOOLBOX_CAPTURE_DETAIL_REQUEST_HEADERS = "toolbox.capture.detail.request_headers";
     public static final String TOOLBOX_CAPTURE_DETAIL_REQUEST_BODY = "toolbox.capture.detail.request_body";
+    public static final String TOOLBOX_CAPTURE_DETAIL_REQUEST_STREAM = "toolbox.capture.detail.request_stream";
     public static final String TOOLBOX_CAPTURE_DETAIL_RESPONSE_HEADERS = "toolbox.capture.detail.response_headers";
     public static final String TOOLBOX_CAPTURE_DETAIL_RESPONSE_BODY = "toolbox.capture.detail.response_body";
+    public static final String TOOLBOX_CAPTURE_DETAIL_RESPONSE_STREAM = "toolbox.capture.detail.response_stream";
     public static final String TOOLBOX_CAPTURE_DETAIL_EMPTY = "toolbox.capture.detail.empty";
+    public static final String TOOLBOX_CAPTURE_DETAIL_NO_STREAM = "toolbox.capture.detail.no_stream";
     public static final String TOOLBOX_CAPTURE_DETAIL_PENDING = "toolbox.capture.detail.pending";
     public static final String TOOLBOX_CAPTURE_DETAIL_ERROR_STATUS = "toolbox.capture.detail.error_status";
     public static final String TOOLBOX_CAPTURE_DETAIL_TRUNCATED = "toolbox.capture.detail.truncated";
+    public static final String TOOLBOX_CAPTURE_PROTOCOL_HTTP = "toolbox.capture.protocol.http";
+    public static final String TOOLBOX_CAPTURE_PROTOCOL_SSE = "toolbox.capture.protocol.sse";
+    public static final String TOOLBOX_CAPTURE_PROTOCOL_WEBSOCKET = "toolbox.capture.protocol.websocket";
 }

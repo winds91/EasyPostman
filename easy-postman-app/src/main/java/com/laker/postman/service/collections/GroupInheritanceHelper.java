@@ -278,6 +278,11 @@ public class GroupInheritanceHelper {
         clone.setProtocol(item.getProtocol());
         clone.setBodyType(item.getBodyType());
         clone.setBody(item.getBody());
+        clone.setDescription(item.getDescription());
+        clone.setFollowRedirects(item.getFollowRedirects());
+        clone.setCookieJarEnabled(item.getCookieJarEnabled());
+        clone.setHttpVersion(item.getHttpVersion());
+        clone.setRequestTimeoutMs(item.getRequestTimeoutMs());
 
         // 认证字段
         clone.setAuthType(item.getAuthType());
@@ -298,6 +303,8 @@ public class GroupInheritanceHelper {
             new ArrayList<>(item.getFormDataList()) : new ArrayList<>());
         clone.setUrlencodedList(item.getUrlencodedList() != null ?
             new ArrayList<>(item.getUrlencodedList()) : new ArrayList<>());
+        clone.setResponse(item.getResponse() != null ?
+            new ArrayList<>(item.getResponse()) : null);
 
         return clone;
     }

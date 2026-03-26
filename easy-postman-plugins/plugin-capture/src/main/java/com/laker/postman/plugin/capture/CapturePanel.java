@@ -27,10 +27,12 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
+import javax.swing.Timer;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.JTabbedPane;
+import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -59,7 +61,6 @@ import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import static com.laker.postman.plugin.capture.CaptureI18n.t;
@@ -71,6 +72,7 @@ public class CapturePanel extends JPanel {
     private static final String SETTING_CAPTURE_HOST_FILTER = "plugin.capture.hostFilter";
 
     private final CaptureProxyService proxyService = CaptureRuntime.proxyService();
+    private final CaptureRequestCollectionImporter requestCollectionImporter = new CaptureRequestCollectionImporter();
     private final MacCertificateInstallService macCertificateInstallService = new MacCertificateInstallService();
     private final WindowsCertificateInstallService windowsCertificateInstallService = new WindowsCertificateInstallService();
 
@@ -97,11 +99,13 @@ public class CapturePanel extends JPanel {
     private EnhancedTablePanel tablePanel;
     private RSyntaxTextArea requestDetailArea;
     private RSyntaxTextArea responseDetailArea;
+    private RSyntaxTextArea streamDetailArea;
     private JTabbedPane detailTabs;
     private JSplitPane detailSplit;
     private JToggleButton detailToggleButton;
     private boolean detailPanelVisible;
     private JLabel detailMethodLabel;
+    private JLabel detailProtocolLabel;
     private JLabel detailStatusLabel;
     private JLabel detailHostLabel;
     private JLabel detailDurationLabel;
@@ -114,14 +118,17 @@ public class CapturePanel extends JPanel {
     private JLabel responseHeadersLabel;
     private JLabel responseBytesLabel;
     private JLabel responseTypeLabel;
+    private JLabel streamEventsLabel;
+    private JLabel streamProtocolLabel;
     private final Map<String, JToggleButton> quickFilterButtons = new LinkedHashMap<>();
     private boolean syncingQuickFilters;
     private boolean operationInProgress;
     private CaptureFlow selectedFlow;
+    private Timer refreshTimer;
 
     public CapturePanel() {
         initUI();
-        proxyService.sessionStore().addChangeListener(() -> SwingUtilities.invokeLater(this::refreshTable));
+        proxyService.sessionStore().addChangeListener(this::scheduleRefreshTable);
         refreshTable();
         updateStatus();
     }
@@ -137,7 +144,7 @@ public class CapturePanel extends JPanel {
     private JComponent buildTopBar() {
         JPanel panel = new JPanel(new MigLayout(
                 "insets 8, fillx, novisualpadding",
-                "[][grow,fill]12[]12[]6[]push[]",
+                "[][grow,fill]12[]8[]12[]6[]push[]",
                 "[][][][]"));
         panel.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
@@ -240,24 +247,32 @@ public class CapturePanel extends JPanel {
 
     private JComponent buildContent() {
         tablePanel = new EnhancedTablePanel(columnNames());
+        tablePanel.setAutoResizeOnRefresh(false);
+        tablePanel.setContextMenuCustomizer(this::appendTableContextMenu);
         JTable table = tablePanel.getTable();
+        table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.getSelectionModel().addListSelectionListener(this::handleSelectionChanged);
         disableTableTooltips(table);
         hideIdColumn(table);
+        configureTableColumns(table);
 
         requestDetailArea = createDetailArea();
         responseDetailArea = createDetailArea();
+        streamDetailArea = createDetailArea();
         requestDetailArea.setText(t(MessageKeys.TOOLBOX_CAPTURE_IDLE_DETAILS));
         responseDetailArea.setText(t(MessageKeys.TOOLBOX_CAPTURE_IDLE_DETAILS));
+        streamDetailArea.setText(t(MessageKeys.TOOLBOX_CAPTURE_IDLE_DETAILS));
 
         detailTabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
         detailTabs.addTab(t(MessageKeys.TOOLBOX_CAPTURE_TAB_REQUEST), buildRequestDetailTab());
         detailTabs.addTab(t(MessageKeys.TOOLBOX_CAPTURE_TAB_RESPONSE), buildResponseDetailTab());
+        detailTabs.addTab(t(MessageKeys.TOOLBOX_CAPTURE_TAB_STREAM), buildStreamDetailTab());
         detailTabs.setPreferredSize(new Dimension(360, 200));
 
-        JPanel detailHeader = new JPanel(new MigLayout("insets 4 10 4 8, fillx", "[]8[]8[]8[]push[]4[]", "[]"));
+        JPanel detailHeader = new JPanel(new MigLayout("insets 4 10 4 8, fillx", "[]8[]8[]8[]8[]push[]4[]", "[]"));
         detailHeader.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
         detailMethodLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_METHOD) + ": -", ModernColors.INFO);
+        detailProtocolLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_PROTOCOL) + ": -", new Color(0, 110, 170));
         detailStatusLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_STATUS) + ": -", ModernColors.SUCCESS);
         detailHostLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_HOST) + ": -", new Color(120, 80, 200));
         detailDurationLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_DURATION) + ": -", new Color(180, 100, 0));
@@ -283,6 +298,7 @@ public class CapturePanel extends JPanel {
         });
 
         detailHeader.add(detailMethodLabel);
+        detailHeader.add(detailProtocolLabel);
         detailHeader.add(detailStatusLabel);
         detailHeader.add(detailHostLabel);
         detailHeader.add(detailDurationLabel);
@@ -398,9 +414,10 @@ public class CapturePanel extends JPanel {
                 try {
                     StartResult result = get();
                     updateStatus();
+                    String portText = String.valueOf(result.port());
                     NotificationUtil.showSuccess(result.systemProxySynced()
-                            ? t(MessageKeys.TOOLBOX_CAPTURE_START_SUCCESS_SYNCED, result.host(), result.port())
-                            : t(MessageKeys.TOOLBOX_CAPTURE_START_SUCCESS, result.host(), result.port()));
+                            ? t(MessageKeys.TOOLBOX_CAPTURE_START_SUCCESS_SYNCED, result.host(), portText)
+                            : t(MessageKeys.TOOLBOX_CAPTURE_START_SUCCESS, result.host(), portText));
                 } catch (Exception ex) {
                     updateStatus();
                     NotificationUtil.showError(t(MessageKeys.TOOLBOX_CAPTURE_START_FAILED, rootMessage(ex)));
@@ -441,17 +458,78 @@ public class CapturePanel extends JPanel {
         worker.execute();
     }
 
+    private void scheduleRefreshTable() {
+        SwingUtilities.invokeLater(() -> {
+            if (refreshTimer == null) {
+                refreshTimer = new Timer(120, e -> refreshTable());
+                refreshTimer.setRepeats(false);
+            }
+            refreshTimer.restart();
+        });
+    }
+
     private void refreshTable() {
+        List<String> selectedIds = selectedFlowIds();
         List<Object[]> rows = new ArrayList<>();
         for (CaptureFlow flow : proxyService.sessionStore().snapshot()) {
             rows.add(flow.toRow());
         }
-        tablePanel.setData(rows);
-        hideIdColumn(tablePanel.getTable());
+        tablePanel.setDataPreserveView(rows);
+        JTable table = tablePanel.getTable();
+        hideIdColumn(table);
+        configureTableColumns(table);
+        restoreSelectedRows(selectedIds);
         if (rows.isEmpty()) {
             clearDetail();
+        } else if (selectedFlow != null) {
+            CaptureFlow latestSelectedFlow = proxyService.sessionStore().find(selectedFlow.id());
+            if (latestSelectedFlow != null) {
+                selectedFlow = latestSelectedFlow;
+                updateDetailHeader(latestSelectedFlow);
+                updateDetailAreas(latestSelectedFlow);
+            }
         }
-        updateStatus();
+    }
+
+    private void appendTableContextMenu(JPopupMenu menu) {
+        JMenuItem importItem = new JMenuItem(t(MessageKeys.TOOLBOX_CAPTURE_IMPORT));
+        importItem.setEnabled(!operationInProgress && !selectedFlows().isEmpty());
+        importItem.addActionListener(e -> importSelectedFlows());
+        menu.addSeparator();
+        menu.add(importItem);
+    }
+
+    private List<String> selectedFlowIds() {
+        if (tablePanel == null || tablePanel.getTable() == null) {
+            return List.of();
+        }
+        JTable table = tablePanel.getTable();
+        int[] selectedRows = table.getSelectedRows();
+        if (selectedRows == null || selectedRows.length == 0) {
+            return List.of();
+        }
+        List<String> flowIds = new ArrayList<>();
+        for (int selectedRow : selectedRows) {
+            Object flowId = table.getValueAt(selectedRow, 0);
+            if (flowId != null) {
+                flowIds.add(String.valueOf(flowId));
+            }
+        }
+        return flowIds;
+    }
+
+    private void restoreSelectedRows(List<String> flowIds) {
+        if (flowIds == null || flowIds.isEmpty() || tablePanel == null || tablePanel.getTable() == null) {
+            return;
+        }
+        JTable table = tablePanel.getTable();
+        table.clearSelection();
+        for (int row = 0; row < table.getRowCount(); row++) {
+            Object flowId = table.getValueAt(row, 0);
+            if (flowId != null && flowIds.contains(String.valueOf(flowId))) {
+                table.addRowSelectionInterval(row, row);
+            }
+        }
     }
 
     private void handleSelectionChanged(ListSelectionEvent event) {
@@ -534,7 +612,16 @@ public class CapturePanel extends JPanel {
     private void updateCaptureFilterSummary() {
         captureFilterLabel.setText(proxyService.isRunning()
                 ? proxyService.captureFilterSummary()
-                : CaptureRequestFilter.parse(captureHostsField.getText()).summary());
+                : summarizeDraftCaptureFilter(captureHostsField.getText()));
+    }
+
+    static String summarizeDraftCaptureFilter(String rawValue) {
+        try {
+            return CaptureRequestFilter.parse(rawValue).summary();
+        } catch (IllegalArgumentException ex) {
+            String draft = rawValue == null ? "" : rawValue.trim();
+            return t(MessageKeys.TOOLBOX_CAPTURE_FILTER_INVALID, draft.isEmpty() ? "..." : draft);
+        }
     }
 
     private JPanel buildQuickFilterPanel() {
@@ -561,8 +648,8 @@ public class CapturePanel extends JPanel {
         if (syncingQuickFilters) {
             return;
         }
-        List<String> tokens = new ArrayList<>(parseFilterTokens(captureHostsField.getText()));
-        removeQuickFilterToken(tokens, token);
+        List<String> tokens = new ArrayList<>(CaptureQuickFilterTokens.parse(captureHostsField.getText()));
+        CaptureQuickFilterTokens.removeToken(tokens, token, selected);
         if (selected) {
             tokens.add(token);
         }
@@ -577,10 +664,10 @@ public class CapturePanel extends JPanel {
     }
 
     private void syncQuickFilterButtonsFromField() {
-        List<String> tokens = parseFilterTokens(captureHostsField.getText());
+        List<String> tokens = CaptureQuickFilterTokens.parse(captureHostsField.getText());
         syncingQuickFilters = true;
         try {
-            quickFilterButtons.forEach((token, button) -> button.setSelected(hasQuickFilterToken(tokens, token)));
+            quickFilterButtons.forEach((token, button) -> button.setSelected(CaptureQuickFilterTokens.hasIncludedToken(tokens, token)));
         } finally {
             syncingQuickFilters = false;
         }
@@ -588,53 +675,6 @@ public class CapturePanel extends JPanel {
 
     private void setQuickFiltersEnabled(boolean enabled) {
         quickFilterButtons.values().forEach(button -> button.setEnabled(enabled));
-    }
-
-    private List<String> parseFilterTokens(String rawValue) {
-        List<String> tokens = new ArrayList<>();
-        if (rawValue == null || rawValue.isBlank()) {
-            return tokens;
-        }
-        for (String token : rawValue.trim().split("[,;\\s\\r\\n]+")) {
-            if (token != null && !token.isBlank()) {
-                tokens.add(token.trim());
-            }
-        }
-        return tokens;
-    }
-
-    private boolean hasQuickFilterToken(List<String> tokens, String canonicalToken) {
-        for (String token : tokens) {
-            String normalized = normalizeQuickFilterToken(token);
-            if (canonicalToken.equals(normalized)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void removeQuickFilterToken(List<String> tokens, String canonicalToken) {
-        tokens.removeIf(token -> canonicalToken.equals(normalizeQuickFilterToken(token)));
-    }
-
-    private String normalizeQuickFilterToken(String token) {
-        if (token == null) {
-            return "";
-        }
-        String normalized = token.trim().toLowerCase(Locale.ROOT);
-        if (normalized.startsWith("!")) {
-            normalized = normalized.substring(1).trim();
-        }
-        return switch (normalized) {
-            case "http", "scheme:http" -> "http";
-            case "https", "scheme:https" -> "https";
-            case "json", "type:json" -> "json";
-            case "image", "img", "type:image", "type:img" -> "image";
-            case "js", "type:js" -> "js";
-            case "css", "type:css" -> "css";
-            case "api", "type:api" -> "api";
-            default -> normalized;
-        };
     }
 
     private boolean isCertificateInstallSupported() {
@@ -810,6 +850,21 @@ public class CapturePanel extends JPanel {
         idColumn.setMaxWidth(0);
         idColumn.setPreferredWidth(0);
         idColumn.setResizable(false);
+    }
+
+    private void configureTableColumns(JTable table) {
+        if (table.getColumnModel().getColumnCount() < 10) {
+            return;
+        }
+        table.getColumnModel().getColumn(1).setPreferredWidth(52);
+        table.getColumnModel().getColumn(2).setPreferredWidth(82);
+        table.getColumnModel().getColumn(3).setPreferredWidth(74);
+        table.getColumnModel().getColumn(4).setPreferredWidth(180);
+        table.getColumnModel().getColumn(5).setPreferredWidth(320);
+        table.getColumnModel().getColumn(6).setPreferredWidth(72);
+        table.getColumnModel().getColumn(7).setPreferredWidth(88);
+        table.getColumnModel().getColumn(8).setPreferredWidth(96);
+        table.getColumnModel().getColumn(9).setPreferredWidth(96);
     }
 
     private void disableTableTooltips(JTable table) {
@@ -1017,6 +1072,7 @@ public class CapturePanel extends JPanel {
     private void clearDetail() {
         selectedFlow = null;
         detailMethodLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_METHOD) + ": -");
+        detailProtocolLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_PROTOCOL) + ": -");
         detailStatusLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_STATUS) + ": -");
         detailHostLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_HOST) + ": -");
         detailDurationLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_DURATION) + ": -");
@@ -1029,17 +1085,23 @@ public class CapturePanel extends JPanel {
         responseHeadersLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_HEADERS) + ": -");
         responseBytesLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_BYTES) + ": -");
         responseTypeLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_CONTENT_TYPE) + ": -");
+        streamEventsLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_EVENTS) + ": -");
+        streamProtocolLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_PROTOCOL) + ": -");
         requestDetailArea.setText(t(MessageKeys.TOOLBOX_CAPTURE_IDLE_DETAILS));
         requestDetailArea.setCaretPosition(0);
         requestDetailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         responseDetailArea.setText(t(MessageKeys.TOOLBOX_CAPTURE_IDLE_DETAILS));
         responseDetailArea.setCaretPosition(0);
         responseDetailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        streamDetailArea.setText(t(MessageKeys.TOOLBOX_CAPTURE_IDLE_DETAILS));
+        streamDetailArea.setCaretPosition(0);
+        streamDetailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         detailTabs.setSelectedIndex(0);
     }
 
     private void updateDetailHeader(CaptureFlow flow) {
         detailMethodLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_METHOD) + ": " + flow.method());
+        detailProtocolLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_PROTOCOL) + ": " + flow.protocolText());
         detailStatusLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_STATUS) + ": " + flow.statusDisplayText());
         detailHostLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_HOST) + ": " + flow.host());
         detailDurationLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_DURATION) + ": " + flow.durationMs() + " ms");
@@ -1052,10 +1114,12 @@ public class CapturePanel extends JPanel {
         responseHeadersLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_HEADERS) + ": " + flow.responseHeaderCount());
         responseBytesLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_BYTES) + ": " + flow.responseSize());
         responseTypeLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_CONTENT_TYPE) + ": " + displayValue(flow.responseContentType()));
+        streamEventsLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_EVENTS) + ": " + flow.streamEventCount());
+        streamProtocolLabel.setText(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_PROTOCOL) + ": " + flow.protocolText());
     }
 
     private void copyDetail() {
-        RSyntaxTextArea activeArea = detailTabs.getSelectedIndex() == 0 ? requestDetailArea : responseDetailArea;
+        RSyntaxTextArea activeArea = activeDetailArea();
         String detailText = activeArea.getText().trim();
         if (detailText.isEmpty()) {
             return;
@@ -1075,6 +1139,15 @@ public class CapturePanel extends JPanel {
         } else {
             NotificationUtil.showSuccess(t(MessageKeys.TOOLBOX_CAPTURE_CURL_COPIED));
         }
+    }
+
+    private void importSelectedFlows() {
+        List<CaptureFlow> flows = selectedFlows();
+        if (flows.isEmpty()) {
+            NotificationUtil.showWarning(t(MessageKeys.TOOLBOX_CAPTURE_IMPORT_EMPTY));
+            return;
+        }
+        requestCollectionImporter.importFlows(flows);
     }
 
     private RSyntaxTextArea createDetailArea() {
@@ -1119,6 +1192,16 @@ public class CapturePanel extends JPanel {
         return buildDetailTabPanel(responseStatusLabel, responseHeadersLabel, responseBytesLabel, responseTypeLabel, responseDetailArea);
     }
 
+    private JComponent buildStreamDetailTab() {
+        streamEventsLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_EVENTS) + ": -", ModernColors.INFO);
+        streamProtocolLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_PROTOCOL) + ": -", new Color(120, 80, 200));
+        JLabel streamBytesLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_BYTES) + ": -", new Color(20, 150, 100));
+        JLabel streamTypeLabel = buildChipLabel(t(MessageKeys.TOOLBOX_CAPTURE_DETAIL_CONTENT_TYPE) + ": -", new Color(180, 100, 0));
+        streamBytesLabel.setVisible(false);
+        streamTypeLabel.setVisible(false);
+        return buildDetailTabPanel(streamEventsLabel, streamProtocolLabel, streamBytesLabel, streamTypeLabel, streamDetailArea);
+    }
+
     private JComponent buildDetailTabPanel(JLabel first,
                                            JLabel second,
                                            JLabel third,
@@ -1142,6 +1225,7 @@ public class CapturePanel extends JPanel {
     private void updateDetailAreas(CaptureFlow flow) {
         updateDetailArea(requestDetailArea, flow.requestDetailText());
         updateDetailArea(responseDetailArea, flow.responseDetailText());
+        updateDetailArea(streamDetailArea, flow.streamDetailText());
     }
 
     private void updateDetailArea(RSyntaxTextArea area, String text) {
@@ -1152,6 +1236,37 @@ public class CapturePanel extends JPanel {
 
     private String displayValue(String value) {
         return value == null || value.isBlank() ? "-" : value;
+    }
+
+    private RSyntaxTextArea activeDetailArea() {
+        int index = detailTabs.getSelectedIndex();
+        if (index == 0) {
+            return requestDetailArea;
+        }
+        if (index == 1) {
+            return responseDetailArea;
+        }
+        return streamDetailArea;
+    }
+
+    private List<CaptureFlow> selectedFlows() {
+        if (tablePanel == null || tablePanel.getTable() == null) {
+            return List.of();
+        }
+        JTable table = tablePanel.getTable();
+        int[] selectedRows = table.getSelectedRows();
+        if (selectedRows == null || selectedRows.length == 0) {
+            return List.of();
+        }
+        List<CaptureFlow> flows = new ArrayList<>();
+        for (int selectedRow : selectedRows) {
+            Object flowId = table.getValueAt(selectedRow, 0);
+            CaptureFlow flow = proxyService.sessionStore().find(String.valueOf(flowId));
+            if (flow != null) {
+                flows.add(flow);
+            }
+        }
+        return flows;
     }
 
     private JLabel buildChipLabel(String text, Color bgColor) {
@@ -1294,6 +1409,7 @@ public class CapturePanel extends JPanel {
     private String[] columnNames() {
         return new String[]{
                 t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_ID),
+                t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_SEQ),
                 t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_TIME),
                 t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_METHOD),
                 t(MessageKeys.TOOLBOX_CAPTURE_COLUMN_HOST),

@@ -71,6 +71,7 @@ public final class MessageKeys {
     public static final String UPDATE_FETCH_RELEASE_FAILED = "update.fetch_release_failed";
     public static final String UPDATE_NO_VERSION_INFO = "update.no_version_info";
     public static final String UPDATE_ALREADY_LATEST = "update.already_latest";
+    public static final String UPDATE_ALREADY_LATEST_WITH_PLUGINS = "update.already_latest_with_plugins";
     public static final String UPDATE_AVAILABLE_NO_ASSET = "update.available_no_asset";
     public static final String UPDATE_AVAILABLE_NO_ASSET_TITLE = "update.available_no_asset.title";
     public static final String UPDATE_AVAILABLE_NO_ASSET_GO_GITHUB = "update.available_no_asset.go_github";
@@ -124,13 +125,10 @@ public final class MessageKeys {
     // ============ 插件管理 ============
     public static final String PLUGIN_MANAGER_TITLE = "plugin.manager.title";
     public static final String PLUGIN_MANAGER_INSTALL = "plugin.manager.install";
-    public static final String PLUGIN_MANAGER_UPDATE = "plugin.manager.update";
     public static final String PLUGIN_MANAGER_REFRESH = "plugin.manager.refresh";
     public static final String PLUGIN_MANAGER_ENABLE = "plugin.manager.enable";
     public static final String PLUGIN_MANAGER_DISABLE = "plugin.manager.disable";
     public static final String PLUGIN_MANAGER_UNINSTALL = "plugin.manager.uninstall";
-    public static final String PLUGIN_MANAGER_DIRECTORY = "plugin.manager.directory";
-    public static final String PLUGIN_MANAGER_CACHE_DIRECTORY = "plugin.manager.cache_directory";
     public static final String PLUGIN_MANAGER_EMPTY = "plugin.manager.empty";
     public static final String PLUGIN_MANAGER_STATUS_LOADED = "plugin.manager.status.loaded";
     public static final String PLUGIN_MANAGER_STATUS_DISABLED = "plugin.manager.status.disabled";
@@ -140,23 +138,17 @@ public final class MessageKeys {
     public static final String PLUGIN_MANAGER_STATUS_UNINSTALL_PENDING = "plugin.manager.status.uninstall_pending";
     public static final String PLUGIN_MANAGER_RESTART_HINT = "plugin.manager.restart_hint";
     public static final String PLUGIN_MANAGER_FILE_CHOOSER = "plugin.manager.file_chooser";
-    public static final String PLUGIN_MANAGER_INVALID_PLUGIN = "plugin.manager.invalid_plugin";
     public static final String PLUGIN_MANAGER_INSTALL_SUCCESS = "plugin.manager.install_success";
     public static final String PLUGIN_MANAGER_UNINSTALL_CONFIRM = "plugin.manager.uninstall_confirm";
     public static final String PLUGIN_MANAGER_UNINSTALL_SUCCESS = "plugin.manager.uninstall_success";
     public static final String PLUGIN_MANAGER_UNINSTALL_SCHEDULED = "plugin.manager.uninstall_scheduled";
     public static final String PLUGIN_MANAGER_UNINSTALL_FAILED = "plugin.manager.uninstall_failed";
     public static final String PLUGIN_MANAGER_UNINSTALL_TITLE = "plugin.manager.uninstall_title";
-    public static final String PLUGIN_MANAGER_OVERWRITE_CONFIRM = "plugin.manager.overwrite_confirm";
-    public static final String PLUGIN_MANAGER_OVERWRITE_TITLE = "plugin.manager.overwrite_title";
     public static final String PLUGIN_MANAGER_TAB_INSTALLED = "plugin.manager.tab.installed";
     public static final String PLUGIN_MANAGER_TAB_MARKET = "plugin.manager.tab.market";
     public static final String PLUGIN_MANAGER_MARKET_LOAD = "plugin.manager.market.load";
-    public static final String PLUGIN_MANAGER_MARKET_INSTALL = "plugin.manager.market.install";
-    public static final String PLUGIN_MANAGER_MARKET_OPEN_HOMEPAGE = "plugin.manager.market.open_homepage";
     public static final String PLUGIN_MANAGER_MARKET_OFFICIAL_GITHUB = "plugin.manager.market.official_github";
     public static final String PLUGIN_MANAGER_MARKET_OFFICIAL_GITEE = "plugin.manager.market.official_gitee";
-    public static final String PLUGIN_MANAGER_MARKET_CATALOG_URL = "plugin.manager.market.catalog_url";
     public static final String PLUGIN_MANAGER_MARKET_HINT = "plugin.manager.market.hint";
     public static final String PLUGIN_MANAGER_MARKET_EMPTY = "plugin.manager.market.empty";
     public static final String PLUGIN_MANAGER_MARKET_LOADING = "plugin.manager.market.loading";
@@ -180,23 +172,14 @@ public final class MessageKeys {
     public static final String PLUGIN_MANAGER_MARKET_LOCAL_NEWER = "plugin.manager.market.local_newer";
     public static final String PLUGIN_MANAGER_MARKET_ACTION_INSTALL = "plugin.manager.market.action_install";
     public static final String PLUGIN_MANAGER_MARKET_ACTION_UPDATE = "plugin.manager.market.action_update";
-    public static final String PLUGIN_MANAGER_MARKET_ACTION_INSTALLED = "plugin.manager.market.action_installed";
-    public static final String PLUGIN_MANAGER_MARKET_ACTION_REQUIRES_HOST_UPGRADE = "plugin.manager.market.action_requires_host_upgrade";
-    public static final String PLUGIN_MANAGER_MARKET_ACTION_LOCAL_NEWER = "plugin.manager.market.action_local_newer";
-    public static final String PLUGIN_MANAGER_SUBTITLE = "plugin.manager.subtitle";
     public static final String PLUGIN_MANAGER_SUMMARY_INSTALLED = "plugin.manager.summary.installed";
     public static final String PLUGIN_MANAGER_SUMMARY_LOADED = "plugin.manager.summary.loaded";
     public static final String PLUGIN_MANAGER_SUMMARY_CATALOG = "plugin.manager.summary.catalog";
-    public static final String PLUGIN_MANAGER_SECTION_DIRECTORIES = "plugin.manager.section.directories";
     public static final String PLUGIN_MANAGER_SECTION_DETAILS = "plugin.manager.section.details";
     public static final String PLUGIN_MANAGER_DETAIL_EMPTY = "plugin.manager.detail.empty";
     public static final String PLUGIN_MANAGER_DETAIL_ID = "plugin.manager.detail.id";
     public static final String PLUGIN_MANAGER_DETAIL_VERSION = "plugin.manager.detail.version";
     public static final String PLUGIN_MANAGER_DETAIL_PATH = "plugin.manager.detail.path";
-    public static final String PLUGIN_MANAGER_DETAIL_HOMEPAGE = "plugin.manager.detail.homepage";
-    public static final String PLUGIN_MANAGER_DETAIL_INSTALL_SOURCE = "plugin.manager.detail.install_source";
-    public static final String PLUGIN_MANAGER_DETAIL_CURRENT_INSTALL_SOURCE = "plugin.manager.detail.current_install_source";
-    public static final String PLUGIN_MANAGER_DETAIL_MARKET_DOWNLOAD = "plugin.manager.detail.market_download";
     public static final String PLUGIN_MANAGER_DETAIL_COMPATIBILITY = "plugin.manager.detail.compatibility";
     public static final String PLUGIN_MANAGER_COMPATIBILITY_CURRENT = "plugin.manager.compatibility.current";
     public static final String PLUGIN_MANAGER_COMPATIBILITY_REQUIRES_APP = "plugin.manager.compatibility.requires_app";
@@ -205,8 +188,14 @@ public final class MessageKeys {
     public static final String PLUGIN_MANAGER_COMPATIBILITY_REQUIRES_APP_RANGE = "plugin.manager.compatibility.requires_app_range";
     public static final String PLUGIN_MANAGER_COMPATIBILITY_REQUIRES_HOST_UPGRADE = "plugin.manager.compatibility.requires_host_upgrade";
     public static final String PLUGIN_MANAGER_MARKET_SOURCE_HINT = "plugin.manager.market.source_hint";
-    public static final String PLUGIN_MANAGER_SOURCE_LOCAL = "plugin.manager.source.local";
-    public static final String PLUGIN_MANAGER_SOURCE_MARKET = "plugin.manager.source.market";
+    public static final String PLUGIN_UPDATE_NOTIFICATION_TITLE = "plugin.update.notification.title";
+    public static final String PLUGIN_UPDATE_NOTIFICATION_SINGLE = "plugin.update.notification.single";
+    public static final String PLUGIN_UPDATE_NOTIFICATION_MULTIPLE = "plugin.update.notification.multiple";
+    public static final String PLUGIN_UPDATE_NOTIFICATION_MORE = "plugin.update.notification.more";
+    public static final String PLUGIN_UPDATE_NOTIFICATION_ACTION = "plugin.update.notification.action";
+    public static final String PLUGIN_UPDATE_CHECK_FAILED = "plugin.update.check_failed";
+    public static final String PLUGIN_UPDATE_MANUAL_PROMPT_SINGLE = "plugin.update.manual.prompt.single";
+    public static final String PLUGIN_UPDATE_MANUAL_PROMPT_MULTIPLE = "plugin.update.manual.prompt.multiple";
 
     // ============ Markdown 编辑器 ============
     public static final String MARKDOWN_UNDO = "markdown.undo";
@@ -303,6 +292,7 @@ public final class MessageKeys {
     public static final String TAB_VARIABLES = "tab.variables";
     public static final String TAB_AUTHORIZATION = "tab.authorization";
     public static final String TAB_SCRIPTS = "tab.scripts";
+    public static final String TAB_SETTINGS = "tab.settings";
     public static final String TAB_TESTS = "tab.tests";
     public static final String TAB_NETWORK_LOG = "tab.network_log";
     public static final String TAB_REQUEST_HEADERS = "tab.request_headers";
@@ -565,10 +555,6 @@ public final class MessageKeys {
     public static final String WORKSPACE_CREATE_DIALOG_CREATION_COMPLETED = "workspace.create.dialog.creation.completed";
     public static final String WORKSPACE_CREATE_DIALOG_CREATION_FAILED = "workspace.create.dialog.creation.failed";
     public static final String WORKSPACE_CREATE_DIALOG_CREATION_FAILED_WITH_MESSAGE = "workspace.create.dialog.creation.failed.with.message";
-    public static final String WORKSPACE_CREATE_DIALOG_GIT_PLUGIN_REQUIRED_TITLE = "workspace.create.dialog.git.plugin.required.title";
-    public static final String WORKSPACE_CREATE_DIALOG_GIT_PLUGIN_REQUIRED_MESSAGE = "workspace.create.dialog.git.plugin.required.message";
-    public static final String WORKSPACE_CREATE_DIALOG_GIT_PLUGIN_REQUIRED_OPEN_MANAGER = "workspace.create.dialog.git.plugin.required.open_manager";
-    public static final String WORKSPACE_CREATE_DIALOG_GIT_PLUGIN_REQUIRED_SWITCH_LOCAL = "workspace.create.dialog.git.plugin.required.switch_local";
 
     // ProgressDialog keys
     public static final String PROGRESS_DIALOG_OPERATION_SUCCESS = "progress.dialog.operation.success";
@@ -638,7 +624,6 @@ public final class MessageKeys {
     public static final String PERFORMANCE_MSG_REQUEST_NOT_FOUND_IN_COLLECTIONS = "performance.msg.request_not_found_in_collections";
     public static final String PERFORMANCE_MSG_REQUEST_REFRESHED = "performance.msg.request_refreshed";
     public static final String PERFORMANCE_CSV_USAGE_NOTE = "performance.csv.usage_note";
-    public static final String PERFORMANCE_SSE_TITLE = "performance.sse.title";
     public static final String PERFORMANCE_SSE_EVENT_FILTER = "performance.sse.event_filter";
     public static final String PERFORMANCE_SSE_COMPLETION_FIRST_MESSAGE = "performance.sse.completion.first_message";
     public static final String PERFORMANCE_SSE_COMPLETION_FIXED_DURATION = "performance.sse.completion.fixed_duration";
@@ -654,7 +639,6 @@ public final class MessageKeys {
     public static final String PERFORMANCE_SSE_OBSERVE_DURATION = "performance.sse.observe_duration";
     public static final String PERFORMANCE_SSE_MAX_WAIT_DURATION = "performance.sse.max_wait_duration";
     public static final String PERFORMANCE_SSE_TARGET_MESSAGE_COUNT = "performance.sse.target_message_count";
-    public static final String PERFORMANCE_WS_TITLE = "performance.ws.title";
     public static final String PERFORMANCE_WS_NODE_CONNECT = "performance.ws.node.connect";
     public static final String PERFORMANCE_WS_NODE_SEND = "performance.ws.node.send";
     public static final String PERFORMANCE_WS_NODE_AWAIT = "performance.ws.node.await";
@@ -684,7 +668,6 @@ public final class MessageKeys {
     public static final String PERFORMANCE_WS_TARGET_MESSAGE_COUNT = "performance.ws.target_message_count";
     public static final String PERFORMANCE_WS_CLOSE_HINT = "performance.ws.close_hint";
     public static final String MSG_ONLY_HTTP_SUPPORTED = "msg.only_http_supported";
-    public static final String MSG_ONLY_HTTP_SSE_SUPPORTED = "msg.only_http_sse_supported";
     public static final String MSG_ONLY_HTTP_SSE_WS_SUPPORTED = "msg.only_http_sse_ws_supported";
     public static final String PERFORMANCE_MSG_SAVE_SUCCESS = "performance.msg.save_success";
 
@@ -736,7 +719,6 @@ public final class MessageKeys {
     public static final String SPLASH_STATUS_STARTING = "splash.status.starting";
     public static final String SPLASH_STATUS_LOADING_PLUGINS = "splash.status.loading_plugins";
     public static final String SPLASH_STATUS_LOADING_MAIN = "splash.status.loading_main";
-    public static final String SPLASH_STATUS_INITIALIZING = "splash.status.initializing";
     public static final String SPLASH_STATUS_READY = "splash.status.ready";
     public static final String SPLASH_STATUS_DONE = "splash.status.done";
     public static final String SPLASH_ERROR_LOAD_MAIN = "splash.error.load_main";
@@ -857,6 +839,22 @@ public final class MessageKeys {
 
     // ============ Request Docs Tab 相关 ============
     public static final String REQUEST_DOCS_TAB_TITLE = "request.docs.tab.title";
+    public static final String REQUEST_SETTINGS_FOLLOW_REDIRECTS_LABEL = "request.settings.follow_redirects.label";
+    public static final String REQUEST_SETTINGS_FOLLOW_REDIRECTS_DESC = "request.settings.follow_redirects.desc";
+    public static final String REQUEST_SETTINGS_USE_COOKIE_JAR_LABEL = "request.settings.use_cookie_jar.label";
+    public static final String REQUEST_SETTINGS_USE_COOKIE_JAR_DESC = "request.settings.use_cookie_jar.desc";
+    public static final String REQUEST_SETTINGS_HTTP_VERSION_LABEL = "request.settings.http_version.label";
+    public static final String REQUEST_SETTINGS_HTTP_VERSION_DESC = "request.settings.http_version.desc";
+    public static final String REQUEST_SETTINGS_HTTP_VERSION_AUTO = "request.settings.http_version.auto";
+    public static final String REQUEST_SETTINGS_HTTP_VERSION_HTTP_1_1 = "request.settings.http_version.http_1_1";
+    public static final String REQUEST_SETTINGS_HTTP_VERSION_HTTP_2 = "request.settings.http_version.http_2";
+    public static final String REQUEST_SETTINGS_TIMEOUT_LABEL = "request.settings.timeout.label";
+    public static final String REQUEST_SETTINGS_TIMEOUT_DESC = "request.settings.timeout.desc";
+    public static final String REQUEST_SETTINGS_TIMEOUT_HINT = "request.settings.timeout.hint";
+    public static final String REQUEST_SETTINGS_TIMEOUT_VALIDATION = "request.settings.timeout.validation";
+    public static final String REQUEST_SETTINGS_BOOLEAN_DEFAULT = "request.settings.boolean.default";
+    public static final String REQUEST_SETTINGS_BOOLEAN_ENABLED = "request.settings.boolean.enabled";
+    public static final String REQUEST_SETTINGS_BOOLEAN_DISABLED = "request.settings.boolean.disabled";
 
     // ============ 功能测试执行结果相关 ============
     public static final String FUNCTIONAL_EXECUTION_RESULTS = "functional.execution.results";
@@ -991,7 +989,6 @@ public final class MessageKeys {
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_PASSWORD = "settings.request.trusted_material.password";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_PASSWORD_TOOLTIP = "settings.request.trusted_material.password.tooltip";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_BROWSE = "settings.request.trusted_material.browse";
-    public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_CLEAR = "settings.request.trusted_material.clear";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_DIALOG_ADD_TITLE = "settings.request.trusted_material.dialog.add.title";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_DIALOG_EDIT_TITLE = "settings.request.trusted_material.dialog.edit.title";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_DIALOG_BROWSE_TITLE = "settings.request.trusted_material.dialog.browse.title";
@@ -1370,6 +1367,7 @@ public final class MessageKeys {
 
     // ============ 自动更新设置相关 ============
     public static final String SETTINGS_AUTO_UPDATE_TITLE = "settings.auto_update.title";
+    public static final String SETTINGS_AUTO_UPDATE_DESCRIPTION = "settings.auto_update.description";
     public static final String SETTINGS_AUTO_UPDATE_ENABLED_TOOLTIP = "settings.auto_update.enabled.tooltip";
     public static final String SETTINGS_AUTO_UPDATE_ENABLED_CHECKBOX = "settings.auto_update.enabled.checkbox";
     public static final String SETTINGS_AUTO_UPDATE_FREQUENCY = "settings.auto_update.frequency";
@@ -1720,8 +1718,13 @@ public final class MessageKeys {
 
     // 网络代理设置
     public static final String SETTINGS_PROXY_TITLE = "settings.proxy.title";
+    public static final String SETTINGS_PROXY_DESCRIPTION = "settings.proxy.description";
     public static final String SETTINGS_PROXY_ENABLED_TOOLTIP = "settings.proxy.enabled.tooltip";
     public static final String SETTINGS_PROXY_ENABLED_CHECKBOX = "settings.proxy.enabled.checkbox";
+    public static final String SETTINGS_PROXY_MODE = "settings.proxy.mode";
+    public static final String SETTINGS_PROXY_MODE_TOOLTIP = "settings.proxy.mode.tooltip";
+    public static final String SETTINGS_PROXY_MODE_MANUAL = "settings.proxy.mode.manual";
+    public static final String SETTINGS_PROXY_MODE_SYSTEM = "settings.proxy.mode.system";
     public static final String SETTINGS_PROXY_TYPE = "settings.proxy.type";
     public static final String SETTINGS_PROXY_TYPE_TOOLTIP = "settings.proxy.type.tooltip";
     public static final String SETTINGS_PROXY_TYPE_HTTP = "settings.proxy.type.http";
@@ -1734,8 +1737,17 @@ public final class MessageKeys {
     public static final String SETTINGS_PROXY_USERNAME_TOOLTIP = "settings.proxy.username.tooltip";
     public static final String SETTINGS_PROXY_PASSWORD = "settings.proxy.password";
     public static final String SETTINGS_PROXY_PASSWORD_TOOLTIP = "settings.proxy.password.tooltip";
+    public static final String SETTINGS_PROXY_SYSTEM_AUTH_HINT = "settings.proxy.system_auth_hint";
     public static final String SETTINGS_PROXY_SSL_VERIFICATION_TOOLTIP = "settings.proxy.ssl.verification.tooltip";
     public static final String SETTINGS_PROXY_SSL_VERIFICATION_CHECKBOX = "settings.proxy.ssl.verification.checkbox";
+    public static final String SETTINGS_PROXY_PREVIEW_TARGET = "settings.proxy.preview.target";
+    public static final String SETTINGS_PROXY_PREVIEW_TARGET_TOOLTIP = "settings.proxy.preview.target.tooltip";
+    public static final String SETTINGS_PROXY_STATUS_DISABLED = "settings.proxy.status.disabled";
+    public static final String SETTINGS_PROXY_STATUS_MANUAL_INCOMPLETE = "settings.proxy.status.manual.incomplete";
+    public static final String SETTINGS_PROXY_STATUS_MANUAL_ACTIVE = "settings.proxy.status.manual.active";
+    public static final String SETTINGS_PROXY_STATUS_SYSTEM_ACTIVE = "settings.proxy.status.system.active";
+    public static final String SETTINGS_PROXY_STATUS_DIRECT = "settings.proxy.status.direct";
+    public static final String SETTINGS_PROXY_STATUS_UNAVAILABLE = "settings.proxy.status.unavailable";
 
     // ============ 工具箱相关 ============
     public static final String TOOLBOX_ENCODER = "toolbox.encoder";
@@ -2061,12 +2073,10 @@ public final class MessageKeys {
     public static final String TOOLBOX_ES_HISTORY = "toolbox.es.history";
     public static final String TOOLBOX_ES_HISTORY_CLEAR = "toolbox.es.history.clear";
     public static final String TOOLBOX_ES_HISTORY_EMPTY = "toolbox.es.history.empty";
-    public static final String TOOLBOX_ES_COMPRESS_JSON = "toolbox.es.compress_json";
     public static final String TOOLBOX_ES_STATUS_HITS = "toolbox.es.status.hits";
     public static final String TOOLBOX_ES_TAB_AGG = "toolbox.es.tab.agg";
     public static final String TOOLBOX_ES_INDEX_COPY_NAME = "toolbox.es.index.copy_name";
     public static final String TOOLBOX_ES_INDEX_VIEW_ALIASES = "toolbox.es.index.view_aliases";
-    public static final String TOOLBOX_ES_INDEX_COUNT = "toolbox.es.index.count";
 
     // ============ InfluxDB 工具相关 ============
     public static final String TOOLBOX_INFLUXDB = "toolbox.influxdb";
