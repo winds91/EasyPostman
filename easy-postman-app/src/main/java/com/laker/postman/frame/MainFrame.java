@@ -2,6 +2,8 @@ package com.laker.postman.frame;
 
 import com.formdev.flatlaf.util.SystemInfo;
 import com.laker.postman.common.SingletonFactory;
+import com.laker.postman.common.animation.WindowSnapshotTransition;
+import com.laker.postman.common.component.placeholder.StartupShellPlaceholderPanel;
 import com.laker.postman.common.constants.Icons;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.common.themes.SimpleThemeManager;
@@ -53,18 +55,17 @@ public class MainFrame extends JFrame {
 
     // 防抖延迟时间（毫秒）
     private static final int DEBOUNCE_DELAY = 500;
-
     // 缓存字段，避免重复计算
     private transient Dimension cachedMinWindowSize;
     private final transient Dimension cachedScreenSize;
 
     // 防抖计时器（final 避免重复赋值）
     private final transient Timer saveStateTimer;
+    private final transient WindowSnapshotTransition startupShellTransition;
     private transient JPanel startupShellPanel;
     private transient volatile boolean mainContentLoaded;
     private transient volatile boolean mainContentLoadRequested;
     private transient volatile Throwable mainContentLoadFailure;
-    private transient volatile boolean macWindowDecorationsApplied;
     private transient volatile boolean startupShellPainted;
     private final transient List<Runnable> mainContentLoadedCallbacks = new ArrayList<>();
     private final transient List<Consumer<Throwable>> mainContentLoadFailedCallbacks = new ArrayList<>();
@@ -79,12 +80,15 @@ public class MainFrame extends JFrame {
         // 初始化防抖计时器（只创建一次，避免重复创建对象）
         saveStateTimer = new Timer(DEBOUNCE_DELAY, e -> saveWindowState());
         saveStateTimer.setRepeats(false);
+        startupShellTransition = new WindowSnapshotTransition(this);
 
         setName(I18nUtil.getMessage(MessageKeys.APP_NAME));
         setTitle(I18nUtil.getMessage(MessageKeys.APP_NAME));
         setIconImage(Icons.LOGO.getImage());
         applyWindowBackground();
 
+        // macOS 标题栏扩展属性要在首次显示前设置，否则首次显示后再补设置容易出现抖动。
+        applyMacWindowDecorations();
         applyMacWindowAppearance();
     }
 
@@ -109,7 +113,7 @@ public class MainFrame extends JFrame {
             pack();
         }
 
-        // 只有在非最大化状态下才居中窗口，避免全屏时的闪烁
+        // 只有在非最大化状态下才居中窗口，避免最大化恢复路径上的额外跳变
         boolean isMaximized = (getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH;
         if (!isMaximized) {
             setLocationRelativeTo(null);
@@ -129,12 +133,10 @@ public class MainFrame extends JFrame {
             long loadStartNanos = System.nanoTime();
             try {
                 StartupDiagnostics.mark("MainFrame content load started");
-                setContentPane(SingletonFactory.getInstance(MainPanel.class));
-                revalidate();
-                repaint();
+                replaceContentWithStartupTransition(SingletonFactory.getInstance(MainPanel.class));
+                startupShellPanel = null;
                 mainContentLoaded = true;
                 notifyMainContentLoaded();
-                scheduleDeferredMacWindowDecorations();
                 StartupDiagnostics.mark("MainFrame content load finished in " + StartupDiagnostics.formatSince(loadStartNanos));
             } catch (Throwable throwable) {
                 mainContentLoadFailure = throwable;
@@ -186,31 +188,18 @@ public class MainFrame extends JFrame {
         }
     }
 
-    private void scheduleDeferredMacWindowDecorations() {
-        if (!SystemInfo.isMacFullWindowContentSupported || macWindowDecorationsApplied) {
+    private void applyMacWindowDecorations() {
+        if (!SystemInfo.isMacFullWindowContentSupported || getRootPane() == null) {
             return;
         }
-        Timer timer = new Timer(180, e -> applyDeferredMacWindowDecorations());
-        timer.setRepeats(false);
-        timer.start();
-        StartupDiagnostics.mark("Scheduled deferred macOS window decorations");
-    }
-
-    private void applyDeferredMacWindowDecorations() {
-        if (!SystemInfo.isMacFullWindowContentSupported || macWindowDecorationsApplied || getRootPane() == null) {
-            return;
-        }
-        macWindowDecorationsApplied = true;
+        // 在窗口首显前一次性应用，避免显示后再切换 title bar / fullWindowContent 造成二次重绘。
         getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
         getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-        applyMacWindowAppearance();
-        revalidate();
-        repaint();
-        StartupDiagnostics.mark("Applied deferred macOS window decorations");
+        StartupDiagnostics.mark("Applied macOS window decorations before first show");
     }
 
     private JPanel createStartupShellPanel() {
-        JPanel root = new JPanel(new BorderLayout()) {
+        JPanel root = new StartupShellPlaceholderPanel() {
             private boolean firstPaintHandled;
 
             @Override
@@ -227,6 +216,21 @@ public class MainFrame extends JFrame {
         root.setOpaque(true);
         root.setBackground(ModernColors.getBackgroundColor());
         return root;
+    }
+
+    private void replaceContentWithStartupTransition(Container nextContentPane) {
+        WindowSnapshotTransition.CapturedSnapshot capturedSnapshot = null;
+        Container currentContentPane = getContentPane();
+        if (currentContentPane instanceof JComponent contentComponent) {
+            // 这里只保留基于 layeredPane 的纯绘制快照过渡。
+            // 不再使用 glassPane 覆盖整窗，避免挡住底层分割条的 hover / resize cursor。
+            capturedSnapshot = startupShellTransition.captureSnapshot(contentComponent);
+        }
+        setContentPane(nextContentPane);
+        applyWindowBackground();
+        revalidate();
+        repaint();
+        startupShellTransition.start(capturedSnapshot);
     }
 
     public void whenMainContentLoaded(Runnable callback) {
@@ -424,6 +428,7 @@ public class MainFrame extends JFrame {
         if (saveStateTimer != null && saveStateTimer.isRunning()) {
             saveStateTimer.stop();
         }
+        startupShellTransition.stop();
 
         // 清理性能测试面板资源（停止定时器等）
         try {

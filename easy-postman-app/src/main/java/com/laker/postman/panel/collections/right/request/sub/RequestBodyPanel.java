@@ -4,9 +4,9 @@ import cn.hutool.core.text.CharSequenceUtil;
 import com.laker.postman.common.component.EasyComboBox;
 import com.laker.postman.common.component.SearchableTextArea;
 import com.laker.postman.common.component.button.*;
+import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.common.component.table.FormDataTablePanel;
 import com.laker.postman.common.component.table.FormUrlencodedTablePanel;
-import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.model.RequestItemProtocolEnum;
 import com.laker.postman.model.VariableInfo;
 import com.laker.postman.model.VariableSegment;
@@ -23,8 +23,6 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.MouseInputAdapter;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DefaultHighlighter;
 import javax.swing.undo.CannotRedoException;
 import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoManager;
@@ -43,10 +41,6 @@ public class RequestBodyPanel extends JPanel {
     public static final String RAW_TYPE_JSON = "JSON";
     public static final String RAW_TYPE_TEXT = "Text";
     public static final String RAW_TYPE_XML = "XML";
-
-    // 自动补全UI颜色
-    private static final Color POPUP_BACKGROUND = new Color(255, 255, 255);
-    private static final Color POPUP_SELECTION_BG = new Color(232, 242, 252);
 
     @Getter
     private EasyComboBox<String> bodyTypeComboBox;
@@ -90,13 +84,7 @@ public class RequestBodyPanel extends JPanel {
      * 暗模式：淡紫色 - 与JSON语法的绿色(105,134,90)形成补色对比
      */
     private static Color getDefinedVariableHighlightColor() {
-        if (ModernColors.isDarkTheme()) {
-            // 暗色主题：淡紫色背景，与JSON绿色文字形成补色对比
-            return new Color(130, 100, 180, 80);
-        } else {
-            // 亮色主题：浅青色背景，与JSON深红色文字形成冷暖对比
-            return new Color(180, 235, 235, 100);
-        }
+        return ModernColors.getDefinedVariableBadgeBackground();
     }
 
     /**
@@ -105,13 +93,71 @@ public class RequestBodyPanel extends JPanel {
      * 暗模式：浅粉色 - 警告效果，与JSON语法的绿色(105,134,90)有明显区分
      */
     private static Color getUndefinedVariableHighlightColor() {
-        if (ModernColors.isDarkTheme()) {
-            // 暗色主题：浅粉色背景，警告效果柔和
-            return new Color(200, 120, 150, 85);
-        } else {
-            // 亮色主题：浅黄色背景，温和的警告提示
-            return new Color(255, 250, 205, 120);
-        }
+        return ModernColors.getUndefinedVariableBadgeBackground();
+    }
+
+    private static Color getDefinedVariableBorderColor() {
+        return ModernColors.getDefinedVariableBadgeBorder();
+    }
+
+    private static Color getUndefinedVariableBorderColor() {
+        return ModernColors.getUndefinedVariableBadgeBorder();
+    }
+
+    private static Color getVariableTextColor() {
+        return ModernColors.isDarkTheme()
+                ? new Color(245, 247, 250)
+                : new Color(17, 24, 39);
+    }
+
+    private static Color getPopupBackgroundColor() {
+        return ModernColors.getInputBackgroundColor();
+    }
+
+    private static Color getPopupSelectionBackgroundColor() {
+        return ModernColors.isDarkTheme()
+                ? new Color(60, 90, 120)
+                : new Color(219, 234, 254);
+    }
+
+    private static Color getPopupSelectionForegroundColor() {
+        return ModernColors.getTextPrimary();
+    }
+
+    private static Color getPopupValueForegroundColor() {
+        return ModernColors.getTextHint();
+    }
+
+    private static Color getPopupBorderColor() {
+        return ModernColors.getBorderMediumColor();
+    }
+
+    private static Color getTooltipDividerColor() {
+        return ModernColors.isDarkTheme()
+                ? new Color(85, 87, 90)
+                : new Color(224, 224, 224);
+    }
+
+    private static Color getTooltipTextColor() {
+        return ModernColors.isDarkTheme()
+                ? new Color(226, 232, 240)
+                : new Color(66, 66, 66);
+    }
+
+    private static Color getTooltipMutedTextColor() {
+        return ModernColors.isDarkTheme()
+                ? new Color(148, 163, 184)
+                : new Color(117, 117, 117);
+    }
+
+    private static Color getTooltipCodeBackgroundColor() {
+        return ModernColors.isDarkTheme()
+                ? new Color(51, 65, 85)
+                : new Color(245, 245, 245);
+    }
+
+    private static String toHex(Color color) {
+        return String.format("#%02X%02X%02X", color.getRed(), color.getGreen(), color.getBlue());
     }
 
     public RequestBodyPanel(RequestItemProtocolEnum protocol) {
@@ -257,7 +303,7 @@ public class RequestBodyPanel extends JPanel {
 
     private JPanel createRawPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        bodyArea = new RSyntaxTextArea(5, 20);
+        bodyArea = new VariableAwareSyntaxTextArea();
         bodyArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JSON_WITH_COMMENTS); // 默认JSON高亮
         bodyArea.setCodeFoldingEnabled(true); // 启用代码折叠
         bodyArea.setLineWrap(false); // 禁用自动换行以提升大文本性能
@@ -306,48 +352,26 @@ public class RequestBodyPanel extends JPanel {
         panel.add(searchableTextArea, BorderLayout.CENTER);
 
         // ====== 变量高亮和悬浮提示 ======
-        // 变量高亮 - 使用主题自适应颜色
-        DefaultHighlighter highlighter = (DefaultHighlighter) bodyArea.getHighlighter();
-        DefaultHighlighter.DefaultHighlightPainter definedPainter = new DefaultHighlighter.DefaultHighlightPainter(getDefinedVariableHighlightColor());
-        DefaultHighlighter.DefaultHighlightPainter undefinedPainter = new DefaultHighlighter.DefaultHighlightPainter(getUndefinedVariableHighlightColor());
         bodyArea.getDocument().addDocumentListener(new DocumentListener() {
-            void updateHighlights() {
-                highlighter.removeAllHighlights();
-                String text = bodyArea.getText();
-                java.util.List<VariableSegment> segments = VariableParser.getVariableSegments(text);
-                for (VariableSegment seg : segments) {
-                    boolean isDefined = VariableResolver.isVariableDefined(seg.name);
-                    try {
-                        highlighter.addHighlight(seg.start, seg.end, isDefined ? definedPainter : undefinedPainter);
-                    } catch (BadLocationException ignored) {
-                    }
+            void repaintBadges() {
+                if (bodyArea != null) {
+                    bodyArea.repaint();
                 }
             }
 
             public void insertUpdate(DocumentEvent e) {
-                updateHighlights();
+                repaintBadges();
             }
 
             public void removeUpdate(DocumentEvent e) {
-                updateHighlights();
+                repaintBadges();
             }
 
             public void changedUpdate(DocumentEvent e) {
-                updateHighlights();
+                repaintBadges();
             }
         });
-        // 初始化高亮
-        SwingUtilities.invokeLater(() -> {
-            String text = bodyArea.getText();
-            java.util.List<VariableSegment> segments = VariableParser.getVariableSegments(text);
-            for (VariableSegment seg : segments) {
-                boolean isDefined = VariableResolver.isVariableDefined(seg.name);
-                try {
-                    highlighter.addHighlight(seg.start, seg.end, isDefined ? definedPainter : undefinedPainter);
-                } catch (BadLocationException ignored) {
-                }
-            }
-        });
+        SwingUtilities.invokeLater(bodyArea::repaint);
         // 悬浮提示
         bodyArea.addMouseMotionListener(new MouseInputAdapter() {
             @Override
@@ -398,6 +422,68 @@ public class RequestBodyPanel extends JPanel {
             });
         }
         return panel;
+    }
+
+    private class VariableAwareSyntaxTextArea extends RSyntaxTextArea {
+        private VariableAwareSyntaxTextArea() {
+            super(5, 20);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+
+            String text = getText();
+            for (VariableSegment seg : VariableParser.getVariableSegments(text)) {
+                boolean isDefined = VariableResolver.isVariableDefined(seg.name);
+                Color fillColor = isDefined ? getDefinedVariableHighlightColor() : getUndefinedVariableHighlightColor();
+                Color borderColor = isDefined ? getDefinedVariableBorderColor() : getUndefinedVariableBorderColor();
+                paintVariableBadge((Graphics2D) g, seg, text, fillColor, borderColor);
+            }
+        }
+
+        private void paintVariableBadge(Graphics2D g, VariableSegment seg, String text, Color fillColor, Color borderColor) {
+            try {
+                Rectangle startRect = modelToView2D(seg.start).getBounds();
+                Rectangle endRect = modelToView2D(Math.max(seg.start, seg.end - 1)).getBounds();
+                if (startRect == null || endRect == null || startRect.y != endRect.y) {
+                    return;
+                }
+
+                int x = startRect.x;
+                int width = Math.max(10, endRect.x + endRect.width - startRect.x);
+                int y = startRect.y + 1;
+                int height = Math.max(14, startRect.height - 2);
+                String varText = text.substring(seg.start, seg.end);
+                Color editorBg = getBackground();
+
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                try {
+                    // 先用编辑器背景完整盖掉原本的语法高亮文本，再绘制 badge 和变量文字。
+                    g2.setColor(editorBg);
+                    g2.fillRoundRect(x, y, width, height, 10, 10);
+
+                    g2.setColor(fillColor);
+                    g2.fillRoundRect(x, y, width, height, 10, 10);
+
+                    Stroke oldStroke = g2.getStroke();
+                    g2.setColor(borderColor);
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawRoundRect(x, y, width, height, 10, 10);
+                    g2.setStroke(oldStroke);
+
+                    g2.setColor(getVariableTextColor());
+                    g2.setFont(getFont());
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(varText, startRect.x, startRect.y + fm.getAscent());
+                } finally {
+                    g2.dispose();
+                }
+            } catch (Exception ex) {
+                log.debug("paintVariableBadge failed", ex);
+            }
+        }
     }
 
     // WebSocket发送并根据checkbox清空输入
@@ -623,9 +709,6 @@ public class RequestBodyPanel extends JPanel {
         autocompleteList = new JList<>(autocompleteModel);
         autocompleteList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         autocompleteList.setVisibleRowCount(10);
-        autocompleteList.setBackground(POPUP_BACKGROUND);
-        autocompleteList.setSelectionBackground(POPUP_SELECTION_BG);
-        autocompleteList.setSelectionForeground(Color.BLACK);
         autocompleteList.setFont(bodyArea.getFont());
         // 固定列表宽度，防止内容过长导致横向滚动
         autocompleteList.setFixedCellWidth(384); // 400 - 边框和内边距
@@ -643,9 +726,9 @@ public class RequestBodyPanel extends JPanel {
                 panel.setMaximumSize(new Dimension(384, 32));
 
                 if (isSelected) {
-                    panel.setBackground(POPUP_SELECTION_BG);
+                    panel.setBackground(getPopupSelectionBackgroundColor());
                 } else {
-                    panel.setBackground(POPUP_BACKGROUND);
+                    panel.setBackground(getPopupBackgroundColor());
                 }
 
                 if (value instanceof VariableInfo varInfo) {
@@ -733,7 +816,7 @@ public class RequestBodyPanel extends JPanel {
 
                         JLabel valueLabel = new JLabel(displayValue);
                         valueLabel.setFont(bodyArea.getFont().deriveFont(Font.PLAIN, (float) (bodyArea.getFont().getSize() - 1)));
-                        valueLabel.setForeground(Color.GRAY);
+                        valueLabel.setForeground(getPopupValueForegroundColor());
 
                         if (!displayValue.equals(varValue) || varValue.length() > 20) {
                             String tooltipText = formatTooltipText(varValue);
@@ -765,11 +848,9 @@ public class RequestBodyPanel extends JPanel {
         // 禁用横向滚动条，只保留纵向滚动
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(180, 180, 180), 1),
-                BorderFactory.createEmptyBorder(2, 2, 2, 2)
-        ));
+        scrollPane.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         autocompleteWindow.add(scrollPane);
+        applyAutocompleteTheme(scrollPane);
 
         // 列表鼠标点击事件
         autocompleteList.addMouseListener(new MouseAdapter() {
@@ -845,6 +926,7 @@ public class RequestBodyPanel extends JPanel {
         }
 
         try {
+            applyAutocompleteTheme((JScrollPane) autocompleteWindow.getContentPane().getComponent(0));
             // 获取光标位置
             Rectangle rect = bodyArea.modelToView2D(bodyArea.getCaretPosition()).getBounds();
             Point screenPos = bodyArea.getLocationOnScreen();
@@ -919,7 +1001,9 @@ public class RequestBodyPanel extends JPanel {
      */
     private String buildTooltip(String varName, String content, VariableType varType) {
         StringBuilder tooltip = new StringBuilder();
-        tooltip.append("<html><body style='padding: 8px; font-family: Arial, sans-serif;'>");
+        tooltip.append("<html><body style='padding: 8px; font-family: Arial, sans-serif; color: ")
+                .append(toHex(getTooltipTextColor()))
+                .append(";'>");
 
         boolean isDefined = varType != null;
         String titleColor;
@@ -954,20 +1038,32 @@ public class RequestBodyPanel extends JPanel {
         tooltip.append("</b></div>");
 
         // 分隔线
-        tooltip.append("<hr style='border: none; border-top: 1px solid #E0E0E0; margin: 1px 0;'/>");
+        tooltip.append("<hr style='border: none; border-top: 1px solid ")
+                .append(toHex(getTooltipDividerColor()))
+                .append("; margin: 1px 0;'/>");
 
         // 内容部分 - 变量值或描述
-        tooltip.append("<div style='margin-top: 1px; color: #424242; font-size: 10px;'>");
+        tooltip.append("<div style='margin-top: 1px; color: ")
+                .append(toHex(getTooltipTextColor()))
+                .append("; font-size: 10px;'>");
 
         if (isDefined && varType == VariableType.BUILT_IN) {
             // 内置函数描述
-            tooltip.append("<span style='color: #757575; font-style: italic;'>");
+            tooltip.append("<span style='color: ")
+                    .append(toHex(getTooltipMutedTextColor()))
+                    .append("; font-style: italic;'>");
             tooltip.append(escapeHtml(content));
             tooltip.append("</span>");
         } else if (isDefined) {
             // 其他类型变量值
-            tooltip.append("<span style='color: #757575;'>Value:</span><br/>");
-            tooltip.append("<span style='font-family: Consolas, monospace; background-color: #F5F5F5; ");
+            tooltip.append("<span style='color: ")
+                    .append(toHex(getTooltipMutedTextColor()))
+                    .append(";'>Value:</span><br/>");
+            tooltip.append("<span style='font-family: Consolas, monospace; background-color: ")
+                    .append(toHex(getTooltipCodeBackgroundColor()))
+                    .append("; color: ")
+                    .append(toHex(getTooltipTextColor()))
+                    .append("; ");
             tooltip.append("padding: 4px 6px; border-radius: 3px; display: inline-block; margin-top: 1px;'>");
 
             // 限制显示长度，超过150字符截断
@@ -985,6 +1081,19 @@ public class RequestBodyPanel extends JPanel {
         tooltip.append("</body></html>");
 
         return tooltip.toString();
+    }
+
+    private void applyAutocompleteTheme(JScrollPane scrollPane) {
+        Color popupBackground = getPopupBackgroundColor();
+        autocompleteList.setBackground(popupBackground);
+        autocompleteList.setSelectionBackground(getPopupSelectionBackgroundColor());
+        autocompleteList.setSelectionForeground(getPopupSelectionForegroundColor());
+        scrollPane.getViewport().setBackground(popupBackground);
+        scrollPane.setBackground(popupBackground);
+        scrollPane.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(getPopupBorderColor(), 1),
+                BorderFactory.createEmptyBorder(2, 2, 2, 2)
+        ));
     }
 
     /**
