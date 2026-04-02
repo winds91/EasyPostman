@@ -2,8 +2,8 @@ package com.laker.postman.service.setting;
 
 import cn.hutool.json.JSONUtil;
 import com.laker.postman.common.constants.ConfigPathConstants;
-import com.laker.postman.model.SidebarTab;
 import com.laker.postman.model.NotificationPosition;
+import com.laker.postman.model.SidebarTab;
 import com.laker.postman.model.TrustedCertificateEntry;
 import com.laker.postman.service.http.okhttp.OkHttpClientManager;
 import com.laker.postman.util.NotificationUtil;
@@ -13,16 +13,20 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 
 @Slf4j
 public class SettingManager {
     private static final String CONFIG_FILE = ConfigPathConstants.EASY_POSTMAN_SETTINGS;
+    private static final String SCRIPT_REMOTE_REQUIRE_ENABLED = "script_remote_require_enabled";
+    private static final String SCRIPT_REMOTE_REQUIRE_ALLOW_HTTP = "script_remote_require_allow_http";
+    private static final String SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS = "script_remote_require_allowed_hosts";
+    private static final String SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT_MS = "script_remote_require_connect_timeout_ms";
+    private static final String SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT_MS = "script_remote_require_read_timeout_ms";
+    private static final String SCRIPT_REMOTE_REQUIRE_MAX_BYTES = "script_remote_require_max_bytes";
+    private static final int DEFAULT_SCRIPT_REMOTE_CONNECT_TIMEOUT_MS = 3000;
+    private static final int DEFAULT_SCRIPT_REMOTE_READ_TIMEOUT_MS = 5000;
+    private static final int DEFAULT_SCRIPT_REMOTE_MAX_BYTES = 512 * 1024;
     public static final String PROXY_MODE_MANUAL = "MANUAL";
     public static final String PROXY_MODE_SYSTEM = "SYSTEM";
     public static final String PROXY_TYPE_HTTP = "HTTP";
@@ -293,7 +297,7 @@ public class SettingManager {
         if (val != null) {
             return !Boolean.parseBoolean(val);
         }
-        return false;
+        return true; // 默认禁用 SSL 验证，提升开发测试体验
     }
 
     public static void setRequestSslVerificationDisabled(boolean disabled) {
@@ -320,6 +324,69 @@ public class SettingManager {
             props.setProperty("default_protocol", protocol);
             save();
         }
+    }
+
+    public static boolean isRemoteJsRequireEnabled() {
+        String val = props.getProperty(SCRIPT_REMOTE_REQUIRE_ENABLED);
+        if (val != null) {
+            return Boolean.parseBoolean(val);
+        }
+        return false;
+    }
+
+    public static void setRemoteJsRequireEnabled(boolean enabled) {
+        props.setProperty(SCRIPT_REMOTE_REQUIRE_ENABLED, String.valueOf(enabled));
+        save();
+    }
+
+    public static boolean isInsecureRemoteJsRequireEnabled() {
+        String val = props.getProperty(SCRIPT_REMOTE_REQUIRE_ALLOW_HTTP);
+        if (val != null) {
+            return Boolean.parseBoolean(val);
+        }
+        return false;
+    }
+
+    public static void setInsecureRemoteJsRequireEnabled(boolean enabled) {
+        props.setProperty(SCRIPT_REMOTE_REQUIRE_ALLOW_HTTP, String.valueOf(enabled));
+        save();
+    }
+
+    public static String getRemoteJsRequireAllowedHosts() {
+        String val = props.getProperty(SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS);
+        return val != null ? val.trim() : "";
+    }
+
+    public static void setRemoteJsRequireAllowedHosts(String hosts) {
+        props.setProperty(SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS, hosts != null ? hosts.trim() : "");
+        save();
+    }
+
+    public static int getRemoteJsRequireConnectTimeoutMs() {
+        return getPositiveIntSetting(SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT_MS, DEFAULT_SCRIPT_REMOTE_CONNECT_TIMEOUT_MS);
+    }
+
+    public static void setRemoteJsRequireConnectTimeoutMs(int timeoutMs) {
+        props.setProperty(SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT_MS, String.valueOf(Math.max(1, timeoutMs)));
+        save();
+    }
+
+    public static int getRemoteJsRequireReadTimeoutMs() {
+        return getPositiveIntSetting(SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT_MS, DEFAULT_SCRIPT_REMOTE_READ_TIMEOUT_MS);
+    }
+
+    public static void setRemoteJsRequireReadTimeoutMs(int timeoutMs) {
+        props.setProperty(SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT_MS, String.valueOf(Math.max(1, timeoutMs)));
+        save();
+    }
+
+    public static int getRemoteJsRequireMaxBytes() {
+        return getPositiveIntSetting(SCRIPT_REMOTE_REQUIRE_MAX_BYTES, DEFAULT_SCRIPT_REMOTE_MAX_BYTES);
+    }
+
+    public static void setRemoteJsRequireMaxBytes(int maxBytes) {
+        props.setProperty(SCRIPT_REMOTE_REQUIRE_MAX_BYTES, String.valueOf(Math.max(1, maxBytes)));
+        save();
     }
 
     /**
@@ -719,7 +786,7 @@ public class SettingManager {
         if (val != null) {
             return Boolean.parseBoolean(val);
         }
-        return true; // 默认启用系统代理检测
+        return false; // 默认关闭代理
     }
 
     public static void setProxyEnabled(boolean enabled) {
@@ -732,10 +799,10 @@ public class SettingManager {
      */
     public static String getProxyMode() {
         String val = props.getProperty("proxy_mode");
-        if (PROXY_MODE_MANUAL.equalsIgnoreCase(val)) {
-            return PROXY_MODE_MANUAL;
+        if (PROXY_MODE_SYSTEM.equalsIgnoreCase(val)) {
+            return PROXY_MODE_SYSTEM;
         }
-        return PROXY_MODE_SYSTEM;
+        return PROXY_MODE_MANUAL;
     }
 
     public static void setProxyMode(String mode) {
@@ -806,6 +873,11 @@ public class SettingManager {
         return 8080; // 默认8080端口
     }
 
+    public static String getProxyPortText() {
+        String val = props.getProperty("proxy_port");
+        return val != null ? val : "";
+    }
+
     public static void setProxyPort(int port) {
         props.setProperty("proxy_port", String.valueOf(port));
         save();
@@ -853,7 +925,7 @@ public class SettingManager {
         if (val != null) {
             return Boolean.parseBoolean(val);
         }
-        return false; // 默认启用 SSL 验证
+        return true; // 默认禁用代理 SSL 验证，避免代理环境阻断请求
     }
 
     public static void setProxySslVerificationDisabled(boolean disabled) {
@@ -912,5 +984,18 @@ public class SettingManager {
         int fontSize = Math.max(10, Math.min(24, size));
         props.setProperty("ui_font_size", String.valueOf(fontSize));
         save();
+    }
+
+    private static int getPositiveIntSetting(String key, int defaultValue) {
+        String val = props.getProperty(key);
+        if (val != null) {
+            try {
+                int parsed = Integer.parseInt(val);
+                return parsed > 0 ? parsed : defaultValue;
+            } catch (NumberFormatException e) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
     }
 }

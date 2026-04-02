@@ -709,6 +709,32 @@ public final class MessageKeys {
     public static final String HISTORY_EMPTY_BODY = "history.empty_body";
     public static final String HISTORY_TODAY = "history.today";
     public static final String HISTORY_YESTERDAY = "history.yesterday";
+    public static final String HISTORY_SEARCH_PLACEHOLDER = "history.search_placeholder";
+    public static final String HISTORY_FILTER_ALL = "history.filter.all";
+    public static final String HISTORY_FILTER_SUCCESS = "history.filter.success";
+    public static final String HISTORY_FILTER_ERROR = "history.filter.error";
+    public static final String HISTORY_AGGREGATE_TOOLTIP = "history.aggregate.tooltip";
+    public static final String HISTORY_STATS = "history.stats";
+    public static final String HISTORY_EMPTY_FILTERED = "history.empty_filtered";
+    public static final String HISTORY_OVERVIEW_BODY = "history.overview.body";
+    public static final String HISTORY_OVERVIEW_ENDPOINT_CARD = "history.overview.endpoint_card";
+    public static final String HISTORY_OVERVIEW_PAYLOAD_CARD = "history.overview.payload_card";
+    public static final String HISTORY_OVERVIEW_STRUCTURE_CARD = "history.overview.structure_card";
+    public static final String HISTORY_OVERVIEW_RESULT_CARD = "history.overview.result_card";
+    public static final String HISTORY_OVERVIEW_PARAMS = "history.overview.params";
+    public static final String HISTORY_OVERVIEW_HEADERS = "history.overview.headers";
+    public static final String HISTORY_OVERVIEW_FORM_DATA = "history.overview.form_data";
+    public static final String HISTORY_OVERVIEW_URLENCODED = "history.overview.urlencoded";
+    public static final String HISTORY_OVERVIEW_HEADERS_SHORT = "history.overview.headers_short";
+    public static final String HISTORY_OVERVIEW_FORM_DATA_SHORT = "history.overview.form_data_short";
+    public static final String HISTORY_OVERVIEW_URLENCODED_SHORT = "history.overview.urlencoded_short";
+    public static final String HISTORY_OVERVIEW_PRESCRIPT = "history.overview.prescript";
+    public static final String HISTORY_OVERVIEW_POSTSCRIPT = "history.overview.postscript";
+    public static final String HISTORY_OVERVIEW_BODY_NONE = "history.overview.body.none";
+    public static final String HISTORY_OVERVIEW_BODY_RAW = "history.overview.body.raw";
+    public static final String HISTORY_OVERVIEW_BODY_FORM_DATA = "history.overview.body.form_data";
+    public static final String HISTORY_OVERVIEW_BODY_URLENCODED = "history.overview.body.urlencoded";
+    public static final String HISTORY_OPEN_REQUEST_TAB_HIDDEN = "history.open_request_tab_hidden";
 
     // ============ Tab标签页相关 ============
     public static final String TAB_REQUEST = "tab.request";
@@ -975,6 +1001,20 @@ public final class MessageKeys {
     public static final String SETTINGS_REQUEST_SSL_VERIFICATION_CHECKBOX = "settings.request.ssl_verification.checkbox";
     public static final String SETTINGS_REQUEST_DEFAULT_PROTOCOL = "settings.request.default_protocol";
     public static final String SETTINGS_REQUEST_DEFAULT_PROTOCOL_TOOLTIP = "settings.request.default_protocol.tooltip";
+    public static final String SETTINGS_REQUEST_SCRIPT_TITLE = "settings.request.script.title";
+    public static final String SETTINGS_REQUEST_SCRIPT_DESCRIPTION = "settings.request.script.description";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ENABLED = "settings.request.script.remote_require_enabled";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ENABLED_TOOLTIP = "settings.request.script.remote_require_enabled.tooltip";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ALLOW_HTTP = "settings.request.script.remote_require_allow_http";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ALLOW_HTTP_TOOLTIP = "settings.request.script.remote_require_allow_http.tooltip";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS = "settings.request.script.remote_require_allowed_hosts";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_ALLOWED_HOSTS_TOOLTIP = "settings.request.script.remote_require_allowed_hosts.tooltip";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT = "settings.request.script.remote_require.connect_timeout";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_CONNECT_TIMEOUT_TOOLTIP = "settings.request.script.remote_require.connect_timeout.tooltip";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT = "settings.request.script.remote_require.read_timeout";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_READ_TIMEOUT_TOOLTIP = "settings.request.script.remote_require.read_timeout.tooltip";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_MAX_SIZE = "settings.request.script.remote_require.max_size";
+    public static final String SETTINGS_REQUEST_SCRIPT_REMOTE_REQUIRE_MAX_SIZE_TOOLTIP = "settings.request.script.remote_require.max_size.tooltip";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_TITLE = "settings.request.trusted_material.title";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_DESCRIPTION = "settings.request.trusted_material.description";
     public static final String SETTINGS_REQUEST_TRUSTED_MATERIAL_ENABLED_CHECKBOX = "settings.request.trusted_material.enabled.checkbox";
@@ -1052,6 +1092,9 @@ public final class MessageKeys {
     public static final String SETTINGS_VALIDATION_MAX_BODY_SIZE_ERROR = "settings.validation.max_body_size.error";
     public static final String SETTINGS_VALIDATION_TIMEOUT_ERROR = "settings.validation.timeout.error";
     public static final String SETTINGS_VALIDATION_MAX_DOWNLOAD_SIZE_ERROR = "settings.validation.max_download_size.error";
+    public static final String SETTINGS_VALIDATION_SCRIPT_REMOTE_CONNECT_TIMEOUT_ERROR = "settings.validation.script.remote_connect_timeout.error";
+    public static final String SETTINGS_VALIDATION_SCRIPT_REMOTE_READ_TIMEOUT_ERROR = "settings.validation.script.remote_read_timeout.error";
+    public static final String SETTINGS_VALIDATION_SCRIPT_REMOTE_MAX_SIZE_ERROR = "settings.validation.script.remote_max_size.error";
     public static final String SETTINGS_VALIDATION_MAX_IDLE_ERROR = "settings.validation.max_idle.error";
     public static final String SETTINGS_VALIDATION_KEEP_ALIVE_ERROR = "settings.validation.keep_alive.error";
     public static final String SETTINGS_VALIDATION_TREND_SAMPLING_ERROR = "settings.validation.trend_sampling.error";
@@ -1750,6 +1793,7 @@ public final class MessageKeys {
     public static final String SETTINGS_PROXY_STATUS_SYSTEM_ACTIVE = "settings.proxy.status.system.active";
     public static final String SETTINGS_PROXY_STATUS_DIRECT = "settings.proxy.status.direct";
     public static final String SETTINGS_PROXY_STATUS_UNAVAILABLE = "settings.proxy.status.unavailable";
+    public static final String NETWORK_ERROR_PROXY_SOCKS_MALFORMED = "network.error.proxy.socks.malformed";
 
     // ============ 工具箱相关 ============
     public static final String TOOLBOX_ENCODER = "toolbox.encoder";
@@ -1855,6 +1899,12 @@ public final class MessageKeys {
     public static final String TOOLBOX_SQL_ERROR = "toolbox.sql.error";
     public static final String TOOLBOX_SQL_OPTIONS = "toolbox.sql.options";
     public static final String TOOLBOX_SQL_INDENT = "toolbox.sql.indent";
+    public static final String TOOLBOX_SQL_DIALECT = "toolbox.sql.dialect";
+    public static final String TOOLBOX_SQL_DIALECT_GENERIC = "toolbox.sql.dialect.generic";
+    public static final String TOOLBOX_SQL_DIALECT_MYSQL = "toolbox.sql.dialect.mysql";
+    public static final String TOOLBOX_SQL_DIALECT_POSTGRESQL = "toolbox.sql.dialect.postgresql";
+    public static final String TOOLBOX_SQL_DIALECT_SQLSERVER = "toolbox.sql.dialect.sqlserver";
+    public static final String TOOLBOX_SQL_DIALECT_ORACLE = "toolbox.sql.dialect.oracle";
     public static final String TOOLBOX_SQL_UPPERCASE_KEYWORDS = "toolbox.sql.uppercase_keywords";
     public static final String TOOLBOX_SQL_ADD_SEMICOLON = "toolbox.sql.add_semicolon";
     public static final String TOOLBOX_SQL_LINE_BREAK_AND_OR = "toolbox.sql.line_break_and_or";
@@ -1883,6 +1933,12 @@ public final class MessageKeys {
     public static final String TOOLBOX_SQL_VALIDATION_PAREN_MISMATCH = "toolbox.sql.validation.paren_mismatch";
     public static final String TOOLBOX_SQL_VALIDATION_QUOTE_MISMATCH = "toolbox.sql.validation.quote_mismatch";
     public static final String TOOLBOX_SQL_VALIDATION_FOUND_ISSUES = "toolbox.sql.validation.found_issues";
+    public static final String TOOLBOX_SQL_VALIDATION_UNTERMINATED_STRING = "toolbox.sql.validation.unterminated_string";
+    public static final String TOOLBOX_SQL_VALIDATION_UNTERMINATED_COMMENT = "toolbox.sql.validation.unterminated_comment";
+    public static final String TOOLBOX_SQL_VALIDATION_INCOMPLETE_STATEMENT = "toolbox.sql.validation.incomplete_statement";
+    public static final String TOOLBOX_SQL_VALIDATION_EXPECTED_AFTER = "toolbox.sql.validation.expected_after";
+    public static final String TOOLBOX_SQL_VALIDATION_EXPECTED_KEYWORD_AFTER = "toolbox.sql.validation.expected_keyword_after";
+    public static final String TOOLBOX_SQL_VALIDATION_MISSING_KEYWORD = "toolbox.sql.validation.missing_keyword";
 
     // SQL 工具提示
     public static final String TOOLBOX_SQL_TOOLTIP_FORMAT = "toolbox.sql.tooltip.format";

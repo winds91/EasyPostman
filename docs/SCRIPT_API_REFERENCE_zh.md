@@ -48,6 +48,7 @@
 | `pm.setGlobalVariable(key, value)` | 设置全局变量（实际存储在环境变量中） | `pm.setGlobalVariable('baseUrl', 'https://api.com')` |
 | `pm.getGlobalVariable(key)`        | 获取全局变量（实际从环境变量读取）  | `pm.getGlobalVariable('baseUrl')`                    |
 | `pm.getResponseCookie(name)`       | 获取响应中的 Cookie      | `pm.getResponseCookie('sessionId')`                  |
+| `pm.sendRequest(options, callback)` | 在脚本中发送额外 HTTP 请求 | `pm.sendRequest({ url: 'https://api.com' }, (err, resp) => {})` |
 
 ### 外部数据源对象
 
@@ -57,6 +58,43 @@
 | `pm.kafka` | Kafka 查询、发消息、消费消息 | `listTopics(options)`、`send(options)`、`poll(options)` |
 | `pm.es` / `pm.elasticsearch` | Elasticsearch 请求与查询 | `request(options)`、`query(options)` |
 | `pm.influx` / `pm.influxdb` | InfluxDB Flux / InfluxQL 查询与写入 | `query(options)`、`write(options)`、`request(options)` |
+
+### pm.sendRequest()
+
+`pm.sendRequest()` 已支持在脚本中主动发起额外 HTTP 请求，适用于前置脚本里刷新 token、拉取签名、预热上下文数据等场景。
+
+回调函数签名为 `(err, response)`：
+
+- `err`：请求失败时返回错误对象，包含 `message`、`name`
+- `response`：成功时返回响应包装对象，可使用 `response.code`、`response.status`、`response.headers.get()`、`response.text()`、`response.json()`
+
+支持的请求格式：
+
+- 直接传 URL 字符串，默认 `GET`
+- 传对象：`url`、`method`、`header`、`body`
+- `body.mode` 当前支持 `raw`、`formdata`、`urlencoded`
+
+示例：
+
+```javascript
+pm.sendRequest({
+    url: 'https://httpbin.org/get?source=easy-postman&from=pre-script',
+    method: 'GET',
+    header: {
+        'X-Debug-Token': pm.environment.get('debugToken') || 'demo-token'
+    }
+}, function (err, response) {
+    if (err) {
+        console.error('请求失败:', err.message);
+        return;
+    }
+
+    const data = response.json();
+    pm.environment.set('lastHttpbinUrl', data.url || '');
+    pm.environment.set('lastHttpbinSource', data.args?.source || '');
+    console.log('httpbin args:', data.args);
+});
+```
 
 ---
 
@@ -742,6 +780,64 @@ var CryptoJS = require('crypto-js');
 var _ = require('lodash');
 var moment = require('moment');
 ```
+
+### `require()` 加载本地 / 网络脚本
+
+除内置库外，脚本还支持通过 `require()` 加载你自己的 JavaScript 文件。
+
+```javascript
+// 1. 加载本地绝对路径脚本
+var signer = require('/absolute/path/to/signer.js');
+
+// 2. 加载相对路径脚本
+// 顶层脚本中的 ./ 和 ../ 默认相对当前工作区目录解析
+var helper = require('./scripts/helper.js');
+
+// 3. 本地脚本内部继续引用相对依赖
+// parent.js -> require('./child.js')
+var parent = require('/absolute/path/to/parent.js');
+```
+
+可以直接测试的现成示例：
+
+```javascript
+// 仓库内置本地示例，local-parent.js 内部还会继续 require('./local-child.js')
+// 当前工作区指向仓库根目录时可直接执行
+var localDemo = require('./docs/examples/js-require/local-parent.js');
+console.log(localDemo.describe('easy-postman'));
+console.log(localDemo.marker());
+```
+
+自定义脚本建议使用 CommonJS 风格导出：
+
+```javascript
+function sign(input) {
+    return input + '-signed';
+}
+
+module.exports = { sign };
+```
+
+网络脚本默认**关闭**，需要在“设置 -> 请求设置 -> 脚本加载”中显式开启“允许从网络加载脚本”后才允许加载。
+
+```javascript
+// 先到“设置 -> 请求设置 -> 脚本加载”开启远程脚本
+var dayjs = require('https://cdn.jsdelivr.net/npm/dayjs@1.11.13/dayjs.min.js');
+console.log(dayjs('2026-03-27').add(1, 'day').format('YYYY-MM-DD'));
+```
+
+同一组设置里还可以控制：
+
+- 是否允许 `http://` 远程脚本（默认关闭，仅建议本地调试使用）
+- 远程脚本主机白名单
+- 连接超时 / 读取超时
+- 单个远程脚本最大大小
+
+注意事项：
+
+- 顶层相对路径默认相对当前工作区目录解析；若当前工作区不可用，则退回到进程当前目录。
+- 每次脚本执行结束后，`require()` 模块缓存都会清空，所以本地文件修改后下次执行会重新加载。
+- 网络脚本本质上仍然是“下载后执行代码”，只建议加载你自己信任的脚本源。
 
 ### crypto-js - 加密库
 
@@ -2186,8 +2282,35 @@ const currentTime = Date.now();
 // 检查 token 是否过期（提前5分钟刷新）
 if (!tokenExpireTime || currentTime > (parseInt(tokenExpireTime) - 300000)) {
     console.log('Token 即将过期或已过期，需要刷新');
-    // 在实际环境中，这里应该触发刷新 token 的逻辑
-    // 由于不支持 pm.sendRequest，建议在测试流程中手动添加刷新 token 的请求
+    pm.sendRequest({
+        url: pm.environment.get('authUrl'),
+        method: 'POST',
+        header: {
+            'Content-Type': 'application/json'
+        },
+        body: {
+            mode: 'raw',
+            raw: JSON.stringify({
+                refreshToken: pm.environment.get('refreshToken')
+            })
+        }
+    }, function (err, response) {
+        if (err) {
+            console.error('刷新 token 失败:', err.message);
+            return;
+        }
+
+        const data = response.json();
+        const token = data.accessToken || data.token;
+        if (token) {
+            pm.environment.set('authToken', token);
+            pm.request.headers.upsert({
+                key: 'Authorization',
+                value: 'Bearer ' + token
+            });
+            console.log('✓ Token 刷新成功，已更新认证头');
+        }
+    });
 } else {
     const token = pm.environment.get('authToken');
     if (token) {
@@ -2923,7 +3046,6 @@ pm.environment.set('performanceStats', JSON.stringify(stats));
     - 库代码会被缓存，重复加载不会影响性能
 
 8. **不支持的功能**
-    - ❌ `pm.sendRequest()` - 不支持在脚本中发送 HTTP 请求
     - ❌ `pm.iterationData` - 不支持迭代数据（但支持 CSV 数据驱动）
     - ❌ `pm.info` - 不支持请求元信息访问
     - ❌ 完整的 Chai.js 断言库
