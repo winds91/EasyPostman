@@ -23,6 +23,7 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.MouseInputAdapter;
+import javax.swing.text.Caret;
 import javax.swing.undo.CannotRedoException;
 import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoManager;
@@ -102,12 +103,6 @@ public class RequestBodyPanel extends JPanel {
 
     private static Color getUndefinedVariableBorderColor() {
         return ModernColors.getUndefinedVariableBadgeBorder();
-    }
-
-    private static Color getVariableTextColor() {
-        return ModernColors.isDarkTheme()
-                ? new Color(245, 247, 250)
-                : new Color(17, 24, 39);
     }
 
     private static Color getPopupBackgroundColor() {
@@ -440,6 +435,16 @@ public class RequestBodyPanel extends JPanel {
                 Color borderColor = isDefined ? getDefinedVariableBorderColor() : getUndefinedVariableBorderColor();
                 paintVariableBadge((Graphics2D) g, seg, text, fillColor, borderColor);
             }
+
+            paintCaretAboveBadges(g);
+        }
+
+        private void paintCaretAboveBadges(Graphics g) {
+            Caret caret = getCaret();
+            if (caret == null || !hasFocus() || !isEnabled()) {
+                return;
+            }
+            caret.paint(g);
         }
 
         private void paintVariableBadge(Graphics2D g, VariableSegment seg, String text, Color fillColor, Color borderColor) {
@@ -454,29 +459,15 @@ public class RequestBodyPanel extends JPanel {
                 int width = Math.max(10, endRect.x + endRect.width - startRect.x);
                 int y = startRect.y + 1;
                 int height = Math.max(14, startRect.height - 2);
-                String varText = text.substring(seg.start, seg.end);
-                Color editorBg = getBackground();
 
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 try {
-                    // 先用编辑器背景完整盖掉原本的语法高亮文本，再绘制 badge 和变量文字。
-                    g2.setColor(editorBg);
-                    g2.fillRoundRect(x, y, width, height, 10, 10);
-
-                    g2.setColor(fillColor);
-                    g2.fillRoundRect(x, y, width, height, 10, 10);
-
                     Stroke oldStroke = g2.getStroke();
                     g2.setColor(borderColor);
                     g2.setStroke(new BasicStroke(1.5f));
                     g2.drawRoundRect(x, y, width, height, 10, 10);
                     g2.setStroke(oldStroke);
-
-                    g2.setColor(getVariableTextColor());
-                    g2.setFont(getFont());
-                    FontMetrics fm = g2.getFontMetrics();
-                    g2.drawString(varText, startRect.x, startRect.y + fm.getAscent());
                 } finally {
                     g2.dispose();
                 }

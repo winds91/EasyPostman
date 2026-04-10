@@ -21,12 +21,17 @@ public enum VariableType {
     /**
      * 分组变量 - 从请求所在分组继承的变量
      */
-    GROUP(MessageKeys.VARIABLE_TYPE_GROUP, "G", new Color(3, 169, 244), 2),
+    GROUP(MessageKeys.VARIABLE_TYPE_GROUP, "C", new Color(13, 148, 136), 2),
 
     /**
      * 环境变量 - 从当前激活的环境中获取
      */
     ENVIRONMENT(MessageKeys.VARIABLE_TYPE_ENVIRONMENT, "E", new Color(46, 125, 50), 5),
+
+    /**
+     * 全局变量 - 应用级共享变量
+     */
+    GLOBAL(MessageKeys.VARIABLE_TYPE_GLOBAL, "G", new Color(67, 56, 202), 8),
 
     /**
      * 内置函数 - 动态函数，如 $guid, $timestamp 等
