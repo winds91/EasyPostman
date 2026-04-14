@@ -5,8 +5,10 @@ import com.laker.postman.model.HttpHeader;
 import com.laker.postman.model.HttpRequestItem;
 import com.laker.postman.model.RequestItemProtocolEnum;
 import com.laker.postman.panel.collections.right.request.sub.RequestBodyPanel;
+import com.laker.postman.util.SystemUtil;
 import lombok.experimental.UtilityClass;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,14 +17,25 @@ import static com.laker.postman.service.collections.DefaultRequestsFactory.CONTE
 
 @UtilityClass
 public class HttpRequestFactory {
+    private static final String DEFAULT_USER_AGENT_VERSION = "dev";
     public static final String TEXT_EVENT_STREAM = "text/event-stream";
     public static final String ACCEPT = "Accept";
     public static final String USER_AGENT = "User-Agent";
-    public static final String EASY_POSTMAN_CLIENT = "EasyPostman Client";
+    public static final String EASY_POSTMAN_CLIENT = "EasyPostman/" + resolveUserAgentVersion();
     public static final String ACCEPT_ENCODING = "Accept-Encoding";
     public static final String CONNECTION = "Connection";
     public static final String ACCEPT_ENCODING_VALUE = "gzip, deflate, br";
     public static final String CONNECTION_VALUE = "keep-alive";
+
+    private static String resolveUserAgentVersion() {
+        String version = SystemUtil.getCurrentVersion();
+        if (version == null || version.isBlank()) {
+            return DEFAULT_USER_AGENT_VERSION;
+        }
+        return StandardCharsets.US_ASCII.newEncoder().canEncode(version)
+                ? version
+                : DEFAULT_USER_AGENT_VERSION;
+    }
 
     public static HttpRequestItem createDefaultRequest() {
         // Create a default test request
@@ -65,7 +78,7 @@ public class HttpRequestFactory {
         testItem.setProtocol(RequestItemProtocolEnum.WEBSOCKET);
         testItem.setId(IdUtil.simpleUUID());
         testItem.setName("WebSocket Example");
-        testItem.setUrl("wss://echo.websocket.org");
+        testItem.setUrl("wss://ws.ifelse.io");
         testItem.setMethod("GET");
         // Add some default headers
         List<HttpHeader> headers = new ArrayList<>();
@@ -85,7 +98,7 @@ public class HttpRequestFactory {
         testItem.setProtocol(RequestItemProtocolEnum.SSE);
         testItem.setId(IdUtil.simpleUUID());
         testItem.setName("SSE Example");
-        testItem.setUrl("https://sse.dev/test");
+        testItem.setUrl("https://stream.wikimedia.org/v2/stream/recentchange");
         testItem.setMethod("GET");
         // Add some default headers
         List<HttpHeader> headers = new ArrayList<>();
