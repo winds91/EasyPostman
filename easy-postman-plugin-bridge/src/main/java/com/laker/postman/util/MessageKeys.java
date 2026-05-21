@@ -696,6 +696,10 @@ public final class MessageKeys {
     public static final String PERFORMANCE_REPORT_COLUMN_P95 = "performance.report.column.p95";
     public static final String PERFORMANCE_REPORT_COLUMN_P99 = "performance.report.column.p99";
     public static final String PERFORMANCE_REPORT_TOTAL_ROW = "performance.report.total_row";
+    public static final String PERFORMANCE_REPORT_COPY_MARKDOWN_BUTTON = "performance.report.copy_markdown.button";
+    public static final String PERFORMANCE_REPORT_MARKDOWN_TITLE = "performance.report.markdown.title";
+    public static final String PERFORMANCE_REPORT_MARKDOWN_EMPTY = "performance.report.markdown.empty";
+    public static final String PERFORMANCE_REPORT_MARKDOWN_COPIED = "performance.report.markdown.copied";
 
     // ============ 性能趋势相关 ============
     public static final String PERFORMANCE_TREND_THREADS = "performance.trend.threads";
@@ -1127,6 +1131,7 @@ public final class MessageKeys {
     public static final String REQUEST_BODY_NONE = "request.body.none";
     public static final String REQUEST_BODY_FORMAT_ONLY_RAW = "request.body.format.only_raw";
     public static final String REQUEST_BODY_FORMAT_EMPTY = "request.body.format.empty";
+    public static final String REQUEST_BODY_FORMAT_INVALID = "request.body.format.invalid";
 
     // ============ 响应头面板相关 ============
     public static final String RESPONSE_HEADERS_COPY_SELECTED = "response.headers.copy_selected";
@@ -1139,6 +1144,16 @@ public final class MessageKeys {
     public static final String RESPONSE_SAVE_ERROR = "response.save.error";
     public static final String RESPONSE_SAVE_NO_RESPONSE = "response.save.no_response";
     public static final String RESPONSE_SAVE_REQUEST_NOT_SAVED = "response.save.request_not_saved";
+    public static final String RESPONSE_BODY_COPY_JSON_KEY = "response.body.copy_json_key";
+    public static final String RESPONSE_BODY_COPY_JSON_VALUE = "response.body.copy_json_value";
+    public static final String RESPONSE_BODY_CONTEXT_COPY_SELECTED = "response.body.context.copy_selected";
+    public static final String RESPONSE_BODY_CONTEXT_COPY_ALL = "response.body.context.copy_all";
+    public static final String RESPONSE_BODY_CONTEXT_SELECT_ALL = "response.body.context.select_all";
+    public static final String RESPONSE_BODY_CONTEXT_FOLDING = "response.body.context.folding";
+    public static final String RESPONSE_BODY_CONTEXT_TOGGLE_CURRENT_FOLD = "response.body.context.toggle_current_fold";
+    public static final String RESPONSE_BODY_CONTEXT_COLLAPSE_COMMENT_FOLDS = "response.body.context.collapse_comment_folds";
+    public static final String RESPONSE_BODY_CONTEXT_COLLAPSE_ALL_FOLDS = "response.body.context.collapse_all_folds";
+    public static final String RESPONSE_BODY_CONTEXT_EXPAND_ALL_FOLDS = "response.body.context.expand_all_folds";
 
     // ============ CSV Data Panel related ============
     public static final String CSV_STATUS_NO_DATA = "csv.status.no_data";
