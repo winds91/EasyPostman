@@ -1,6 +1,9 @@
 package com.laker.postman.panel.performance;
 
-import com.laker.postman.panel.performance.model.RequestResult;
+import com.laker.postman.panel.performance.model.PerformanceRealtimeMetrics;
+import com.laker.postman.panel.performance.model.PerformanceStatsCollector;
+import com.laker.postman.panel.performance.model.PerformanceStatsSnapshot;
+import com.laker.postman.panel.performance.model.PerformanceTrendSnapshot;
 import com.laker.postman.panel.performance.result.PerformanceReportPanel;
 import com.laker.postman.panel.performance.result.PerformanceTrendPanel;
 import lombok.RequiredArgsConstructor;
@@ -9,33 +12,37 @@ import org.jfree.data.time.Millisecond;
 import org.jfree.data.time.RegularTimePeriod;
 
 import javax.swing.*;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.IntSupplier;
+import java.util.function.LongFunction;
 import java.util.function.LongSupplier;
 
 @Slf4j
 @RequiredArgsConstructor
 final class PerformanceStatisticsCoordinator {
 
-    private final Object statsLock;
-    private final List<RequestResult> allRequestResults;
-    private final Map<String, List<Long>> apiCostMap;
-    private final Map<String, Integer> apiSuccessMap;
-    private final Map<String, Integer> apiFailMap;
+    private final PerformanceStatsCollector statsCollector;
     private final PerformanceReportPanel performanceReportPanel;
     private final PerformanceTrendPanel performanceTrendPanel;
     private final JTabbedPane resultTabbedPane;
     private final IntSupplier activeThreadsSupplier;
+    private final IntSupplier activeWebSocketsSupplier;
+    private final IntSupplier activeSseStreamsSupplier;
     private final LongSupplier samplingIntervalSupplier;
+    private final LongFunction<PerformanceRealtimeMetrics.Sample> realtimeMetricsSampler;
+    private final ExecutorService metricsExecutor =
+            Executors.newSingleThreadExecutor(PerformanceThreadFactory.daemonFactory("PerformanceMetrics"));
+    private volatile boolean disposed;
 
     void refreshReport() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshReport);
+            return;
+        }
+
         try {
             if (resultTabbedPane.getSelectedIndex() != 1) {
                 log.debug("当前未查看报表Tab，跳过刷新");
@@ -48,17 +55,9 @@ final class PerformanceStatisticsCoordinator {
     }
 
     void updateReportWithLatestData() {
-        CompletableFuture.runAsync(() -> {
-            StatsSnapshot snapshot = copySnapshot();
-            SwingUtilities.invokeLater(() -> performanceReportPanel.updateReport(
-                    snapshot.apiCostMapCopy(),
-                    snapshot.apiSuccessMapCopy(),
-                    snapshot.apiFailMapCopy(),
-                    snapshot.resultsCopy()
-            ));
-        }).exceptionally(ex -> {
-            log.error("报表更新失败", ex);
-            return null;
+        submitMetricsTask("报表更新", () -> {
+            PerformanceStatsSnapshot snapshot = statsCollector.snapshot();
+            invokeUiIfActive(() -> performanceReportPanel.updateReport(snapshot));
         });
     }
 
@@ -68,38 +67,32 @@ final class PerformanceStatisticsCoordinator {
             return;
         }
 
-        StatsSnapshot snapshot = copySnapshot();
-        performanceReportPanel.updateReport(
-                snapshot.apiCostMapCopy(),
-                snapshot.apiSuccessMapCopy(),
-                snapshot.apiFailMapCopy(),
-                snapshot.resultsCopy()
-        );
+        performanceReportPanel.updateReport(statsCollector.snapshot());
     }
 
     void sampleTrendData() {
         int users = activeThreadsSupplier.getAsInt();
+        int activeWebSockets = activeWebSocketsSupplier.getAsInt();
+        int activeSseStreams = activeSseStreamsSupplier.getAsInt();
         long now = System.currentTimeMillis();
         RegularTimePeriod period = createTrendPeriod(now);
         long samplingIntervalMs = samplingIntervalSupplier.getAsLong();
-        long windowStart = now - samplingIntervalMs;
+        PerformanceRealtimeMetrics.Sample realtimeMetrics = sampleRealtimeMetrics(now);
 
-        CompletableFuture.runAsync(() -> {
-            TrendSnapshot snapshot = buildTrendSnapshot(windowStart, now);
-            SwingUtilities.invokeLater(() -> {
-                log.debug("采样数据 {} - 用户数: {}, 平均响应时间: {} ms, QPS: {}, 错误率: {}%, 样本数: {}",
-                        period, users, snapshot.avgRespTime(), snapshot.qps(), snapshot.errorPercent(), snapshot.totalReq());
-                performanceTrendPanel.addOrUpdate(
-                        period,
-                        users,
-                        snapshot.avgRespTime(),
-                        snapshot.qps(),
-                        snapshot.errorPercent()
-                );
+        submitMetricsTask("趋势图采样", () -> {
+            PerformanceTrendSnapshot snapshot = statsCollector.sampleTrendSnapshot(
+                    now,
+                    users,
+                    activeWebSockets,
+                    activeSseStreams,
+                    samplingIntervalMs,
+                    realtimeMetrics
+            );
+            invokeUiIfActive(() -> {
+                log.debug("采样数据 {} - 用户数: {}, HTTP: {}, WS: {}, SSE: {}",
+                        period, users, snapshot.http().samples(), snapshot.webSocket().samples(), snapshot.sse().samples());
+                performanceTrendPanel.addOrUpdate(period, snapshot);
             });
-        }).exceptionally(ex -> {
-            log.error("趋势图采样失败", ex);
-            return null;
         });
     }
 
@@ -110,87 +103,66 @@ final class PerformanceStatisticsCoordinator {
         }
 
         int users = activeThreadsSupplier.getAsInt();
+        int activeWebSockets = activeWebSocketsSupplier.getAsInt();
+        int activeSseStreams = activeSseStreamsSupplier.getAsInt();
         long now = System.currentTimeMillis();
         RegularTimePeriod period = createTrendPeriod(now);
-        TrendSnapshot snapshot = buildTrendSnapshot(now - samplingIntervalSupplier.getAsLong(), now);
-
-        log.debug("同步采样数据 {} - 用户数: {}, 平均响应时间: {} ms, QPS: {}, 错误率: {}%, 样本数: {}",
-                period, users, snapshot.avgRespTime(), snapshot.qps(), snapshot.errorPercent(), snapshot.totalReq());
-        performanceTrendPanel.addOrUpdate(
-                period,
-                users,
-                snapshot.avgRespTime(),
-                snapshot.qps(),
-                snapshot.errorPercent()
-        );
-    }
-
-    private StatsSnapshot copySnapshot() {
-        synchronized (statsLock) {
-            List<RequestResult> resultsCopy = new ArrayList<>(allRequestResults);
-            Map<String, List<Long>> apiCostMapCopy = new HashMap<>();
-            for (Map.Entry<String, List<Long>> entry : apiCostMap.entrySet()) {
-                apiCostMapCopy.put(entry.getKey(), new ArrayList<>(entry.getValue()));
-            }
-            return new StatsSnapshot(
-                    resultsCopy,
-                    apiCostMapCopy,
-                    new HashMap<>(apiSuccessMap),
-                    new HashMap<>(apiFailMap)
-            );
-        }
-    }
-
-    private TrendSnapshot buildTrendSnapshot(long windowStart, long now) {
-        int totalReq = 0;
-        int errorReq = 0;
-        long totalRespTime = 0;
-        long actualMinTime = Long.MAX_VALUE;
-        long actualMaxTime = 0;
-
-        synchronized (statsLock) {
-            for (RequestResult result : allRequestResults) {
-                if (result.endTime >= windowStart && result.endTime <= now) {
-                    totalReq++;
-                    if (!result.success) {
-                        errorReq++;
-                    }
-                    totalRespTime += result.getResponseTime();
-                    actualMinTime = Math.min(actualMinTime, result.endTime);
-                    actualMaxTime = Math.max(actualMaxTime, result.endTime);
-                }
-            }
-        }
-
-        double avgRespTime = totalReq > 0
-                ? BigDecimal.valueOf((double) totalRespTime / totalReq).setScale(2, RoundingMode.HALF_UP).doubleValue()
-                : 0;
-
-        double qps = 0;
         long samplingIntervalMs = samplingIntervalSupplier.getAsLong();
-        if (totalReq > 0 && actualMaxTime > actualMinTime) {
-            long actualSpanMs = actualMaxTime - actualMinTime;
-            qps = totalReq * 1000.0 / actualSpanMs;
-        } else if (totalReq > 0) {
-            qps = totalReq / (samplingIntervalMs / 1000.0);
-        }
+        PerformanceRealtimeMetrics.Sample realtimeMetrics = sampleRealtimeMetrics(now);
+        PerformanceTrendSnapshot snapshot = statsCollector.sampleTrendSnapshot(
+                now,
+                users,
+                activeWebSockets,
+                activeSseStreams,
+                samplingIntervalMs,
+                realtimeMetrics
+        );
 
-        double errorPercent = totalReq > 0 ? (double) errorReq / totalReq * 100 : 0;
-        return new TrendSnapshot(totalReq, avgRespTime, qps, errorPercent);
+        log.debug("同步采样数据 {} - 用户数: {}, HTTP: {}, WS: {}, SSE: {}",
+                period, users, snapshot.http().samples(), snapshot.webSocket().samples(), snapshot.sse().samples());
+        performanceTrendPanel.addOrUpdate(period, snapshot);
+    }
+
+    private PerformanceRealtimeMetrics.Sample sampleRealtimeMetrics(long nowMs) {
+        return realtimeMetricsSampler == null
+                ? PerformanceRealtimeMetrics.Sample.empty()
+                : realtimeMetricsSampler.apply(nowMs);
+    }
+
+    void dispose() {
+        disposed = true;
+        metricsExecutor.shutdownNow();
+    }
+
+    private void submitMetricsTask(String taskName, Runnable task) {
+        if (disposed) {
+            return;
+        }
+        try {
+            metricsExecutor.execute(() -> {
+                try {
+                    task.run();
+                } catch (Exception ex) {
+                    log.error("{}失败", taskName, ex);
+                }
+            });
+        } catch (RejectedExecutionException ex) {
+            if (!disposed) {
+                log.warn("{}提交失败", taskName, ex);
+            }
+        }
+    }
+
+    private void invokeUiIfActive(Runnable uiTask) {
+        SwingUtilities.invokeLater(() -> {
+            if (!disposed) {
+                uiTask.run();
+            }
+        });
     }
 
     private static RegularTimePeriod createTrendPeriod(long timestampMs) {
         return new Millisecond(new Date(timestampMs));
     }
 
-    private record StatsSnapshot(
-            List<RequestResult> resultsCopy,
-            Map<String, List<Long>> apiCostMapCopy,
-            Map<String, Integer> apiSuccessMapCopy,
-            Map<String, Integer> apiFailMapCopy
-    ) {
-    }
-
-    private record TrendSnapshot(int totalReq, double avgRespTime, double qps, double errorPercent) {
-    }
 }

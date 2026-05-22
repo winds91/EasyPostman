@@ -15,13 +15,15 @@ import com.laker.postman.panel.performance.assertion.AssertionPropertyPanel;
 import com.laker.postman.panel.performance.model.ApiMetadata;
 import com.laker.postman.panel.performance.model.JMeterTreeNode;
 import com.laker.postman.panel.performance.model.NodeType;
-import com.laker.postman.panel.performance.model.RequestResult;
+import com.laker.postman.panel.performance.model.PerformanceRealtimeMetrics;
+import com.laker.postman.panel.performance.model.PerformanceStatsCollector;
 import com.laker.postman.panel.performance.result.PerformanceReportPanel;
 import com.laker.postman.panel.performance.result.PerformanceResultTablePanel;
 import com.laker.postman.panel.performance.result.PerformanceTrendPanel;
 import com.laker.postman.panel.performance.threadgroup.ThreadGroupPropertyPanel;
 import com.laker.postman.panel.performance.timer.TimerPropertyPanel;
 import com.laker.postman.service.PerformancePersistenceService;
+import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import com.laker.postman.util.NotificationUtil;
@@ -32,11 +34,6 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 左侧多层级树（用户组-请求-断言-定时器），右侧属性区，底部Tab结果区
@@ -78,14 +75,7 @@ public class PerformancePanel extends SingletonBasePanel {
     private JLabel progressLabel; // 进度标签
     private JPanel topPanel; // 顶部工具栏面板，用于主题切换时更新边框
     private long startTime;
-    // 记录所有请求的结果（包含开始时间、结束时间、APIID等）
-    private final transient List<RequestResult> allRequestResults = Collections.synchronizedList(new ArrayList<>());
-    // 按接口统计
-    private final Map<String, List<Long>> apiCostMap = new ConcurrentHashMap<>();
-    private final Map<String, Integer> apiSuccessMap = new ConcurrentHashMap<>();
-    private final Map<String, Integer> apiFailMap = new ConcurrentHashMap<>();
-    // 统计数据保护锁
-    private final transient Object statsLock = new Object();
+    private final transient PerformanceStatsCollector statsCollector = new PerformanceStatsCollector();
 
     // 定时器管理器 - 统一管理趋势图采样和报表刷新定时器
     private transient PerformanceTimerManager timerManager;
@@ -192,16 +182,17 @@ public class PerformancePanel extends SingletonBasePanel {
         performanceTrendPanel = resultSection.performanceTrendPanel();
         performanceReportPanel = resultSection.performanceReportPanel();
         statisticsCoordinator = new PerformanceStatisticsCoordinator(
-                statsLock,
-                allRequestResults,
-                apiCostMap,
-                apiSuccessMap,
-                apiFailMap,
+                statsCollector,
                 performanceReportPanel,
                 performanceTrendPanel,
                 resultTabbedPane,
                 () -> executionEngine != null ? executionEngine.getActiveThreads() : 0,
-                () -> timerManager != null ? timerManager.getSamplingIntervalMs() : 1000L
+                () -> executionEngine != null ? executionEngine.getActiveWebSockets() : 0,
+                () -> executionEngine != null ? executionEngine.getActiveSseStreams() : 0,
+                () -> timerManager != null ? timerManager.getSamplingIntervalMs() : 1000L,
+                nowMs -> executionEngine != null
+                        ? executionEngine.sampleRealtimeMetrics(nowMs)
+                        : PerformanceRealtimeMetrics.Sample.empty()
         );
         timerManager.setTrendSamplingCallback(statisticsCoordinator::sampleTrendData);
         timerManager.setReportRefreshCallback(statisticsCoordinator::refreshReport);
@@ -241,12 +232,9 @@ public class PerformancePanel extends SingletonBasePanel {
                 this,
                 () -> running,
                 () -> efficientMode,
+                SettingManager::getPerformanceResponseBodyPreviewLimitKb,
                 csvDataPanel,
-                allRequestResults,
-                apiCostMap,
-                apiSuccessMap,
-                apiFailMap,
-                statsLock,
+                statsCollector,
                 performanceResultTablePanel
         );
         runControlSupport = new PerformanceRunControlSupport(
@@ -267,11 +255,7 @@ public class PerformancePanel extends SingletonBasePanel {
                 performanceResultTablePanel,
                 performanceReportPanel,
                 performanceTrendPanel,
-                allRequestResults,
-                statsLock,
-                apiCostMap,
-                apiSuccessMap,
-                apiFailMap,
+                statsCollector,
                 this::clearCachedPerformanceResults
         );
 
@@ -564,15 +548,21 @@ public class PerformancePanel extends SingletonBasePanel {
     public void cleanup() {
         log.info("清理 PerformancePanel 资源");
 
-        // 1. 停止定时器
+        // 1. 停止运行中的测试
+        if (running) {
+            stopRun();
+        }
+
+        // 2. 停止定时器
         if (timerManager != null) {
             timerManager.stopAll();
             timerManager.dispose();
         }
-
-        // 2. 停止运行中的测试
-        if (running) {
-            stopRun();
+        if (statisticsCoordinator != null) {
+            statisticsCoordinator.dispose();
+        }
+        if (performanceResultTablePanel != null) {
+            performanceResultTablePanel.dispose();
         }
 
         log.debug("PerformancePanel 资源清理完成");
@@ -582,10 +572,7 @@ public class PerformancePanel extends SingletonBasePanel {
         performanceResultTablePanel.clearResults();
         performanceReportPanel.clearReport();
         performanceTrendPanel.clearTrendDataset();
-        apiCostMap.clear();
-        apiSuccessMap.clear();
-        apiFailMap.clear();
-        allRequestResults.clear();
+        statsCollector.clear();
         ApiMetadata.clear();
         executionEngine.resetVirtualUsers();
     }

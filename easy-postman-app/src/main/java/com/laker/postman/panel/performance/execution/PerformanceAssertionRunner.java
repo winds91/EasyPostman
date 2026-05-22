@@ -20,6 +20,9 @@ import java.util.concurrent.atomic.AtomicReference;
 @Slf4j
 public final class PerformanceAssertionRunner {
 
+    private static final String ASSERTION_TYPE_CONTAINS = "Contains";
+    private static final String ASSERTION_TYPE_JSON_PATH = "JSONPath";
+
     private PerformanceAssertionRunner() {
     }
 
@@ -48,10 +51,30 @@ public final class PerformanceAssertionRunner {
         return nodes;
     }
 
+    public static boolean requiresResponseBody(List<DefaultMutableTreeNode> assertionNodes) {
+        if (assertionNodes == null || assertionNodes.isEmpty()) {
+            return false;
+        }
+        for (DefaultMutableTreeNode node : assertionNodes) {
+            Object userObj = node.getUserObject();
+            if (!(userObj instanceof JMeterTreeNode jtNode) || jtNode.type != NodeType.ASSERTION
+                    || !jtNode.enabled || jtNode.assertionData == null) {
+                continue;
+            }
+            String type = jtNode.assertionData.type;
+            if (ASSERTION_TYPE_CONTAINS.equals(type) || ASSERTION_TYPE_JSON_PATH.equals(type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static void runAssertionNodes(List<DefaultMutableTreeNode> assertionNodes,
                                          HttpResponse resp,
                                          List<TestResult> testResults,
                                          AtomicReference<String> errorMsgRef) {
+        // 压测线程不能因为空响应体导致断言阶段抛异常；空 body 应按断言失败处理并继续记录样本。
+        String responseBody = resp != null && resp.body != null ? resp.body : "";
         for (DefaultMutableTreeNode sub : assertionNodes) {
             Object subObj = sub.getUserObject();
             if (!(subObj instanceof JMeterTreeNode subNode) || subNode.type != NodeType.ASSERTION || subNode.assertionData == null) {
@@ -68,18 +91,22 @@ public final class PerformanceAssertionRunner {
                 String valStr = assertion.value;
                 try {
                     int expect = Integer.parseInt(valStr);
-                    if ("=".equals(op)) pass = (resp.code == expect);
-                    else if (">".equals(op)) pass = (resp.code > expect);
-                    else if ("<".equals(op)) pass = (resp.code < expect);
+                    if (resp != null) {
+                        if ("=".equals(op)) pass = (resp.code == expect);
+                        else if (">".equals(op)) pass = (resp.code > expect);
+                        else if ("<".equals(op)) pass = (resp.code < expect);
+                    }
                 } catch (Exception ignored) {
                     log.warn("断言响应码格式错误: {}", valStr);
                 }
-            } else if ("Contains".equals(type)) {
-                pass = resp.body.contains(assertion.content);
-            } else if ("JSONPath".equals(type)) {
+            } else if (ASSERTION_TYPE_CONTAINS.equals(type)) {
+                pass = CharSequenceUtil.isNotBlank(responseBody)
+                        && CharSequenceUtil.isNotBlank(assertion.content)
+                        && responseBody.contains(assertion.content);
+            } else if (ASSERTION_TYPE_JSON_PATH.equals(type)) {
                 String jsonPath = assertion.value;
                 String expect = assertion.content;
-                String actual = JsonPathUtil.extractJsonPath(resp.body, jsonPath);
+                String actual = JsonPathUtil.extractJsonPath(responseBody, jsonPath);
                 pass = Objects.equals(actual, expect);
             }
             if (!pass && CharSequenceUtil.isBlank(errorMsgRef.get())) {

@@ -616,6 +616,8 @@ public final class MessageKeys {
     public static final String PERFORMANCE_MENU_ADD_WS_CLOSE = "performance.menu.add_ws_close";
     public static final String PERFORMANCE_MENU_ADD_ASSERTION = "performance.menu.add_assertion";
     public static final String PERFORMANCE_MENU_ADD_TIMER = "performance.menu.add_timer";
+    public static final String PERFORMANCE_TIMER_DELAY = "performance.timer.delay";
+    public static final String PERFORMANCE_TIMER_HINT = "performance.timer.hint";
     public static final String PERFORMANCE_MENU_RENAME = "performance.menu.rename";
     public static final String PERFORMANCE_MENU_DELETE = "performance.menu.delete";
     public static final String PERFORMANCE_MENU_ENABLE = "performance.menu.enable";
@@ -637,6 +639,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_CSV_USAGE_NOTE = "performance.csv.usage_note";
     public static final String PERFORMANCE_SSE_EVENT_FILTER = "performance.sse.event_filter";
     public static final String PERFORMANCE_SSE_COMPLETION_FIRST_MESSAGE = "performance.sse.completion.first_message";
+    public static final String PERFORMANCE_SSE_COMPLETION_MATCHED_MESSAGE = "performance.sse.completion.matched_message";
     public static final String PERFORMANCE_SSE_COMPLETION_FIXED_DURATION = "performance.sse.completion.fixed_duration";
     public static final String PERFORMANCE_SSE_COMPLETION_MESSAGE_COUNT = "performance.sse.completion.message_count";
     public static final String PERFORMANCE_SSE_NODE_CONNECT = "performance.sse.node.connect";
@@ -644,12 +647,17 @@ public final class MessageKeys {
     public static final String PERFORMANCE_SSE_CONNECT_TIMEOUT = "performance.sse.connect_timeout";
     public static final String PERFORMANCE_SSE_AWAIT_MODE = "performance.sse.await_mode";
     public static final String PERFORMANCE_SSE_AWAIT_TIMEOUT = "performance.sse.await_timeout";
-    public static final String PERFORMANCE_SSE_FIXED_DURATION_HINT = "performance.sse.fixed_duration_hint";
+    public static final String PERFORMANCE_SSE_MESSAGE_FILTER = "performance.sse.message_filter";
     public static final String PERFORMANCE_SSE_FIRST_MESSAGE_TIMEOUT = "performance.sse.first_message_timeout";
+    public static final String PERFORMANCE_SSE_MATCHED_MESSAGE_TIMEOUT = "performance.sse.matched_message_timeout";
     public static final String PERFORMANCE_SSE_HOLD_CONNECTION = "performance.sse.hold_connection";
     public static final String PERFORMANCE_SSE_OBSERVE_DURATION = "performance.sse.observe_duration";
     public static final String PERFORMANCE_SSE_MAX_WAIT_DURATION = "performance.sse.max_wait_duration";
     public static final String PERFORMANCE_SSE_TARGET_MESSAGE_COUNT = "performance.sse.target_message_count";
+    public static final String PERFORMANCE_SSE_HINT_FIRST_MESSAGE = "performance.sse.hint.first_message";
+    public static final String PERFORMANCE_SSE_HINT_MATCHED_MESSAGE = "performance.sse.hint.matched_message";
+    public static final String PERFORMANCE_SSE_HINT_FIXED_DURATION = "performance.sse.hint.fixed_duration";
+    public static final String PERFORMANCE_SSE_HINT_MESSAGE_COUNT = "performance.sse.hint.message_count";
     public static final String PERFORMANCE_WS_NODE_CONNECT = "performance.ws.node.connect";
     public static final String PERFORMANCE_WS_NODE_SEND = "performance.ws.node.send";
     public static final String PERFORMANCE_WS_NODE_AWAIT = "performance.ws.node.await";
@@ -660,6 +668,11 @@ public final class MessageKeys {
     public static final String PERFORMANCE_WS_SEND_CONTENT_REQUEST_BODY = "performance.ws.send_content.request_body";
     public static final String PERFORMANCE_WS_SEND_CONTENT_CUSTOM_TEXT = "performance.ws.send_content.custom_text";
     public static final String PERFORMANCE_WS_SEND_CUSTOM_BODY = "performance.ws.send_custom_body";
+    public static final String PERFORMANCE_WS_SEND_PRE_SCRIPT = "performance.ws.send_pre_script";
+    public static final String PERFORMANCE_WS_SEND_PRE_SCRIPT_HINT = "performance.ws.send_pre_script.hint";
+    public static final String PERFORMANCE_WS_SEND_TAB_MESSAGE_TEMPLATE = "performance.ws.send.tab.message_template";
+    public static final String PERFORMANCE_WS_SEND_TAB_PRE_SCRIPT = "performance.ws.send.tab.pre_script";
+    public static final String PERFORMANCE_WS_SEND_REQUEST_BODY_SOURCE_HINT = "performance.ws.send.request_body_source_hint";
     public static final String PERFORMANCE_WS_SEND_NONE = "performance.ws.send.none";
     public static final String PERFORMANCE_WS_SEND_REQUEST_BODY = "performance.ws.send.request_body";
     public static final String PERFORMANCE_WS_SEND_REQUEST_BODY_REPEAT = "performance.ws.send.request_body_repeat";
@@ -677,10 +690,17 @@ public final class MessageKeys {
     public static final String PERFORMANCE_WS_MAX_WAIT_DURATION = "performance.ws.max_wait_duration";
     public static final String PERFORMANCE_WS_FIXED_DURATION_HINT = "performance.ws.fixed_duration_hint";
     public static final String PERFORMANCE_WS_TARGET_MESSAGE_COUNT = "performance.ws.target_message_count";
+    public static final String PERFORMANCE_WS_HINT_FIRST_MESSAGE = "performance.ws.hint.first_message";
+    public static final String PERFORMANCE_WS_HINT_MATCHED_MESSAGE = "performance.ws.hint.matched_message";
+    public static final String PERFORMANCE_WS_HINT_FIXED_DURATION = "performance.ws.hint.fixed_duration";
+    public static final String PERFORMANCE_WS_HINT_MESSAGE_COUNT = "performance.ws.hint.message_count";
     public static final String PERFORMANCE_WS_CLOSE_HINT = "performance.ws.close_hint";
     public static final String MSG_ONLY_HTTP_SUPPORTED = "msg.only_http_supported";
     public static final String MSG_ONLY_HTTP_SSE_WS_SUPPORTED = "msg.only_http_sse_ws_supported";
     public static final String PERFORMANCE_MSG_SAVE_SUCCESS = "performance.msg.save_success";
+    public static final String PERFORMANCE_PROTOCOL_HTTP = "performance.protocol.http";
+    public static final String PERFORMANCE_PROTOCOL_WEBSOCKET = "performance.protocol.websocket";
+    public static final String PERFORMANCE_PROTOCOL_SSE = "performance.protocol.sse";
 
     // ============ 性能报表列相关 ============
     public static final String PERFORMANCE_REPORT_COLUMN_API_NAME = "performance.report.column.api_name";
@@ -695,6 +715,23 @@ public final class MessageKeys {
     public static final String PERFORMANCE_REPORT_COLUMN_P90 = "performance.report.column.p90";
     public static final String PERFORMANCE_REPORT_COLUMN_P95 = "performance.report.column.p95";
     public static final String PERFORMANCE_REPORT_COLUMN_P99 = "performance.report.column.p99";
+    public static final String PERFORMANCE_REPORT_COLUMN_SESSIONS = "performance.report.column.sessions";
+    public static final String PERFORMANCE_REPORT_COLUMN_STREAMS = "performance.report.column.streams";
+    public static final String PERFORMANCE_REPORT_COLUMN_SENT = "performance.report.column.sent";
+    public static final String PERFORMANCE_REPORT_COLUMN_RECEIVED = "performance.report.column.received";
+    public static final String PERFORMANCE_REPORT_COLUMN_MATCHED = "performance.report.column.matched";
+    public static final String PERFORMANCE_REPORT_COLUMN_SEND_RATE = "performance.report.column.send_rate";
+    public static final String PERFORMANCE_REPORT_COLUMN_RECEIVE_RATE = "performance.report.column.receive_rate";
+    public static final String PERFORMANCE_REPORT_COLUMN_EVENT_RATE = "performance.report.column.event_rate";
+    public static final String PERFORMANCE_REPORT_COLUMN_MATCHED_RATE = "performance.report.column.matched_rate";
+    public static final String PERFORMANCE_REPORT_COLUMN_EVENTS = "performance.report.column.events";
+    public static final String PERFORMANCE_REPORT_COLUMN_AVG_FIRST_MESSAGE = "performance.report.column.avg_first_message";
+    public static final String PERFORMANCE_REPORT_COLUMN_AVG_FIRST_EVENT = "performance.report.column.avg_first_event";
+    public static final String PERFORMANCE_REPORT_COLUMN_AVG_SESSION = "performance.report.column.avg_session";
+    public static final String PERFORMANCE_REPORT_COLUMN_AVG_STREAM = "performance.report.column.avg_stream";
+    public static final String PERFORMANCE_REPORT_COLUMN_P95_SESSION = "performance.report.column.p95_session";
+    public static final String PERFORMANCE_REPORT_COLUMN_P95_STREAM = "performance.report.column.p95_stream";
+    public static final String PERFORMANCE_REPORT_COLUMN_COMPLETION = "performance.report.column.completion";
     public static final String PERFORMANCE_REPORT_TOTAL_ROW = "performance.report.total_row";
     public static final String PERFORMANCE_REPORT_COPY_MARKDOWN_BUTTON = "performance.report.copy_markdown.button";
     public static final String PERFORMANCE_REPORT_MARKDOWN_TITLE = "performance.report.markdown.title";
@@ -703,6 +740,7 @@ public final class MessageKeys {
 
     // ============ 性能趋势相关 ============
     public static final String PERFORMANCE_TREND_THREADS = "performance.trend.threads";
+    public static final String PERFORMANCE_TREND_VIRTUAL_USERS = "performance.trend.virtual_users";
     public static final String PERFORMANCE_TREND_RESPONSE_TIME_MS = "performance.trend.response_time_ms";
     public static final String PERFORMANCE_TREND_QPS = "performance.trend.qps";
     public static final String PERFORMANCE_TREND_ERROR_RATE_PERCENT = "performance.trend.error_rate_percent";
@@ -712,8 +750,24 @@ public final class MessageKeys {
     public static final String PERFORMANCE_TREND_METRICS = "performance.trend.metrics";
     public static final String PERFORMANCE_TREND_PLACEHOLDER_TITLE = "performance.trend.placeholder.title";
     public static final String PERFORMANCE_TREND_PLACEHOLDER_HINT = "performance.trend.placeholder.hint";
+    public static final String PERFORMANCE_TREND_OVERVIEW = "performance.trend.overview";
+    public static final String PERFORMANCE_TREND_SAMPLE_RATE = "performance.trend.sample_rate";
+    public static final String PERFORMANCE_TREND_PROTOCOL_SAMPLE_RATE = "performance.trend.protocol_sample_rate";
+    public static final String PERFORMANCE_TREND_ACTIVE_WS = "performance.trend.active_ws";
+    public static final String PERFORMANCE_TREND_ACTIVE_SSE = "performance.trend.active_sse";
+    public static final String PERFORMANCE_TREND_SENT_RATE = "performance.trend.sent_rate";
+    public static final String PERFORMANCE_TREND_RECEIVED_RATE = "performance.trend.received_rate";
+    public static final String PERFORMANCE_TREND_EVENT_RATE = "performance.trend.event_rate";
+    public static final String PERFORMANCE_TREND_MATCHED_RATE = "performance.trend.matched_rate";
+    public static final String PERFORMANCE_TREND_MESSAGE_RATE = "performance.trend.message_rate";
+    public static final String PERFORMANCE_TREND_FIRST_MESSAGE_LATENCY_MS = "performance.trend.first_message_latency_ms";
+    public static final String PERFORMANCE_TREND_FIRST_EVENT_LATENCY_MS = "performance.trend.first_event_latency_ms";
+    public static final String PERFORMANCE_TREND_LATENCY_DURATION_MS = "performance.trend.latency_duration_ms";
+    public static final String PERFORMANCE_TREND_SESSION_DURATION_MS = "performance.trend.session_duration_ms";
+    public static final String PERFORMANCE_TREND_STREAM_DURATION_MS = "performance.trend.stream_duration_ms";
 
     // ============ 性能结果树相关 ============
+    public static final String PERFORMANCE_RESULT_TREE_COLUMN_PROTOCOL = "performance.result_tree.column.protocol";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_NAME = "performance.result_tree.column.name";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_STATUS = "performance.result_tree.column.status";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_COST = "performance.result_tree.column.cost";
@@ -1061,8 +1115,14 @@ public final class MessageKeys {
     public static final String SETTINGS_JMETER_MAX_REQUESTS_TOOLTIP = "settings.jmeter.max_requests.tooltip";
     public static final String SETTINGS_JMETER_MAX_REQUESTS_PER_HOST = "settings.jmeter.max_requests_per_host";
     public static final String SETTINGS_JMETER_MAX_REQUESTS_PER_HOST_TOOLTIP = "settings.jmeter.max_requests_per_host.tooltip";
+    public static final String SETTINGS_JMETER_JS_CONTEXT_POOL_SIZE = "settings.jmeter.js_context_pool_size";
+    public static final String SETTINGS_JMETER_JS_CONTEXT_POOL_SIZE_TOOLTIP = "settings.jmeter.js_context_pool_size.tooltip";
+    public static final String SETTINGS_JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT = "settings.jmeter.js_context_acquire_timeout";
+    public static final String SETTINGS_JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT_TOOLTIP = "settings.jmeter.js_context_acquire_timeout.tooltip";
     public static final String SETTINGS_JMETER_SLOW_REQUEST_THRESHOLD = "settings.jmeter.slow_request_threshold";
     public static final String SETTINGS_JMETER_SLOW_REQUEST_THRESHOLD_TOOLTIP = "settings.jmeter.slow_request_threshold.tooltip";
+    public static final String SETTINGS_JMETER_RESPONSE_BODY_PREVIEW_LIMIT = "settings.jmeter.response_body_preview_limit";
+    public static final String SETTINGS_JMETER_RESPONSE_BODY_PREVIEW_LIMIT_TOOLTIP = "settings.jmeter.response_body_preview_limit.tooltip";
     public static final String SETTINGS_JMETER_TREND_SAMPLING = "settings.jmeter.trend_sampling";
     public static final String SETTINGS_JMETER_TREND_SAMPLING_TOOLTIP = "settings.jmeter.trend_sampling.tooltip";
     public static final String SETTINGS_JMETER_EVENT_LOGGING = "settings.jmeter.event_logging";
@@ -1112,9 +1172,12 @@ public final class MessageKeys {
     public static final String SETTINGS_VALIDATION_SCRIPT_REMOTE_MAX_SIZE_ERROR = "settings.validation.script.remote_max_size.error";
     public static final String SETTINGS_VALIDATION_MAX_IDLE_ERROR = "settings.validation.max_idle.error";
     public static final String SETTINGS_VALIDATION_KEEP_ALIVE_ERROR = "settings.validation.keep_alive.error";
+    public static final String SETTINGS_VALIDATION_JS_CONTEXT_POOL_SIZE_ERROR = "settings.validation.js_context_pool_size.error";
+    public static final String SETTINGS_VALIDATION_JS_CONTEXT_ACQUIRE_TIMEOUT_ERROR = "settings.validation.js_context_acquire_timeout.error";
     public static final String SETTINGS_VALIDATION_TREND_SAMPLING_ERROR = "settings.validation.trend_sampling.error";
     public static final String SETTINGS_VALIDATION_THRESHOLD_ERROR = "settings.validation.threshold.error";
     public static final String SETTINGS_VALIDATION_SLOW_REQUEST_THRESHOLD_ERROR = "settings.validation.slow_request_threshold.error";
+    public static final String SETTINGS_VALIDATION_RESPONSE_BODY_PREVIEW_LIMIT_ERROR = "settings.validation.response_body_preview_limit.error";
     public static final String SETTINGS_VALIDATION_MAX_HISTORY_ERROR = "settings.validation.max_history.error";
     public static final String SETTINGS_VALIDATION_MAX_OPENED_REQUESTS_ERROR = "settings.validation.max_opened_requests_error";
     public static final String SETTINGS_VALIDATION_PORT_ERROR = "settings.validation.port.error";
@@ -1223,6 +1286,8 @@ public final class MessageKeys {
     public static final String BODY_TOO_LARGE_SAVED = "body.too_large.saved";
     public static final String SSE_STREAM_UNSUPPORTED = "sse.stream.unsupported";
     public static final String RESPONSE_INCOMPLETE = "response.incomplete";
+    public static final String RESPONSE_BODY_SKIPPED_PERFORMANCE = "response.body.skipped.performance";
+    public static final String RESPONSE_BODY_TRUNCATED_PERFORMANCE = "response.body.truncated.performance";
 
     // ============ ResponseAssertion 国际化 ============
     public static final String RESPONSE_ASSERTION_STATUS_FAILED = "response.assertion.status_failed";

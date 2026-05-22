@@ -3,12 +3,12 @@ package com.laker.postman.panel.performance.execution;
 import cn.hutool.core.text.CharSequenceUtil;
 import com.laker.postman.model.HttpResponse;
 import com.laker.postman.model.PreparedRequest;
+import com.laker.postman.panel.performance.model.PerformanceRealtimeMetrics;
 import com.laker.postman.panel.performance.model.SsePerformanceData;
 import okhttp3.Response;
 import okhttp3.sse.EventSource;
 import okhttp3.sse.EventSourceListener;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Set;
@@ -42,13 +42,32 @@ public class SseSampleExecutor {
     private final BooleanSupplier runningSupplier;
     private final Predicate<Throwable> cancelledChecker;
     private final Set<EventSource> activeSources;
+    private final PerformanceRealtimeMetrics realtimeMetrics;
+    private final int responseBodyPreviewLimitBytes;
 
     public SseSampleExecutor(BooleanSupplier runningSupplier,
                              Predicate<Throwable> cancelledChecker,
                              Set<EventSource> activeSources) {
+        this(runningSupplier, cancelledChecker, activeSources, new PerformanceRealtimeMetrics());
+    }
+
+    public SseSampleExecutor(BooleanSupplier runningSupplier,
+                             Predicate<Throwable> cancelledChecker,
+                             Set<EventSource> activeSources,
+                             PerformanceRealtimeMetrics realtimeMetrics) {
+        this(runningSupplier, cancelledChecker, activeSources, realtimeMetrics, BoundedTextAccumulator.DEFAULT_PREVIEW_BYTES);
+    }
+
+    public SseSampleExecutor(BooleanSupplier runningSupplier,
+                             Predicate<Throwable> cancelledChecker,
+                             Set<EventSource> activeSources,
+                             PerformanceRealtimeMetrics realtimeMetrics,
+                             int responseBodyPreviewLimitBytes) {
         this.runningSupplier = runningSupplier;
         this.cancelledChecker = cancelledChecker;
         this.activeSources = activeSources;
+        this.realtimeMetrics = realtimeMetrics == null ? new PerformanceRealtimeMetrics() : realtimeMetrics;
+        this.responseBodyPreviewLimitBytes = Math.max(1, responseBodyPreviewLimitBytes);
     }
 
     public Result execute(PreparedRequest req, SsePerformanceData cfg) {
@@ -63,8 +82,9 @@ public class SseSampleExecutor {
         AtomicReference<String> completionReasonRef = new AtomicReference<>("pending");
         AtomicReference<String> lastEventIdRef = new AtomicReference<>("");
         AtomicReference<String> lastEventTypeRef = new AtomicReference<>("");
-        StringBuffer matchedEventBody = new StringBuffer();
+        BoundedTextAccumulator matchedEventBody = new BoundedTextAccumulator(responseBodyPreviewLimitBytes);
         AtomicLong firstMessageLatencyMs = new AtomicLong(-1);
+        AtomicInteger eventCount = new AtomicInteger(0);
         AtomicInteger matchedMessageCount = new AtomicInteger(0);
         CountDownLatch openLatch = new CountDownLatch(1);
         CountDownLatch firstMessageLatch = new CountDownLatch(1);
@@ -123,18 +143,30 @@ public class SseSampleExecutor {
 
             @Override
             public void onEvent(EventSource eventSource, String id, String type, String data) {
+                eventCount.incrementAndGet();
+                realtimeMetrics.recordSseReceived();
                 String eventType = CharSequenceUtil.blankToDefault(type, "message");
-                if (matchesEvent(cfg, eventType)) {
-                    if (matchedMessageCount.incrementAndGet() == 1) {
-                        firstMessageLatencyMs.compareAndSet(-1, System.currentTimeMillis() - requestStartTime);
-                        completionReasonRef.compareAndSet("pending", "first_message");
-                        firstMessageLatch.countDown();
+                if (matchesEvent(cfg, eventType) && matchesPayload(cfg, data)) {
+                    boolean firstMatchedMessage = matchedMessageCount.incrementAndGet() == 1;
+                    realtimeMetrics.recordSseMatched();
+                    if (firstMatchedMessage) {
+                        long latencyMs = Math.max(0, System.currentTimeMillis() - requestStartTime);
+                        firstMessageLatencyMs.compareAndSet(-1, latencyMs);
+                        realtimeMetrics.recordSseFirstMessageLatency(latencyMs);
+                        completionReasonRef.compareAndSet("pending",
+                                cfg.completionMode == SsePerformanceData.CompletionMode.MATCHED_MESSAGE
+                                        ? "matched_message"
+                                        : "first_message");
                     }
                     lastEventIdRef.set(id == null ? "" : id);
                     lastEventTypeRef.set(eventType);
                     appendEvent(matchedEventBody, id, eventType, data);
+                    if (firstMatchedMessage) {
+                        firstMessageLatch.countDown();
+                    }
 
-                    if (cfg.completionMode == SsePerformanceData.CompletionMode.FIRST_MESSAGE) {
+                    if (cfg.completionMode == SsePerformanceData.CompletionMode.FIRST_MESSAGE
+                            || cfg.completionMode == SsePerformanceData.CompletionMode.MATCHED_MESSAGE) {
                         completionLatch.countDown();
                     } else if (cfg.completionMode == SsePerformanceData.CompletionMode.MESSAGE_COUNT
                             && matchedMessageCount.get() >= Math.max(1, cfg.targetMessageCount)) {
@@ -147,6 +179,7 @@ public class SseSampleExecutor {
 
         EventSource eventSource = HttpSingleRequestExecutor.executeSSE(req, listener);
         activeSources.add(eventSource);
+        realtimeMetrics.recordSseSessionStart(eventSource, requestStartTime);
 
         try {
             switch (cfg.completionMode) {
@@ -165,6 +198,25 @@ public class SseSampleExecutor {
                         failed.set(true);
                         errorRef.set("SSE first message timeout");
                         completionReasonRef.compareAndSet("pending", "first_message_timeout");
+                        closingSource.set(true);
+                        eventSource.cancel();
+                    }
+                }
+                case MATCHED_MESSAGE -> {
+                    boolean opened = openLatch.await(Math.max(100, cfg.connectTimeoutMs), TimeUnit.MILLISECONDS);
+                    if (!opened && !failed.get() && !interrupted.get()) {
+                        failed.set(true);
+                        errorRef.set("SSE connection timeout");
+                        completionReasonRef.set("connect_timeout");
+                        closingSource.set(true);
+                        eventSource.cancel();
+                    }
+                    boolean gotMatchedMessage = !failed.get() && !interrupted.get()
+                            && firstMessageLatch.await(Math.max(100, cfg.firstMessageTimeoutMs), TimeUnit.MILLISECONDS);
+                    if ((!gotMatchedMessage || matchedMessageCount.get() == 0) && !failed.get() && !interrupted.get()) {
+                        failed.set(true);
+                        errorRef.set("SSE matched message timeout");
+                        completionReasonRef.compareAndSet("pending", "matched_message_timeout");
                         closingSource.set(true);
                         eventSource.cancel();
                     }
@@ -227,18 +279,21 @@ public class SseSampleExecutor {
             closingSource.set(true);
             eventSource.cancel();
             activeSources.remove(eventSource);
+            realtimeMetrics.recordSseSessionEnd(eventSource);
         }
 
         long endTime = System.currentTimeMillis();
         resp.endTime = endTime;
         resp.costMs = endTime - requestStartTime;
-        resp.body = matchedEventBody.toString();
-        resp.bodySize = resp.body.getBytes(StandardCharsets.UTF_8).length;
+        resp.body = matchedEventBody.value();
+        resp.bodySize = matchedEventBody.totalUtf8Bytes();
         if (resp.headers == null) {
             resp.headers = new LinkedHashMap<>();
         }
         resp.addHeader("X-Easy-SSE-Mode", Collections.singletonList(cfg.completionMode.name()));
         resp.addHeader("X-Easy-SSE-Event-Filter", Collections.singletonList(CharSequenceUtil.blankToDefault(cfg.eventNameFilter, "")));
+        resp.addHeader("X-Easy-SSE-Message-Filter", Collections.singletonList(CharSequenceUtil.blankToDefault(cfg.messageFilter, "")));
+        resp.addHeader("X-Easy-SSE-Event-Count", Collections.singletonList(String.valueOf(eventCount.get())));
         resp.addHeader("X-Easy-SSE-Message-Count", Collections.singletonList(String.valueOf(matchedMessageCount.get())));
         resp.addHeader("X-Easy-SSE-First-Message-Latency-Ms", Collections.singletonList(firstMessageLatencyMs.get() >= 0 ? String.valueOf(firstMessageLatencyMs.get()) : ""));
         resp.addHeader("X-Easy-SSE-Completion-Reason", Collections.singletonList(CharSequenceUtil.blankToDefault(completionReasonRef.get(), "")));
@@ -256,17 +311,47 @@ public class SseSampleExecutor {
         return CharSequenceUtil.isBlank(filter) || CharSequenceUtil.equals(filter.trim(), eventType);
     }
 
-    private void appendEvent(StringBuffer buffer, String id, String type, String data) {
+    private boolean matchesPayload(SsePerformanceData cfg, String data) {
+        if (cfg.completionMode != SsePerformanceData.CompletionMode.MATCHED_MESSAGE) {
+            return true;
+        }
+        String filter = cfg.messageFilter;
+        return CharSequenceUtil.isBlank(filter) || (data != null && data.contains(filter.trim()));
+    }
+
+    private void appendEvent(BoundedTextAccumulator buffer, String id, String type, String data) {
         if (id != null && !id.isBlank()) {
-            buffer.append("id: ").append(id).append('\n');
+            buffer.append("id: ");
+            buffer.append(id);
+            buffer.append("\n");
         }
         if (type != null && !type.isBlank()) {
-            buffer.append("event: ").append(type).append('\n');
+            buffer.append("event: ");
+            buffer.append(type);
+            buffer.append("\n");
         }
         String eventData = data == null ? "" : data;
-        for (String line : eventData.split("\\R", -1)) {
-            buffer.append("data: ").append(line).append('\n');
+        appendDataLines(buffer, eventData);
+        buffer.append("\n");
+    }
+
+    private void appendDataLines(BoundedTextAccumulator buffer, String eventData) {
+        int lineStart = 0;
+        for (int i = 0; i < eventData.length(); i++) {
+            char ch = eventData.charAt(i);
+            if (ch != '\n' && ch != '\r') {
+                continue;
+            }
+            buffer.append("data: ");
+            buffer.append(eventData, lineStart, i);
+            buffer.append("\n");
+            if (ch == '\r' && i + 1 < eventData.length() && eventData.charAt(i + 1) == '\n') {
+                i++;
+            }
+            lineStart = i + 1;
         }
-        buffer.append('\n');
+        buffer.append("data: ");
+        buffer.append(eventData, lineStart, eventData.length());
+        buffer.append("\n");
     }
 }

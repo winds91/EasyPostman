@@ -88,7 +88,10 @@ public class PerformancePersistenceService {
         save(getConfigFilePath(), rootNode, efficientMode, csvState);
     }
 
-    private void save(Path configPath, DefaultMutableTreeNode rootNode, boolean efficientMode, CsvDataPanel.CsvState csvState) {
+    private void save(Path configPath,
+                      DefaultMutableTreeNode rootNode,
+                      boolean efficientMode,
+                      CsvDataPanel.CsvState csvState) {
         try {
             ensureDirExists(configPath);
             JSONObject jsonRoot = new JSONObject();
@@ -136,7 +139,10 @@ public class PerformancePersistenceService {
     public void saveAsync(DefaultMutableTreeNode rootNode, boolean efficientMode, CsvDataPanel.CsvState csvState) {
         // 异步线程启动前先固定路径，防止用户切换 workspace 后把旧性能方案写到新 workspace。
         Path configPath = getConfigFilePath();
-        Thread saveThread = new Thread(() -> save(configPath, rootNode, efficientMode, csvState), "performance-config-save");
+        Thread saveThread = new Thread(
+                () -> save(configPath, rootNode, efficientMode, csvState),
+                "performance-config-save"
+        );
         saveThread.setDaemon(true);
         saveThread.start();
     }
@@ -212,6 +218,7 @@ public class PerformancePersistenceService {
      * 序列化线程组数据
      */
     private JSONObject serializeThreadGroupData(ThreadGroupData data) {
+        data.normalize();
         JSONObject json = new JSONObject();
         json.set("threadMode", data.threadMode.name());
         json.set("numThreads", data.numThreads);
@@ -268,6 +275,7 @@ public class PerformancePersistenceService {
         json.set("holdConnectionMs", data.holdConnectionMs);
         json.set("targetMessageCount", data.targetMessageCount);
         json.set("eventNameFilter", data.eventNameFilter);
+        json.set("messageFilter", data.messageFilter);
         return json;
     }
 
@@ -277,6 +285,7 @@ public class PerformancePersistenceService {
         json.set("sendMode", data.sendMode != null ? data.sendMode.name() : WebSocketPerformanceData.SendMode.REQUEST_BODY_ON_CONNECT.name());
         json.set("sendContentSource", data.sendContentSource != null ? data.sendContentSource.name() : WebSocketPerformanceData.SendContentSource.REQUEST_BODY.name());
         json.set("customSendBody", data.customSendBody);
+        json.set("sendPreScript", data.sendPreScript);
         json.set("sendCount", data.sendCount);
         json.set("sendIntervalMs", data.sendIntervalMs);
         json.set("completionMode", data.completionMode != null ? data.completionMode.name() : WebSocketPerformanceData.CompletionMode.FIRST_MESSAGE.name());
@@ -561,6 +570,7 @@ public class PerformancePersistenceService {
         } catch (Exception e) {
             log.warn("Failed to deserialize thread group data: {}", e.getMessage());
         }
+        data.normalize();
         return data;
     }
 
@@ -591,6 +601,7 @@ public class PerformancePersistenceService {
             data.holdConnectionMs = json.getInt("holdConnectionMs", data.holdConnectionMs);
             data.targetMessageCount = json.getInt("targetMessageCount", data.targetMessageCount);
             data.eventNameFilter = json.getStr("eventNameFilter", data.eventNameFilter);
+            data.messageFilter = json.getStr("messageFilter", data.messageFilter);
         } catch (Exception e) {
             log.warn("Failed to deserialize SSE performance data: {}", e.getMessage());
         }
@@ -610,6 +621,7 @@ public class PerformancePersistenceService {
                 data.sendContentSource = WebSocketPerformanceData.SendContentSource.valueOf(sendContentSource);
             }
             data.customSendBody = json.getStr("customSendBody", data.customSendBody);
+            data.sendPreScript = json.getStr("sendPreScript", data.sendPreScript);
             data.sendCount = json.getInt("sendCount", data.sendCount);
             data.sendIntervalMs = json.getInt("sendIntervalMs", data.sendIntervalMs);
             String completionMode = json.getStr("completionMode");

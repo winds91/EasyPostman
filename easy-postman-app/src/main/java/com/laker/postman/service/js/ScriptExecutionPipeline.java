@@ -115,6 +115,10 @@ public class ScriptExecutionPipeline {
                 bindings = preparePreRequestBindings(request);
             }
 
+            PostmanApiContext pm = (PostmanApiContext) bindings.get("pm");
+            if (pm != null && pm.info != null) {
+                pm.info.eventName = "prerequest";
+            }
             clearTestResults();
 
             try {
@@ -149,6 +153,10 @@ public class ScriptExecutionPipeline {
             }
 
             addResponseBindings(bindings, response);
+            PostmanApiContext pm = (PostmanApiContext) bindings.get("pm");
+            if (pm != null && pm.info != null) {
+                pm.info.eventName = "test";
+            }
             clearTestResults();
 
             try {
@@ -161,7 +169,6 @@ public class ScriptExecutionPipeline {
 
                 executeScript(context);
 
-                PostmanApiContext pm = (PostmanApiContext) bindings.get("pm");
                 if (pm != null && pm.testResults != null) {
                     return ScriptExecutionResult.success(pm.testResults);
                 }
@@ -171,10 +178,43 @@ public class ScriptExecutionPipeline {
                 log.error("Post-script execution failed: {}", ex.getMessage(), ex);
                 ConsolePanel.appendLog("[PostScript Error]\n" + ex.getMessage(), ConsolePanel.LogType.ERROR);
 
-                PostmanApiContext pm = (PostmanApiContext) bindings.get("pm");
                 if (pm != null && pm.testResults != null) {
                     return ScriptExecutionResult.failure(ex.getMessage(), ex, pm.testResults);
                 }
+                return ScriptExecutionResult.failure(ex.getMessage(), ex);
+            }
+        });
+    }
+
+    public ScriptExecutionResult executeWebSocketSendScript(String script,
+                                                            int sendIndex,
+                                                            int sendCount,
+                                                            String stepName) {
+        return withExecutionContext(() -> {
+            if (bindings == null) {
+                bindings = preparePreRequestBindings(request);
+            }
+
+            PostmanApiContext pm = (PostmanApiContext) bindings.get("pm");
+            if (pm != null && pm.info != null) {
+                pm.info.eventName = "websocket_send";
+                pm.info.setWebSocketSendInfo(sendIndex, sendCount, stepName);
+            }
+            clearTestResults();
+
+            try {
+                ScriptExecutionContext context = ScriptExecutionContext.builder()
+                        .script(script)
+                        .scriptType(ScriptExecutionContext.ScriptType.CUSTOM)
+                        .bindings(bindings)
+                        .outputCallback(getEffectiveOutputCallback("[WebSocket Send Script Console]\n"))
+                        .build();
+
+                executeScript(context);
+                return ScriptExecutionResult.success();
+            } catch (ScriptExecutionException ex) {
+                log.error("WebSocket send script execution failed: {}", ex.getMessage(), ex);
+                ConsolePanel.appendLog("[WebSocket Send Script Error]\n" + ex.getMessage(), ConsolePanel.LogType.ERROR);
                 return ScriptExecutionResult.failure(ex.getMessage(), ex);
             }
         });

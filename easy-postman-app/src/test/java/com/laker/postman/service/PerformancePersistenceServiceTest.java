@@ -56,6 +56,7 @@ public class PerformancePersistenceServiceTest {
 
         Path configPath = workspaceDir.resolve("performance_config.json");
         assertTrue(Files.exists(configPath));
+        assertFalse(Files.readString(configPath).contains("responseBodyPreviewLimitKb"));
 
         DefaultMutableTreeNode loadedRoot = service.load("Loaded Plan");
         assertNotNull(loadedRoot);
@@ -227,6 +228,7 @@ public class PerformancePersistenceServiceTest {
         sendNode.webSocketPerformanceData.sendMode = WebSocketPerformanceData.SendMode.REQUEST_BODY_ON_CONNECT;
         sendNode.webSocketPerformanceData.sendContentSource = WebSocketPerformanceData.SendContentSource.CUSTOM_TEXT;
         sendNode.webSocketPerformanceData.customSendBody = "a-{{user-a}}";
+        sendNode.webSocketPerformanceData.sendPreScript = "pm.variables.set('a', 'dynamic');";
         requestNode.add(new DefaultMutableTreeNode(sendNode));
 
         JMeterTreeNode awaitNode = new JMeterTreeNode("WS Await", NodeType.WS_AWAIT);
@@ -249,6 +251,7 @@ public class PerformancePersistenceServiceTest {
         assertEquals(loadedSendNode.webSocketPerformanceData.sendContentSource,
                 WebSocketPerformanceData.SendContentSource.CUSTOM_TEXT);
         assertEquals(loadedSendNode.webSocketPerformanceData.customSendBody, "a-{{user-a}}");
+        assertEquals(loadedSendNode.webSocketPerformanceData.sendPreScript, "pm.variables.set('a', 'dynamic');");
         assertNotNull(loadedAwaitNode.webSocketPerformanceData);
         assertEquals(loadedAwaitNode.webSocketPerformanceData.completionMode,
                 WebSocketPerformanceData.CompletionMode.MATCHED_MESSAGE);
@@ -278,6 +281,7 @@ public class PerformancePersistenceServiceTest {
         sseRequest.ssePerformanceData.holdConnectionMs = 5678;
         sseRequest.ssePerformanceData.targetMessageCount = 9;
         sseRequest.ssePerformanceData.eventNameFilter = "orders";
+        sseRequest.ssePerformanceData.messageFilter = "done";
         DefaultMutableTreeNode sseRequestNode = new DefaultMutableTreeNode(sseRequest);
         sseRequestNode.add(new DefaultMutableTreeNode(new JMeterTreeNode("SSE Connect", NodeType.SSE_CONNECT)));
         sseRequestNode.add(new DefaultMutableTreeNode(new JMeterTreeNode("SSE Await", NodeType.SSE_AWAIT)));
@@ -321,6 +325,7 @@ public class PerformancePersistenceServiceTest {
         assertEquals(loadedSseRequest.ssePerformanceData.holdConnectionMs, 5678);
         assertEquals(loadedSseRequest.ssePerformanceData.targetMessageCount, 9);
         assertEquals(loadedSseRequest.ssePerformanceData.eventNameFilter, "orders");
+        assertEquals(loadedSseRequest.ssePerformanceData.messageFilter, "done");
         assertEquals(loadedWsRequest.webSocketPerformanceData.connectTimeoutMs, 4321);
         assertEquals(loadedAssertion.assertionData.value, "200");
         assertEquals(loadedTimer.timerData.delayMs, 250);

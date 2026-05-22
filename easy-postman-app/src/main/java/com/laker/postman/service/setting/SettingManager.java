@@ -29,12 +29,23 @@ public class SettingManager {
     private static final int DEFAULT_SCRIPT_REMOTE_READ_TIMEOUT_MS = 5000;
     private static final int DEFAULT_SCRIPT_REMOTE_MAX_BYTES = 512 * 1024;
     private static final int DEFAULT_JMETER_SLOW_REQUEST_THRESHOLD_MS = 10000;
+    private static final int DEFAULT_JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT_MS = 3_000;
+    private static final int DEFAULT_JMETER_MAX_IDLE_CONNECTIONS = 200;
+    private static final long DEFAULT_JMETER_KEEP_ALIVE_SECONDS = 60L;
+    private static final int DEFAULT_JMETER_MAX_REQUESTS = 1000;
+    private static final int DEFAULT_JMETER_MAX_REQUESTS_PER_HOST = 1000;
     private static final String AUTO_UPDATE_CHECK_ENABLED_KEY = "auto_update_check_enabled";
     private static final String AUTO_UPDATE_CHECK_FREQUENCY_KEY = "auto_update_check_frequency";
     private static final String LAST_UPDATE_CHECK_TIME_KEY = "last_update_check_time";
     private static final String UPDATE_SOURCE_PREFERENCE_KEY = "update_source_preference";
     private static final String JMETER_SLOW_REQUEST_THRESHOLD_KEY = "jmeter_slow_request_threshold";
+    private static final String JMETER_JS_CONTEXT_POOL_SIZE_KEY = "jmeter_js_context_pool_size";
+    private static final String JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT_MS_KEY = "jmeter_js_context_acquire_timeout_ms";
+    private static final String PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB_KEY = "performance_response_body_preview_limit_kb";
     private static final Object SETTINGS_IO_LOCK = new Object();
+    public static final int DEFAULT_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB = 64;
+    public static final int MIN_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB = 1;
+    public static final int MAX_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB = 1024;
     public static final String PROXY_MODE_MANUAL = "MANUAL";
     public static final String PROXY_MODE_SYSTEM = "SYSTEM";
     public static final String PROXY_TYPE_HTTP = "HTTP";
@@ -197,67 +208,64 @@ public class SettingManager {
     }
 
     public static int getJmeterMaxIdleConnections() {
-        String val = props.getProperty("jmeter_max_idle_connections");
-        if (val != null) {
-            try {
-                return Integer.parseInt(val);
-            } catch (NumberFormatException e) {
-                return 200;
-            }
-        }
-        return 200;
+        return getPositiveIntSetting("jmeter_max_idle_connections", DEFAULT_JMETER_MAX_IDLE_CONNECTIONS);
     }
 
     public static void setJmeterMaxIdleConnections(int maxIdle) {
-        setAndSaveProperty("jmeter_max_idle_connections", String.valueOf(maxIdle));
+        setAndSaveProperty("jmeter_max_idle_connections",
+                String.valueOf(maxIdle > 0 ? maxIdle : DEFAULT_JMETER_MAX_IDLE_CONNECTIONS));
     }
 
     public static long getJmeterKeepAliveSeconds() {
-        String val = props.getProperty("jmeter_keep_alive_seconds");
-        if (val != null) {
-            try {
-                return Long.parseLong(val);
-            } catch (NumberFormatException e) {
-                return 60L;
-            }
-        }
-        return 60L;
+        return getPositiveLongSetting("jmeter_keep_alive_seconds", DEFAULT_JMETER_KEEP_ALIVE_SECONDS);
     }
 
     public static void setJmeterKeepAliveSeconds(long seconds) {
-        setAndSaveProperty("jmeter_keep_alive_seconds", String.valueOf(seconds));
+        setAndSaveProperty("jmeter_keep_alive_seconds",
+                String.valueOf(seconds > 0 ? seconds : DEFAULT_JMETER_KEEP_ALIVE_SECONDS));
     }
 
     public static int getJmeterMaxRequests() {
-        String val = props.getProperty("jmeter_max_requests");
-        if (val != null) {
-            try {
-                return Integer.parseInt(val);
-            } catch (NumberFormatException e) {
-                return 1000;
-            }
-        }
-        return 1000; //（压测场景需要更大值）
+        return getPositiveIntSetting("jmeter_max_requests", DEFAULT_JMETER_MAX_REQUESTS);
     }
 
     public static void setJmeterMaxRequests(int maxRequests) {
-        setAndSaveProperty("jmeter_max_requests", String.valueOf(maxRequests));
+        setAndSaveProperty("jmeter_max_requests",
+                String.valueOf(maxRequests > 0 ? maxRequests : DEFAULT_JMETER_MAX_REQUESTS));
     }
 
     public static int getJmeterMaxRequestsPerHost() {
-        String val = props.getProperty("jmeter_max_requests_per_host");
-        if (val != null) {
-            try {
-                return Integer.parseInt(val);
-            } catch (NumberFormatException e) {
-                return 1000;
-            }
-        }
-        return 1000; // 默认1000（压测场景需要更大值）
+        return getPositiveIntSetting("jmeter_max_requests_per_host", DEFAULT_JMETER_MAX_REQUESTS_PER_HOST);
     }
 
     public static void setJmeterMaxRequestsPerHost(int maxRequestsPerHost) {
-        setAndSaveProperty("jmeter_max_requests_per_host", String.valueOf(maxRequestsPerHost));
+        setAndSaveProperty("jmeter_max_requests_per_host",
+                String.valueOf(maxRequestsPerHost > 0 ? maxRequestsPerHost : DEFAULT_JMETER_MAX_REQUESTS_PER_HOST));
+    }
+
+    public static int getDefaultJmeterJsContextPoolSize() {
+        return Math.max(16, Runtime.getRuntime().availableProcessors() * 4);
+    }
+
+    public static int getJmeterJsContextPoolSize() {
+        return getPositiveIntSetting(JMETER_JS_CONTEXT_POOL_SIZE_KEY, getDefaultJmeterJsContextPoolSize());
+    }
+
+    public static void setJmeterJsContextPoolSize(int poolSize) {
+        int normalized = poolSize > 0 ? poolSize : getDefaultJmeterJsContextPoolSize();
+        setAndSaveProperty(JMETER_JS_CONTEXT_POOL_SIZE_KEY, String.valueOf(normalized));
+    }
+
+    public static int getJmeterJsContextAcquireTimeoutMs() {
+        return getPositiveIntSetting(
+                JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT_MS_KEY,
+                DEFAULT_JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT_MS
+        );
+    }
+
+    public static void setJmeterJsContextAcquireTimeoutMs(int timeoutMs) {
+        int normalized = timeoutMs > 0 ? timeoutMs : DEFAULT_JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT_MS;
+        setAndSaveProperty(JMETER_JS_CONTEXT_ACQUIRE_TIMEOUT_MS_KEY, String.valueOf(normalized));
     }
 
     public static int getJmeterSlowRequestThreshold() {
@@ -306,6 +314,36 @@ public class SettingManager {
 
     public static void setPerformanceEventLoggingEnabled(boolean enabled) {
         setAndSaveProperty("performance_event_logging_enabled", String.valueOf(enabled));
+    }
+
+    public static int getPerformanceResponseBodyPreviewLimitKb() {
+        String val = props.getProperty(PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB_KEY);
+        if (val != null) {
+            try {
+                return sanitizePerformanceResponseBodyPreviewLimitKb(Integer.parseInt(val));
+            } catch (NumberFormatException e) {
+                return DEFAULT_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB;
+            }
+        }
+        return DEFAULT_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB;
+    }
+
+    public static void setPerformanceResponseBodyPreviewLimitKb(int limitKb) {
+        setAndSaveProperty(PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB_KEY,
+                String.valueOf(sanitizePerformanceResponseBodyPreviewLimitKb(limitKb)));
+    }
+
+    public static int sanitizePerformanceResponseBodyPreviewLimitKb(Integer limitKb) {
+        if (limitKb == null
+                || limitKb < MIN_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB
+                || limitKb > MAX_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB) {
+            return DEFAULT_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB;
+        }
+        return limitKb;
+    }
+
+    public static int performanceResponseBodyPreviewLimitBytes(int limitKb) {
+        return sanitizePerformanceResponseBodyPreviewLimitKb(limitKb) * 1024;
     }
 
     public static boolean isShowDownloadProgressDialog() {
@@ -1015,6 +1053,19 @@ public class SettingManager {
         if (val != null) {
             try {
                 int parsed = Integer.parseInt(val);
+                return parsed > 0 ? parsed : defaultValue;
+            } catch (NumberFormatException e) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
+
+    private static long getPositiveLongSetting(String key, long defaultValue) {
+        String val = props.getProperty(key);
+        if (val != null) {
+            try {
+                long parsed = Long.parseLong(val);
                 return parsed > 0 ? parsed : defaultValue;
             } catch (NumberFormatException e) {
                 return defaultValue;

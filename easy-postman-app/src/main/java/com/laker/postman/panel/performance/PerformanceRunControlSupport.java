@@ -3,7 +3,8 @@ package com.laker.postman.panel.performance;
 import com.laker.postman.common.component.button.RefreshButton;
 import com.laker.postman.common.component.button.StartButton;
 import com.laker.postman.common.component.button.StopButton;
-import com.laker.postman.panel.performance.model.RequestResult;
+import com.laker.postman.panel.performance.model.PerformanceStatsCollector;
+import com.laker.postman.panel.performance.model.PerformanceStatsSnapshot;
 import com.laker.postman.panel.performance.result.PerformanceReportPanel;
 import com.laker.postman.panel.performance.result.PerformanceResultTablePanel;
 import com.laker.postman.panel.performance.result.PerformanceTrendPanel;
@@ -17,9 +18,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
@@ -46,11 +44,7 @@ final class PerformanceRunControlSupport {
     private final PerformanceResultTablePanel performanceResultTablePanel;
     private final PerformanceReportPanel performanceReportPanel;
     private final PerformanceTrendPanel performanceTrendPanel;
-    private final List<RequestResult> allRequestResults;
-    private final Object statsLock;
-    private final Map<String, List<Long>> apiCostMap;
-    private final Map<String, Integer> apiSuccessMap;
-    private final Map<String, Integer> apiFailMap;
+    private final PerformanceStatsCollector statsCollector;
     private final Runnable clearCachedPerformanceResultsAction;
 
     Thread startRun(DefaultMutableTreeNode rootNode,
@@ -110,7 +104,7 @@ final class PerformanceRunControlSupport {
         int totalThreads = executionEngine.getTotalThreads(rootNode);
         progressLabel.setText("0/" + totalThreads);
 
-        Thread runThread = new Thread(() -> {
+        Thread runThread = PerformanceThreadFactory.newDaemonThread("PerformanceRun", () -> {
             try {
                 executionEngine.runJMeterTreeWithProgress(
                         rootNode,
@@ -118,8 +112,11 @@ final class PerformanceRunControlSupport {
                         (active, total) -> SwingUtilities.invokeLater(() -> progressLabel.setText(active + "/" + total))
                 );
             } finally {
+                boolean stopped = !runningSupplier.getAsBoolean() || Thread.currentThread().isInterrupted();
                 waitForFinalStats();
-                SwingUtilities.invokeLater(() -> finishRunUi());
+                if (!stopped) {
+                    SwingUtilities.invokeLater(this::finishRunUi);
+                }
             }
         });
         runThread.start();
@@ -138,8 +135,10 @@ final class PerformanceRunControlSupport {
         refreshBtn.setEnabled(true);
         timerManager.stopAll();
 
-        CompletableFuture.runAsync(this::waitForFinalStats)
-                .thenRun(() -> SwingUtilities.invokeLater(this::flushUiAfterStop));
+        PerformanceThreadFactory.newDaemonThread("PerformanceStopFlush", () -> {
+            waitForFinalStats();
+            SwingUtilities.invokeLater(this::flushUiAfterStop);
+        }).start();
 
         OkHttpClientManager.setDefaultConnectionPoolConfig();
     }
@@ -164,12 +163,9 @@ final class PerformanceRunControlSupport {
         statisticsCoordinator.updateReportWithLatestDataSync();
 
         long totalTime = System.currentTimeMillis() - startTimeSupplier.getAsLong();
-        int totalRequests;
-        long successCount;
-        synchronized (statsLock) {
-            totalRequests = allRequestResults.size();
-            successCount = allRequestResults.stream().filter(r -> r.success).count();
-        }
+        PerformanceStatsSnapshot statsSnapshot = statsCollector.snapshot();
+        long totalRequests = statsSnapshot.totalRequests();
+        long successCount = statsSnapshot.successRequests();
 
         String message = I18nUtil.getMessage(
                 MessageKeys.PERFORMANCE_MSG_EXECUTION_COMPLETED,

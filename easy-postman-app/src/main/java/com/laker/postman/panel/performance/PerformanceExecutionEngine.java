@@ -1,17 +1,18 @@
 package com.laker.postman.panel.performance;
 
 import com.laker.postman.common.component.CsvDataPanel;
-import com.laker.postman.model.HttpRequestItem;
 import com.laker.postman.panel.performance.execution.PerformanceRequestExecutionResult;
 import com.laker.postman.panel.performance.execution.PerformanceRequestExecutor;
 import com.laker.postman.panel.performance.execution.PerformanceResultRecorder;
 import com.laker.postman.panel.performance.model.JMeterTreeNode;
 import com.laker.postman.panel.performance.model.NodeType;
-import com.laker.postman.panel.performance.model.RequestResult;
+import com.laker.postman.panel.performance.model.PerformanceRealtimeMetrics;
+import com.laker.postman.panel.performance.model.PerformanceStatsCollector;
 import com.laker.postman.panel.performance.result.PerformanceResultTablePanel;
 import com.laker.postman.panel.performance.threadgroup.ThreadGroupData;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.service.variable.ExecutionVariableContext;
+import com.laker.postman.service.variable.IterationDataRuntimeSupport;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.Getter;
@@ -22,16 +23,14 @@ import okhttp3.sse.EventSource;
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 
 @Slf4j
 final class PerformanceExecutionEngine {
@@ -42,11 +41,11 @@ final class PerformanceExecutionEngine {
     private final CsvDataPanel csvDataPanel;
     private final PerformanceRequestExecutor requestExecutor;
     private final PerformanceResultRecorder resultRecorder;
-    private final AtomicInteger activeThreads = new AtomicInteger(0);
-    private final AtomicInteger virtualUserCounter = new AtomicInteger(0);
-    private final ThreadLocal<Integer> threadVirtualUserIndex = new ThreadLocal<>();
+    private final PerformanceThreadGroupPlanner threadGroupPlanner = new PerformanceThreadGroupPlanner();
+    private final PerformanceVirtualUserCoordinator virtualUsers = new PerformanceVirtualUserCoordinator();
     private final Set<EventSource> activeSseSources = ConcurrentHashMap.newKeySet();
     private final Set<WebSocket> activeWebSockets = ConcurrentHashMap.newKeySet();
+    private final PerformanceRealtimeMetrics realtimeMetrics = new PerformanceRealtimeMetrics();
 
     @Getter
     private volatile long startTime;
@@ -54,12 +53,9 @@ final class PerformanceExecutionEngine {
     PerformanceExecutionEngine(Component dialogParent,
                                BooleanSupplier runningSupplier,
                                BooleanSupplier efficientModeSupplier,
+                               IntSupplier responseBodyPreviewLimitKbSupplier,
                                CsvDataPanel csvDataPanel,
-                               List<RequestResult> allRequestResults,
-                               Map<String, List<Long>> apiCostMap,
-                               Map<String, Integer> apiSuccessMap,
-                               Map<String, Integer> apiFailMap,
-                               Object statsLock,
+                               PerformanceStatsCollector statsCollector,
                                PerformanceResultTablePanel performanceResultTablePanel) {
         this.dialogParent = dialogParent;
         this.runningSupplier = runningSupplier;
@@ -69,99 +65,49 @@ final class PerformanceExecutionEngine {
                 runningSupplier,
                 this::isCancelledOrInterrupted,
                 activeSseSources,
-                activeWebSockets
+                activeWebSockets,
+                realtimeMetrics,
+                efficientModeSupplier,
+                responseBodyPreviewLimitKbSupplier
         );
         this.resultRecorder = new PerformanceResultRecorder(
-                allRequestResults,
-                apiCostMap,
-                apiSuccessMap,
-                apiFailMap,
-                statsLock,
+                statsCollector,
                 performanceResultTablePanel,
                 SettingManager::getJmeterSlowRequestThreshold
         );
     }
 
     int getActiveThreads() {
-        return activeThreads.get();
+        return virtualUsers.getActiveThreads();
+    }
+
+    int getActiveWebSockets() {
+        return activeWebSockets.size();
+    }
+
+    int getActiveSseStreams() {
+        return activeSseSources.size();
     }
 
     void beginRun(long startTime) {
         this.startTime = startTime;
+        realtimeMetrics.reset(startTime);
     }
 
     void resetVirtualUsers() {
-        virtualUserCounter.set(0);
+        virtualUsers.resetVirtualUsers();
+    }
+
+    PerformanceRealtimeMetrics.Sample sampleRealtimeMetrics(long nowMs) {
+        return realtimeMetrics.sample(nowMs);
     }
 
     int getTotalThreads(DefaultMutableTreeNode rootNode) {
-        int total = 0;
-        for (int i = 0; i < rootNode.getChildCount(); i++) {
-            DefaultMutableTreeNode child = (DefaultMutableTreeNode) rootNode.getChildAt(i);
-            Object userObj = child.getUserObject();
-            if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.THREAD_GROUP) {
-                if (!jtNode.enabled) {
-                    continue;
-                }
-                ThreadGroupData tg = jtNode.threadGroupData != null ? jtNode.threadGroupData : new ThreadGroupData();
-                switch (tg.threadMode) {
-                    case FIXED -> total += tg.numThreads;
-                    case RAMP_UP -> total += tg.rampUpEndThreads;
-                    case SPIKE -> total += tg.spikeMaxThreads;
-                    case STAIRS -> total += tg.stairsEndThreads;
-                }
-            }
-        }
-        return total;
+        return threadGroupPlanner.getTotalThreads(rootNode);
     }
 
     long estimateTotalRequests(DefaultMutableTreeNode rootNode) {
-        final double avgRequestDuration = 0.3;
-
-        long total = 0;
-        for (int i = 0; i < rootNode.getChildCount(); i++) {
-            DefaultMutableTreeNode groupNode = (DefaultMutableTreeNode) rootNode.getChildAt(i);
-            Object userObj = groupNode.getUserObject();
-            if (userObj instanceof JMeterTreeNode jtNode && jtNode.type == NodeType.THREAD_GROUP) {
-                if (!jtNode.enabled) {
-                    continue;
-                }
-
-                ThreadGroupData tg = jtNode.threadGroupData != null ? jtNode.threadGroupData : new ThreadGroupData();
-                int enabledRequests = countEnabledRequests(groupNode);
-                if (enabledRequests == 0) {
-                    continue;
-                }
-
-                switch (tg.threadMode) {
-                    case FIXED -> {
-                        if (tg.useTime) {
-                            double requestsPerSecondPerThread = 1.0 / avgRequestDuration;
-                            total += (long) (tg.numThreads * tg.duration * requestsPerSecondPerThread * enabledRequests);
-                        } else {
-                            total += (long) tg.numThreads * tg.loops * enabledRequests;
-                        }
-                    }
-                    case RAMP_UP -> {
-                        int avgThreads = (tg.rampUpStartThreads + tg.rampUpEndThreads) / 2;
-                        double requestsPerSecondPerThread = 1.0 / avgRequestDuration;
-                        total += (long) (avgThreads * tg.rampUpDuration * requestsPerSecondPerThread * enabledRequests);
-                    }
-                    case SPIKE -> {
-                        int totalTime = tg.spikeRampUpTime + tg.spikeHoldTime + tg.spikeRampDownTime;
-                        int avgThreads = (tg.spikeMinThreads + tg.spikeMaxThreads) / 2;
-                        double requestsPerSecondPerThread = 1.0 / avgRequestDuration;
-                        total += (long) (avgThreads * totalTime * requestsPerSecondPerThread * enabledRequests);
-                    }
-                    case STAIRS -> {
-                        int avgThreads = (tg.stairsStartThreads + tg.stairsEndThreads) / 2;
-                        double requestsPerSecondPerThread = 1.0 / avgRequestDuration;
-                        total += (long) (avgThreads * tg.stairsDuration * requestsPerSecondPerThread * enabledRequests);
-                    }
-                }
-            }
-        }
-        return total;
+        return threadGroupPlanner.estimateTotalRequests(rootNode);
     }
 
     void runJMeterTreeWithProgress(DefaultMutableTreeNode rootNode,
@@ -183,17 +129,14 @@ final class PerformanceExecutionEngine {
                 if (tgUserObj instanceof JMeterTreeNode tgJtNode && !tgJtNode.enabled) {
                     continue;
                 }
-                Thread thread = new Thread(() -> runJMeterTreeWithProgress(tgNode, totalThreads, progressUpdater));
+                Thread thread = PerformanceThreadFactory.newDaemonThread(
+                        "PerformanceThreadGroup",
+                        () -> runJMeterTreeWithProgress(tgNode, totalThreads, progressUpdater)
+                );
                 tgThreads.add(thread);
                 thread.start();
             }
-            for (Thread thread : tgThreads) {
-                try {
-                    thread.join();
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                }
-            }
+            joinThreadGroupThreads(tgThreads, this::cancelAllNetworkCalls);
             return;
         }
 
@@ -202,7 +145,7 @@ final class PerformanceExecutionEngine {
             return;
         }
 
-        ThreadGroupData tg = jtNode.threadGroupData != null ? jtNode.threadGroupData : new ThreadGroupData();
+        ThreadGroupData tg = resolveThreadGroupData(jtNode);
         switch (tg.threadMode) {
             case FIXED -> runFixedThreads(rootNode, tg, progressUpdater, totalThreads);
             case RAMP_UP -> runRampUpThreads(rootNode, tg, progressUpdater, totalThreads);
@@ -235,18 +178,33 @@ final class PerformanceExecutionEngine {
         activeWebSockets.clear();
     }
 
-    private int countEnabledRequests(DefaultMutableTreeNode groupNode) {
-        int enabledRequests = 0;
-        for (int j = 0; j < groupNode.getChildCount(); j++) {
-            DefaultMutableTreeNode requestNode = (DefaultMutableTreeNode) groupNode.getChildAt(j);
-            Object reqObj = requestNode.getUserObject();
-            if (reqObj instanceof JMeterTreeNode reqJtNode
-                    && reqJtNode.type == NodeType.REQUEST
-                    && reqJtNode.enabled) {
-                enabledRequests++;
+    static void joinThreadGroupThreads(List<Thread> threadGroupThreads, Runnable cancellationAction) {
+        boolean interrupted = false;
+        for (Thread thread : threadGroupThreads) {
+            while (thread.isAlive()) {
+                try {
+                    thread.join();
+                    break;
+                } catch (InterruptedException ignored) {
+                    interrupted = true;
+                    if (cancellationAction != null) {
+                        cancellationAction.run();
+                    }
+                    for (Thread candidate : threadGroupThreads) {
+                        if (candidate.isAlive()) {
+                            candidate.interrupt();
+                        }
+                    }
+                }
             }
         }
-        return enabledRequests;
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private ThreadGroupData resolveThreadGroupData(JMeterTreeNode node) {
+        return PerformanceThreadGroupPlanner.resolveThreadGroupData(node);
     }
 
     private void runFixedThreads(DefaultMutableTreeNode groupNode,
@@ -258,7 +216,10 @@ final class PerformanceExecutionEngine {
         boolean useTime = tg.useTime;
         int durationSeconds = tg.duration;
 
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        ExecutorService executor = Executors.newFixedThreadPool(
+                numThreads,
+                PerformanceThreadFactory.daemonFactory("PerformanceFixedWorker")
+        );
         long threadGroupStartTime = System.currentTimeMillis();
         long endTime = useTime ? (threadGroupStartTime + (durationSeconds * 1000L)) : Long.MAX_VALUE;
 
@@ -267,23 +228,13 @@ final class PerformanceExecutionEngine {
                 executor.shutdownNow();
                 return;
             }
-            final int vuIndex = virtualUserCounter.getAndIncrement();
-            executor.submit(() -> {
-                threadVirtualUserIndex.set(vuIndex);
-                activeThreads.incrementAndGet();
-                updateProgress(progressUpdater, totalThreads);
-                try {
-                    if (useTime) {
-                        while (System.currentTimeMillis() < endTime && runningSupplier.getAsBoolean()) {
-                            runTaskIteration(groupNode);
-                        }
-                    } else {
-                        runTask(groupNode, loops);
+            virtualUsers.submit(executor, progressUpdater, totalThreads, () -> {
+                if (useTime) {
+                    while (System.currentTimeMillis() < endTime && runningSupplier.getAsBoolean()) {
+                        runTaskIteration(groupNode, 0);
                     }
-                } finally {
-                    activeThreads.decrementAndGet();
-                    updateProgress(progressUpdater, totalThreads);
-                    threadVirtualUserIndex.remove();
+                } else {
+                    runTask(groupNode, loops);
                 }
             });
         }
@@ -310,13 +261,22 @@ final class PerformanceExecutionEngine {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             executor.shutdownNow();
-            JOptionPane.showMessageDialog(
-                    dialogParent,
-                    I18nUtil.getMessage(MessageKeys.PERFORMANCE_MSG_EXECUTION_INTERRUPTED, exception.getMessage()),
-                    I18nUtil.getMessage(MessageKeys.GENERAL_ERROR),
-                    JOptionPane.ERROR_MESSAGE
-            );
-            log.error(exception.getMessage(), exception);
+            if (runningSupplier.getAsBoolean()) {
+                String message = I18nUtil.getMessage(
+                        MessageKeys.PERFORMANCE_MSG_EXECUTION_INTERRUPTED,
+                        exception.getMessage()
+                );
+                String title = I18nUtil.getMessage(MessageKeys.GENERAL_ERROR);
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                        dialogParent,
+                        message,
+                        title,
+                        JOptionPane.ERROR_MESSAGE
+                ));
+                log.error(exception.getMessage(), exception);
+            } else {
+                log.debug("固定线程模式已停止");
+            }
         }
     }
 
@@ -330,8 +290,13 @@ final class PerformanceExecutionEngine {
         int totalDuration = tg.rampUpDuration;
         double threadsPerSecond = (double) (endThreads - startThreads) / rampUpTime;
 
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-        ExecutorService executor = Executors.newCachedThreadPool();
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
+                1,
+                PerformanceThreadFactory.daemonFactory("PerformanceRampScheduler")
+        );
+        ExecutorService executor = Executors.newCachedThreadPool(
+                PerformanceThreadFactory.daemonFactory("PerformanceRampWorker")
+        );
         AtomicInteger activeWorkerThreads = new AtomicInteger(0);
 
         scheduler.scheduleAtFixedRate(() -> {
@@ -359,21 +324,14 @@ final class PerformanceExecutionEngine {
                     if (!activeWorkerThreads.compareAndSet(current, current + 1)) {
                         continue;
                     }
-                    final int vuIndex = virtualUserCounter.getAndIncrement();
-                    executor.submit(() -> {
-                        threadVirtualUserIndex.set(vuIndex);
-                        activeThreads.incrementAndGet();
-                        updateProgress(progressUpdater, totalThreads);
+                    virtualUsers.submit(executor, progressUpdater, totalThreads, () -> {
                         try {
                             while (runningSupplier.getAsBoolean()
                                     && System.currentTimeMillis() - startTime < totalDuration * 1000L) {
-                                runTaskIteration(groupNode);
+                                runTaskIteration(groupNode, 0);
                             }
                         } finally {
                             activeWorkerThreads.decrementAndGet();
-                            activeThreads.decrementAndGet();
-                            updateProgress(progressUpdater, totalThreads);
-                            threadVirtualUserIndex.remove();
                         }
                     });
                 }
@@ -415,7 +373,10 @@ final class PerformanceExecutionEngine {
         int rampDownTime = tg.spikeRampDownTime;
         int totalTime = tg.spikeDuration;
 
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
+                1,
+                PerformanceThreadFactory.daemonFactory("PerformanceSpikeScheduler")
+        );
         AtomicInteger activeWorkerThreads = new AtomicInteger(0);
         ConcurrentHashMap<Thread, Long> threadEndTimes = new ConcurrentHashMap<>();
 
@@ -429,28 +390,15 @@ final class PerformanceExecutionEngine {
                 return;
             }
             activeWorkerThreads.incrementAndGet();
-            final int vuIndex = virtualUserCounter.getAndIncrement();
-            Thread thread = new Thread(() -> {
-                threadVirtualUserIndex.set(vuIndex);
-                activeThreads.incrementAndGet();
-                updateProgress(progressUpdater, totalThreads);
-                try {
-                    Thread currentThread = Thread.currentThread();
-                    while (runningSupplier.getAsBoolean()
-                            && System.currentTimeMillis() - startTime < totalTime * 1000L
-                            && System.currentTimeMillis() < threadEndTimes.getOrDefault(currentThread, Long.MAX_VALUE)) {
-                        runTaskIteration(groupNode);
-                    }
-                } finally {
-                    activeWorkerThreads.decrementAndGet();
-                    activeThreads.decrementAndGet();
-                    updateProgress(progressUpdater, totalThreads);
-                    threadEndTimes.remove(Thread.currentThread());
-                    threadVirtualUserIndex.remove();
-                }
-            });
-            threadEndTimes.put(thread, Long.MAX_VALUE);
-            thread.start();
+            startWindowedVirtualUser(
+                    "PerformanceSpikeWorker",
+                    groupNode,
+                    activeWorkerThreads,
+                    totalTime,
+                    progressUpdater,
+                    totalThreads,
+                    threadEndTimes
+            );
         }
 
         scheduler.scheduleAtFixedRate(() -> {
@@ -483,7 +431,7 @@ final class PerformanceExecutionEngine {
                 int threadsToRemove = activeWorkerThreads.get() - targetThreads;
                 if (threadsToRemove > 0) {
                     threadEndTimes.keySet().stream()
-                            .filter(t -> t.isAlive() && threadEndTimes.get(t) == Long.MAX_VALUE)
+                            .filter(t -> t.isAlive() && isOpenEndedWorker(threadEndTimes, t))
                             .limit(threadsToRemove)
                             .forEach(t -> threadEndTimes.put(t, now + 500));
                 }
@@ -535,10 +483,13 @@ final class PerformanceExecutionEngine {
         int holdTime = tg.stairsHoldTime;
         int totalTime = tg.stairsDuration;
 
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
+                1,
+                PerformanceThreadFactory.daemonFactory("PerformanceStairsScheduler")
+        );
         AtomicInteger activeWorkerThreads = new AtomicInteger(0);
         ConcurrentHashMap<Thread, Long> threadEndTimes = new ConcurrentHashMap<>();
-        int totalSteps = Math.max(1, (endThreads - startThreads) / step);
+        int totalSteps = calculateStairsTotalSteps(startThreads, endThreads, step);
         AtomicInteger currentStair = new AtomicInteger(0);
         AtomicLong lastStairChangeTime = new AtomicLong(System.currentTimeMillis());
 
@@ -547,28 +498,15 @@ final class PerformanceExecutionEngine {
                 return;
             }
             activeWorkerThreads.incrementAndGet();
-            final int vuIndex = virtualUserCounter.getAndIncrement();
-            Thread thread = new Thread(() -> {
-                threadVirtualUserIndex.set(vuIndex);
-                activeThreads.incrementAndGet();
-                updateProgress(progressUpdater, totalThreads);
-                try {
-                    Thread currentThread = Thread.currentThread();
-                    while (runningSupplier.getAsBoolean()
-                            && System.currentTimeMillis() - startTime < totalTime * 1000L
-                            && System.currentTimeMillis() < threadEndTimes.getOrDefault(currentThread, Long.MAX_VALUE)) {
-                        runTaskIteration(groupNode);
-                    }
-                } finally {
-                    activeWorkerThreads.decrementAndGet();
-                    activeThreads.decrementAndGet();
-                    updateProgress(progressUpdater, totalThreads);
-                    threadEndTimes.remove(Thread.currentThread());
-                    threadVirtualUserIndex.remove();
-                }
-            });
-            threadEndTimes.put(thread, Long.MAX_VALUE);
-            thread.start();
+            startWindowedVirtualUser(
+                    "PerformanceStairsWorker",
+                    groupNode,
+                    activeWorkerThreads,
+                    totalTime,
+                    progressUpdater,
+                    totalThreads,
+                    threadEndTimes
+            );
         }
 
         scheduler.scheduleAtFixedRate(() -> {
@@ -652,34 +590,21 @@ final class PerformanceExecutionEngine {
                 }
 
                 activeWorkerThreads.incrementAndGet();
-                final int vuIndex = virtualUserCounter.getAndIncrement();
-                Thread thread = new Thread(() -> {
-                    threadVirtualUserIndex.set(vuIndex);
-                    activeThreads.incrementAndGet();
-                    updateProgress(progressUpdater, totalThreads);
-                    try {
-                        Thread currentThread = Thread.currentThread();
-                        while (runningSupplier.getAsBoolean()
-                                && System.currentTimeMillis() - startTime < totalTime * 1000L
-                                && System.currentTimeMillis() < threadEndTimes.getOrDefault(currentThread, Long.MAX_VALUE)) {
-                            runTaskIteration(groupNode);
-                        }
-                    } finally {
-                        activeWorkerThreads.decrementAndGet();
-                        activeThreads.decrementAndGet();
-                        updateProgress(progressUpdater, totalThreads);
-                        threadEndTimes.remove(Thread.currentThread());
-                        threadVirtualUserIndex.remove();
-                    }
-                });
-                threadEndTimes.put(thread, Long.MAX_VALUE);
-                thread.start();
+                startWindowedVirtualUser(
+                        "PerformanceSpikeWorker",
+                        groupNode,
+                        activeWorkerThreads,
+                        totalTime,
+                        progressUpdater,
+                        totalThreads,
+                        threadEndTimes
+                );
             }
         } else if (current > targetThreads) {
             int threadsToRemove = current - targetThreads;
             long now = System.currentTimeMillis();
             List<Thread> availableThreads = threadEndTimes.keySet().stream()
-                    .filter(t -> t.isAlive() && threadEndTimes.get(t) == Long.MAX_VALUE)
+                    .filter(t -> t.isAlive() && isOpenEndedWorker(threadEndTimes, t))
                     .limit(threadsToRemove)
                     .toList();
 
@@ -724,34 +649,60 @@ final class PerformanceExecutionEngine {
             }
 
             activeWorkerThreads.incrementAndGet();
-            final int vuIndex = virtualUserCounter.getAndIncrement();
-            Thread thread = new Thread(() -> {
-                threadVirtualUserIndex.set(vuIndex);
-                activeThreads.incrementAndGet();
-                updateProgress(progressUpdater, totalThreads);
-                try {
-                    Thread currentThread = Thread.currentThread();
-                    while (runningSupplier.getAsBoolean()
-                            && System.currentTimeMillis() - startTime < totalTime * 1000L
-                            && System.currentTimeMillis() < threadEndTimes.getOrDefault(currentThread, Long.MAX_VALUE)) {
-                        runTaskIteration(groupNode);
-                    }
-                } finally {
-                    activeWorkerThreads.decrementAndGet();
-                    activeThreads.decrementAndGet();
-                    updateProgress(progressUpdater, totalThreads);
-                    threadEndTimes.remove(Thread.currentThread());
-                    threadVirtualUserIndex.remove();
-                }
-            });
-            threadEndTimes.put(thread, Long.MAX_VALUE);
-            thread.start();
+            startWindowedVirtualUser(
+                    "PerformanceStairsWorker",
+                    groupNode,
+                    activeWorkerThreads,
+                    totalTime,
+                    progressUpdater,
+                    totalThreads,
+                    threadEndTimes
+            );
         }
     }
 
-    private void runTaskIteration(DefaultMutableTreeNode groupNode) {
+    private void startWindowedVirtualUser(String threadNamePrefix,
+                                          DefaultMutableTreeNode groupNode,
+                                          AtomicInteger activeWorkerThreads,
+                                          int totalTime,
+                                          BiConsumer<Integer, Integer> progressUpdater,
+                                          int totalThreads,
+                                          ConcurrentHashMap<Thread, Long> threadEndTimes) {
+        Thread thread = virtualUsers.newThread(threadNamePrefix, progressUpdater, totalThreads, () -> {
+            try {
+                Thread currentThread = Thread.currentThread();
+                while (runningSupplier.getAsBoolean()
+                        && System.currentTimeMillis() - startTime < totalTime * 1000L
+                        && System.currentTimeMillis() < threadEndTimes.getOrDefault(currentThread, Long.MAX_VALUE)) {
+                    runTaskIteration(groupNode, 0);
+                }
+            } finally {
+                activeWorkerThreads.decrementAndGet();
+                threadEndTimes.remove(Thread.currentThread());
+            }
+        });
+        threadEndTimes.put(thread, Long.MAX_VALUE);
+        thread.start();
+    }
+
+    static int calculateStairsTotalSteps(int startThreads, int endThreads, int step) {
+        // 阶梯步长不能整除线程差时也要补齐最后一阶，否则执行永远到不了用户设置的最终线程数。
+        int threadRange = Math.max(0, endThreads - startThreads);
+        int safeStep = Math.max(1, step);
+        return Math.max(1, (threadRange + safeStep - 1) / safeStep);
+    }
+
+    private static boolean isOpenEndedWorker(ConcurrentHashMap<Thread, Long> threadEndTimes, Thread thread) {
+        // worker 退出时会并发 remove 自己；调度线程看到旧 key 时要按“已结束”处理，避免拆箱 null。
+        return Long.valueOf(Long.MAX_VALUE).equals(threadEndTimes.get(thread));
+    }
+
+    private void runTaskIteration(DefaultMutableTreeNode groupNode, int iterationCount) {
+        int iterationIndex = virtualUsers.nextIterationIndex();
         ExecutionVariableContext iterationContext = new ExecutionVariableContext();
-        iterationContext.replaceIterationData(resolveCsvRowForCurrentThread());
+        iterationContext.setIterationInfo(iterationIndex, iterationCount);
+        iterationContext.replaceIterationData(
+                IterationDataRuntimeSupport.prepare(resolveCsvRowForCurrentThread()));
         for (int i = 0; i < groupNode.getChildCount() && runningSupplier.getAsBoolean(); i++) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) groupNode.getChildAt(i);
             Object userObj = child.getUserObject();
@@ -764,7 +715,7 @@ final class PerformanceExecutionEngine {
 
     private void runTask(DefaultMutableTreeNode groupNode, int loops) {
         for (int l = 0; l < loops && runningSupplier.getAsBoolean(); l++) {
-            runTaskIteration(groupNode);
+            runTaskIteration(groupNode, loops);
         }
     }
 
@@ -818,13 +769,13 @@ final class PerformanceExecutionEngine {
         if (rowCount <= 0) {
             return null;
         }
-        Integer vuIndex = threadVirtualUserIndex.get();
+        Integer vuIndex = virtualUsers.currentVirtualUserIndex();
         int rowIdx = (vuIndex != null ? vuIndex : 0) % rowCount;
         return csvDataPanel.getRowData(rowIdx);
     }
 
     private void updateProgress(BiConsumer<Integer, Integer> progressUpdater, int totalThreads) {
-        progressUpdater.accept(activeThreads.get(), totalThreads);
+        progressUpdater.accept(virtualUsers.getActiveThreads(), totalThreads);
     }
 
     private boolean isCancelledOrInterrupted(Throwable ex) {

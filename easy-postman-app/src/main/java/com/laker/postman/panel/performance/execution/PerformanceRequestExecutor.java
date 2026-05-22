@@ -8,6 +8,8 @@ import com.laker.postman.model.RequestItemProtocolEnum;
 import com.laker.postman.model.script.TestResult;
 import com.laker.postman.panel.performance.model.ApiMetadata;
 import com.laker.postman.panel.performance.model.JMeterTreeNode;
+import com.laker.postman.panel.performance.model.PerformanceProtocol;
+import com.laker.postman.panel.performance.model.PerformanceRealtimeMetrics;
 import com.laker.postman.service.http.HttpSingleRequestExecutor;
 import com.laker.postman.service.http.HttpUtil;
 import com.laker.postman.service.http.PreparedRequestBuilder;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 import java.util.function.Predicate;
 
 @Slf4j
@@ -36,15 +39,42 @@ public class PerformanceRequestExecutor {
     private final Predicate<Throwable> cancelledChecker;
     private final Set<EventSource> activeSseSources;
     private final Set<WebSocket> activeWebSockets;
+    private final PerformanceRealtimeMetrics realtimeMetrics;
+    private final BooleanSupplier efficientModeSupplier;
+    private final IntSupplier responseBodyPreviewLimitKbSupplier;
 
     public PerformanceRequestExecutor(BooleanSupplier runningSupplier,
                                       Predicate<Throwable> cancelledChecker,
                                       Set<EventSource> activeSseSources,
                                       Set<WebSocket> activeWebSockets) {
+        this(runningSupplier, cancelledChecker, activeSseSources, activeWebSockets, new PerformanceRealtimeMetrics());
+    }
+
+    public PerformanceRequestExecutor(BooleanSupplier runningSupplier,
+                                      Predicate<Throwable> cancelledChecker,
+                                      Set<EventSource> activeSseSources,
+                                      Set<WebSocket> activeWebSockets,
+                                      PerformanceRealtimeMetrics realtimeMetrics) {
+        this(runningSupplier, cancelledChecker, activeSseSources, activeWebSockets, realtimeMetrics, () -> false,
+                () -> SettingManager.DEFAULT_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB);
+    }
+
+    public PerformanceRequestExecutor(BooleanSupplier runningSupplier,
+                                      Predicate<Throwable> cancelledChecker,
+                                      Set<EventSource> activeSseSources,
+                                      Set<WebSocket> activeWebSockets,
+                                      PerformanceRealtimeMetrics realtimeMetrics,
+                                      BooleanSupplier efficientModeSupplier,
+                                      IntSupplier responseBodyPreviewLimitKbSupplier) {
         this.runningSupplier = runningSupplier;
         this.cancelledChecker = cancelledChecker;
         this.activeSseSources = activeSseSources;
         this.activeWebSockets = activeWebSockets;
+        this.realtimeMetrics = realtimeMetrics == null ? new PerformanceRealtimeMetrics() : realtimeMetrics;
+        this.efficientModeSupplier = efficientModeSupplier == null ? () -> false : efficientModeSupplier;
+        this.responseBodyPreviewLimitKbSupplier = responseBodyPreviewLimitKbSupplier == null
+                ? () -> SettingManager.DEFAULT_PERFORMANCE_RESPONSE_BODY_PREVIEW_LIMIT_KB
+                : responseBodyPreviewLimitKbSupplier;
     }
 
     public PerformanceRequestExecutionResult execute(DefaultMutableTreeNode requestNode,
@@ -57,6 +87,7 @@ public class PerformanceRequestExecutor {
         ApiMetadata.register(apiId, apiName);
 
         PreparedRequest req = PreparedRequestBuilder.build(requestData.httpRequestItem);
+        String requestBodyTemplate = req.body;
         ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.forRequestExecution(
                 requestData.httpRequestItem,
                 req,
@@ -86,16 +117,30 @@ public class PerformanceRequestExecutor {
         boolean interrupted = false;
         HttpResponse resp = null;
         boolean sseRequest = isSseRequest(requestData.httpRequestItem);
+        PerformanceProtocol protocol = resolvePerformanceProtocol(webSocketRequest, sseRequest);
 
         if (preOk && runningSupplier.getAsBoolean()) {
             try {
                 configurePreparedRequest(req);
                 sseRequest = isSseRequest(requestData.httpRequestItem, req);
                 webSocketRequest = isWebSocketRequest(requestData.httpRequestItem);
+                protocol = resolvePerformanceProtocol(webSocketRequest, sseRequest);
                 boolean transportSseRequest = sseRequest;
                 boolean transportWebSocketRequest = webSocketRequest;
+                if (!transportSseRequest && !transportWebSocketRequest) {
+                    List<DefaultMutableTreeNode> assertionNodes = PerformanceAssertionRunner.collectAssertionNodes(requestNode, false, false);
+                    req.responseBodyMode = resolveHttpResponseBodyMode(
+                            efficientModeSupplier.getAsBoolean(),
+                            assertionNodes,
+                            req.postscript
+                    );
+                    req.responseBodyPreviewLimitBytes = resolveResponseBodyPreviewLimitBytes(
+                            responseBodyPreviewLimitKbSupplier.getAsInt()
+                    );
+                }
                 ProtocolExecutionResult protocolResult = pipeline.withExecutionContextThrowing(() ->
-                        executeTransport(req, requestNode, requestData, transportSseRequest, transportWebSocketRequest)
+                        executeTransport(req, requestNode, requestData, transportSseRequest, transportWebSocketRequest,
+                                requestBodyTemplate, pipeline)
                 );
                 resp = protocolResult.response;
                 errorMsg = CharSequenceUtil.blankToDefault(protocolResult.errorMsg, errorMsg);
@@ -154,36 +199,70 @@ public class PerformanceRequestExecutor {
                 testResults,
                 executionFailed,
                 interrupted,
-                webSocketRequest,
+                protocol,
                 requestStartTime,
                 costMs
         );
+    }
+
+    private PerformanceProtocol resolvePerformanceProtocol(boolean webSocketRequest, boolean sseRequest) {
+        if (webSocketRequest) {
+            return PerformanceProtocol.WEBSOCKET;
+        }
+        if (sseRequest) {
+            return PerformanceProtocol.SSE;
+        }
+        return PerformanceProtocol.HTTP;
     }
 
     private void configurePreparedRequest(PreparedRequest req) {
         req.collectBasicInfo = true;
         req.collectEventInfo = SettingManager.isPerformanceEventLoggingEnabled();
         req.enableNetworkLog = false;
+        req.notifyCookieChanges = false;
+    }
+
+    static PreparedRequest.ResponseBodyMode resolveHttpResponseBodyMode(boolean efficientMode,
+                                                                        List<DefaultMutableTreeNode> assertionNodes,
+                                                                        String postscript) {
+        if (!efficientMode) {
+            return PreparedRequest.ResponseBodyMode.FULL;
+        }
+        if (PerformanceAssertionRunner.requiresResponseBody(assertionNodes)
+                || CharSequenceUtil.isNotBlank(postscript)) {
+            return PreparedRequest.ResponseBodyMode.PREVIEW;
+        }
+        return PreparedRequest.ResponseBodyMode.METADATA_ONLY;
+    }
+
+    static int resolveResponseBodyPreviewLimitBytes(int previewLimitKb) {
+        return SettingManager.performanceResponseBodyPreviewLimitBytes(previewLimitKb);
     }
 
     private ProtocolExecutionResult executeTransport(PreparedRequest req,
                                                      DefaultMutableTreeNode requestNode,
                                                      JMeterTreeNode requestData,
                                                      boolean sseRequest,
-                                                     boolean webSocketRequest) throws Exception {
+                                                     boolean webSocketRequest,
+                                                     String requestBodyTemplate,
+                                                     ScriptExecutionPipeline pipeline) throws Exception {
         if (webSocketRequest) {
             WebSocketScenarioExecutor.Result result = new WebSocketScenarioExecutor(
                     runningSupplier,
                     cancelledChecker,
-                    activeWebSockets
-            ).execute(req, requestNode, requestData.webSocketPerformanceData);
+                    activeWebSockets,
+                    realtimeMetrics,
+                    resolveResponseBodyPreviewLimitBytes(responseBodyPreviewLimitKbSupplier.getAsInt())
+            ).execute(req, requestNode, requestData.webSocketPerformanceData, requestBodyTemplate, pipeline);
             return new ProtocolExecutionResult(result.response, result.errorMsg, result.executionFailed, result.interrupted, result.testResults);
         }
         if (sseRequest) {
             SseSampleExecutor.Result result = new SseSampleExecutor(
                     runningSupplier,
                     cancelledChecker,
-                    activeSseSources
+                    activeSseSources,
+                    realtimeMetrics,
+                    resolveResponseBodyPreviewLimitBytes(responseBodyPreviewLimitKbSupplier.getAsInt())
             ).execute(req, requestData.ssePerformanceData);
             return new ProtocolExecutionResult(result.response, result.errorMsg, result.executionFailed, result.interrupted, new ArrayList<>());
         }
