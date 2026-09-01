@@ -1,4 +1,4 @@
-name: Publish WinGet Manifest（提交 WinGet 清单）
+﻿name: Publish WinGet Manifest（提交 WinGet 清单）
 
 permissions:
   contents: read
@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - name: Checkout EasyPostman（检出 EasyPostman）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve release metadata（解析发版元数据）
         id: meta
@@ -268,7 +268,7 @@ jobs:
 
       - name: Upload initial dry-run manifests（上传首版清单预览）
         if: steps.meta.outputs.mode == 'initial' && steps.meta.outputs.submit != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: winget-initial-manifests-${{ steps.meta.outputs.version }}
           path: winget-manifests
@@ -276,7 +276,7 @@ jobs:
 
       - name: Checkout winget-pkgs fork（检出 winget-pkgs fork）
         if: steps.meta.outputs.mode == 'initial' && steps.meta.outputs.submit == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ steps.meta.outputs.fork_owner }}/winget-pkgs
           token: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
@@ -387,7 +387,7 @@ jobs:
 
       - name: Setup .NET 6 runtime（配置 .NET 6 运行时）
         if: steps.meta.outputs.mode == 'update'
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '6.0.x'
 
@@ -444,7 +444,7 @@ jobs:
 
       - name: Upload update dry-run manifests（上传更新清单预览）
         if: steps.meta.outputs.mode == 'update' && steps.meta.outputs.submit != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: winget-update-manifests-${{ steps.meta.outputs.version }}
           path: winget-manifests

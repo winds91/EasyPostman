@@ -1,4 +1,4 @@
-name: Release Build（发布构建）
+﻿name: Release Build（发布构建）
 
 permissions:
   contents: write
@@ -31,12 +31,12 @@ jobs:
       version: ${{ steps.extract_version.outputs.version }}
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -90,10 +90,10 @@ jobs:
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -106,7 +106,7 @@ jobs:
         run: mvn -B clean package -DskipTests
 
       - name: Upload JAR for reuse（上传 JAR 供其他 job 复用）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: app-jar
           path: easy-postman-app/target/easy-postman-${{ needs.get-version.outputs.version }}.jar
@@ -121,10 +121,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -133,7 +133,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -237,7 +237,7 @@ jobs:
           Write-Host "✅ Created portable version: $zipName"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Windows-Portable
           path: dist/*-portable.zip
@@ -252,10 +252,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -264,7 +264,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -429,7 +429,7 @@ jobs:
           }
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Windows-EXE
           path: dist/*.exe
@@ -443,10 +443,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -455,7 +455,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -530,7 +530,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-x86_64.dmg"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-macOS-Intel-DMG
           path: dist/*-macos-x86_64.dmg
@@ -544,10 +544,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -556,7 +556,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -631,7 +631,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-arm64.dmg"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: dist/*-macos-arm64.dmg
@@ -645,13 +645,13 @@ jobs:
 
     steps:
       - name: Download JAR artifact（下载已构建的 JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: dist
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Standalone-JAR
           path: dist/*.jar
@@ -665,10 +665,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -677,7 +677,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -766,7 +766,7 @@ jobs:
           ls -1 "$TARGET_DEB"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Ubuntu-DEB-amd64
           path: dist/*-linux-amd64.deb
@@ -780,10 +780,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -792,7 +792,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -888,7 +888,7 @@ jobs:
           ar t "$COMPAT_DEB"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Ubuntu-DEB-arm64
           path: |
@@ -904,10 +904,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -916,7 +916,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -983,7 +983,7 @@ jobs:
           jpackage "${JPACKAGE_ARGS[@]}"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-RPM-amd64
           path: dist/*.rpm
@@ -997,10 +997,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -1009,7 +1009,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -1076,7 +1076,7 @@ jobs:
           jpackage "${JPACKAGE_ARGS[@]}"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-RPM-arm64
           path: dist/*.rpm
@@ -1084,7 +1084,7 @@ jobs:
 
   # ============================================================
   # 统一上传所有平台文件到 GitHub Release
-  # 使用 softprops/action-gh-release@v2，触发条件：release 事件
+  # 使用 softprops/action-gh-release@v3，触发条件：release 事件
   # always() 保证即使部分构建失败也能上传成功的文件
   # ============================================================
   upload-to-github-release:
@@ -1094,7 +1094,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all release artifacts（下载所有平台构建产物）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: all-artifacts
           pattern: EasyPostman-*
@@ -1106,7 +1106,7 @@ jobs:
           find all-artifacts -type f | sort
 
       - name: Upload all files to GitHub Release（上传所有文件到 Release）
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.release.tag_name }}
           files: |
@@ -1171,28 +1171,28 @@ jobs:
     steps:
       - name: Download standalone JAR artifact（下载独立 JAR 产物）
         if: needs.build-jar.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-Standalone-JAR
           path: verify/jar
 
       - name: Download Windows Portable artifact（下载 Windows 绿色版产物）
         if: needs.build-windows-portable.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-Windows-Portable
           path: verify/windows-portable
 
       - name: Download Windows EXE artifact（下载 Windows EXE 产物）
         if: needs.build-windows-exe.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-Windows-EXE
           path: verify/windows-exe
 
       - name: Download macOS ARM artifact（下载 macOS ARM 产物）
         if: needs.build-macos-arm.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: verify/macos-arm
@@ -1361,10 +1361,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download standalone JAR artifact（下载独立 JAR 产物）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-Standalone-JAR
           path: artifacts
@@ -1387,10 +1387,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download Windows Portable artifact（下载 Windows 绿色版产物）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-Windows-Portable
           path: artifacts
@@ -1413,10 +1413,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download Windows EXE artifact（下载 Windows EXE 产物）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-Windows-EXE
           path: artifacts
@@ -1439,10 +1439,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download macOS ARM artifact（下载 macOS ARM 产物）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: artifacts

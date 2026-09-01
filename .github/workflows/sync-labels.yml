@@ -1,4 +1,4 @@
-# 工作流名称：同步标签
+﻿# 工作流名称：同步标签
 name: Sync Labels
 
 # 触发条件
@@ -23,7 +23,7 @@ jobs:
     steps:
       # 第一步：检出代码仓库
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 第二步：同步标签配置到 GitHub 仓库
       - name: Sync labels

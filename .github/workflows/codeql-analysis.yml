@@ -1,4 +1,4 @@
-# 工作流名称：CodeQL 代码安全分析
+﻿# 工作流名称：CodeQL 代码安全分析
 # CodeQL 是什么？
 # - GitHub 的代码安全扫描工具，用于自动检测代码中的安全漏洞和编码错误
 # - 支持多种编程语言（Java、JavaScript、Python、C/C++等）
@@ -37,7 +37,7 @@ jobs:
     steps:
       # 第一步：检出代码仓库
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 第二步：初始化 CodeQL 分析环境
       - name: Initialize CodeQL

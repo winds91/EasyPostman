@@ -31,10 +31,10 @@ jobs:
       version: ${{ steps.extract_version.outputs.version }}
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -57,10 +57,10 @@ jobs:
     needs: [ get-version ]
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -73,7 +73,7 @@ jobs:
         run: mvn -B clean package -DskipTests
 
       - name: Upload JAR for reuse（上传 JAR 供其他 job 复用）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: app-jar
           path: easy-postman-app/target/easy-postman-${{ needs.get-version.outputs.version }}.jar
@@ -89,10 +89,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -101,7 +101,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用 token 提高 API 速率限制
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -207,7 +207,7 @@ jobs:
           Write-Host "✅ Created portable version: $zipName"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Windows-Portable
           path: dist/*-portable.zip
@@ -221,10 +221,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -233,7 +233,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用 token 提高 API 速率限制
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -393,7 +393,7 @@ jobs:
           }
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Windows-EXE
           path: dist/*.exe
@@ -406,10 +406,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -418,7 +418,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用 token 提高 API 速率限制
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -499,7 +499,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-x86_64.dmg"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-macOS-Intel-DMG
           path: dist/*-macos-x86_64.dmg
@@ -512,10 +512,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -524,7 +524,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用 token 提高 API 速率限制
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -605,7 +605,7 @@ jobs:
           echo "✅ Created: EasyPostman-$VERSION-macos-arm64.dmg"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-macOS-ARM-DMG
           path: dist/*-macos-arm64.dmg
@@ -618,13 +618,13 @@ jobs:
 
     steps:
       - name: Download JAR artifact（下载已构建的 JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: dist
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Standalone-JAR
           path: dist/*.jar
@@ -639,10 +639,10 @@ jobs:
 
     steps:
       - name: Checkout（检出代码）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java（配置 Java）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           java-version: ${{ env.JAVA_VERSION }}
@@ -651,7 +651,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用 token 提高 API 速率限制
 
       - name: Download Fat JAR（下载跨平台 Fat JAR）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: app-jar
           path: target
@@ -731,7 +731,7 @@ jobs:
           jpackage "${JPACKAGE_ARGS[@]}"
 
       - name: Upload as Artifact（上传为构建产物）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: EasyPostman-Ubuntu-DEB
           path: dist/*.deb
@@ -746,7 +746,7 @@ jobs:
 
     steps:
       - name: Download All Artifacts（下载所有产物）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: all-artifacts
 
@@ -758,7 +758,7 @@ jobs:
           ls -lah release-files/
 
       - name: Create Release and Upload Assets（创建 Release 并上传文件）
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: "auto-build-${{ github.run_number }}"
           name: "Auto Build #${{ github.run_number }} - v${{ needs.get-version.outputs.version }}"
@@ -787,7 +787,7 @@ jobs:
           files: release-files/*
           draft: false
           prerelease: false
-          overwrite: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
