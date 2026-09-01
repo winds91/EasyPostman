@@ -712,7 +712,11 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
                 String key = lines[2 * i].trim();
                 String value = lines[2 * i + 1].trim();
                 if (!key.isEmpty()) {
-                    headers.add(new HttpHeader(true, key, value));
+                    // 保留原来的 enabled 状态
+                    String normalizedKey = key.toLowerCase(java.util.Locale.ROOT);
+                    boolean enabled = enabledSnapshot.getOrDefault(normalizedKey, true);
+                    String description = descriptionSnapshot.getOrDefault(normalizedKey, "");
+                    headers.add(new HttpHeader(enabled, key, value, description));
                 }
             }
         } else {
@@ -731,25 +735,25 @@ public class EasyRequestHttpHeadersPanel extends JPanel {
                 int equalsIdx = line.indexOf('=');
 
                 if (colonIdx > 0) {
-                    key   = line.substring(0, colonIdx).trim();
+                    key = line.substring(0, colonIdx).trim();
                     value = line.substring(colonIdx + 1).trim();
                 } else if (equalsIdx > 0) {
-                    key   = line.substring(0, equalsIdx).trim();
+                    key = line.substring(0, equalsIdx).trim();
                     value = line.substring(equalsIdx + 1).trim();
                 } else {
                     // 只有 key，没有分隔符 → 当作 key="" 处理
-                    key   = line;
+                    key = line;
                     value = "";
                 }
 
-            if (!key.isEmpty()) {
-                // 保留原来的 enabled 状态
-                String normalizedKey = key.toLowerCase(java.util.Locale.ROOT);
-                boolean enabled = enabledSnapshot.getOrDefault(normalizedKey, true);
-                String description = descriptionSnapshot.getOrDefault(normalizedKey, "");
-                headers.add(new HttpHeader(enabled, key, value, description));
+                if (!key.isEmpty()) {
+                    // 保留原来的 enabled 状态
+                    String normalizedKey = key.toLowerCase(java.util.Locale.ROOT);
+                    boolean enabled = enabledSnapshot.getOrDefault(normalizedKey, true);
+                    String description = descriptionSnapshot.getOrDefault(normalizedKey, "");
+                    headers.add(new HttpHeader(enabled, key, value, description));
+                }
             }
-        }
         }
 
         // 更新表格数据
