@@ -67,11 +67,6 @@ EasyPostman
   - Auto-completion
   - Search and replace
   
-- **jIconFont-Swing**: Vector icon font support
-  - FontAwesome integration
-  - Scalable icons
-  - Theme-aware coloring
-  
 - **SwingX**: Extended Swing components
   - Enhanced tables and trees
   - Date pickers
@@ -103,7 +98,7 @@ EasyPostman
 
 ### Script Engine
 
-- **Nashorn** (Java 11-14): Legacy JavaScript engine
+- **GraalVM JavaScript**: Embedded script runtime for pre/post request scripts
   - ECMAScript 5.1 support
   - Java interoperability
   

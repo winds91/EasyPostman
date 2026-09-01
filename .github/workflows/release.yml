@@ -11,9 +11,9 @@ on:
 env:
   JAVA_VERSION: '17'
   JAVA_DISTRIBUTION: 'jetbrains'  # 使用 JetBrains Runtime（JBR），为 Swing 应用优化
-  JLINK_MODULES: 'java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki'
+  JLINK_MODULES: 'java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,jdk.httpserver,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki'
   # 通用 Java 选项（所有平台共享）
-  JAVA_OPTIONS_COMMON: '-Xms512m|-Xmx1g|-XX:MaxMetaspaceSize=256m|-XX:MetaspaceSize=128m|-XX:MaxDirectMemorySize=256m|-XX:+UseG1GC|-XX:MaxGCPauseMillis=200|-XX:InitiatingHeapOccupancyPercent=45|-XX:+UseStringDeduplication|-XX:+HeapDumpOnOutOfMemoryError|-XX:HeapDumpPath=./dumps|-Dfile.encoding=UTF-8|-Dswing.aatext=true|-Djava.net.preferIPv4Stack=true|-Dhttp.keepAlive=true'
+  JAVA_OPTIONS_COMMON: '-Xms256m|-Xmx1g|-XX:MaxMetaspaceSize=256m|-XX:MetaspaceSize=128m|-XX:MaxDirectMemorySize=256m|-XX:+UseG1GC|-XX:MaxGCPauseMillis=200|-XX:InitiatingHeapOccupancyPercent=45|-XX:+UseStringDeduplication|-XX:+HeapDumpOnOutOfMemoryError|-XX:HeapDumpPath=./dumps|-Dfile.encoding=UTF-8|-Dswing.aatext=true|-Djava.net.preferIPv4Stack=true|-Dhttp.keepAlive=true'
   # Windows 特定选项
   JAVA_OPTIONS_WINDOWS: '-Djavax.accessibility.assistive_technologies='
   # macOS 特定选项
@@ -145,7 +145,7 @@ jobs:
           if (Test-Path $runtimeDir) { Remove-Item -Recurse -Force $runtimeDir }
           
           jlink `
-            --add-modules $env:JLINK_MODULES `
+            --add-modules "$env:JLINK_MODULES,jdk.crypto.mscapi" `
             --strip-java-debug-attributes `
             --strip-native-commands `
             --strip-debug `
@@ -296,7 +296,7 @@ jobs:
           if (Test-Path $runtimeDir) { Remove-Item -Recurse -Force $runtimeDir }
           
           jlink `
-            --add-modules $env:JLINK_MODULES `
+            --add-modules "$env:JLINK_MODULES,jdk.crypto.mscapi" `
             --strip-java-debug-attributes `
             --strip-native-commands `
             --strip-debug `
@@ -366,6 +366,13 @@ jobs:
           & jpackage @jpackageArgs
           
           Write-Host "✅ App image created at: target\EasyPostman"
+
+      - name: Verify Windows single-instance behavior（验证 Windows 单实例与强杀恢复）
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          .\build\verify-windows-single-instance.ps1 `
+            -AppExe "target\EasyPostman\EasyPostman.exe"
 
       - name: Create EXE with Inno Setup（使用 Inno Setup 创建 EXE 安装程序）
         shell: pwsh
@@ -650,9 +657,124 @@ jobs:
           path: dist/*.jar
           retention-days: 7
 
-  build-ubuntu:
-    name: Build Ubuntu DEB（构建 Ubuntu 安装包）
+  build-ubuntu-amd64:
+    name: Build Ubuntu DEB amd64（构建 Ubuntu x64 安装包）
     runs-on: ubuntu-22.04
+    needs: [ get-version, build-jar-artifact ]
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')
+
+    steps:
+      - name: Checkout（检出代码）
+        uses: actions/checkout@v4
+
+      - name: Setup Java（配置 Java）
+        uses: actions/setup-java@v4
+        with:
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          java-version: ${{ env.JAVA_VERSION }}
+          check-latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Fat JAR（下载跨平台 Fat JAR）
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Install dependencies（安装系统依赖）
+        run: |
+          sudo apt-get update
+          # 安装 GTK3、WebKit、打包工具，以及 DEB 兼容重打包所需压缩工具
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev binutils zstd xz-utils
+
+      - name: Create runtime with jlink（使用 jlink 创建 Linux 精简 JRE）
+        run: |
+          rm -rf target/runtime
+          # 创建 Linux 平台的 JRE
+          jlink \
+            --add-modules ${{ env.JLINK_MODULES }} \
+            --strip-debug \
+            --no-header-files \
+            --no-man-pages \
+            --compress=2 \
+            --output target/runtime
+
+      - name: Prepare dist-input（准备打包输入目录）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          rm -rf target/dist-input
+          mkdir -p target/dist-input
+          cp target/easy-postman-$VERSION.jar target/dist-input/easy-postman.jar
+
+      - name: Create DEB with jpackage（使用 jpackage 创建 DEB 安装包）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          mkdir -p dist
+          
+          # 解析通用 Java 选项
+          IFS='|' read -ra JAVA_OPTS_COMMON <<< "${{ env.JAVA_OPTIONS_COMMON }}"
+          # 解析 Linux 特定选项
+          IFS='|' read -ra JAVA_OPTS_LINUX <<< "${{ env.JAVA_OPTIONS_LINUX }}"
+          
+          # 构建 jpackage 参数数组
+          JPACKAGE_ARGS=(
+            --input target/dist-input
+            --main-jar "easy-postman.jar"
+            --main-class com.laker.postman.App
+            --runtime-image target/runtime
+            --type deb
+            --name "EasyPostman"
+            --app-version "$VERSION"
+            --dest dist
+            --vendor "Laker"
+            --copyright "© 2025 Laker"
+            --description "A modern API testing tool similar to Postman"
+            --linux-shortcut
+            --linux-menu-group "Development"
+            --linux-app-category "Development"
+          )
+          
+          # 添加通用 Java 选项
+          for opt in "${JAVA_OPTS_COMMON[@]}"; do
+            JPACKAGE_ARGS+=(--java-options "$opt")
+          done
+          
+          # 添加 Linux 特定选项
+          for opt in "${JAVA_OPTS_LINUX[@]}"; do
+            if [ -n "$opt" ]; then
+              JPACKAGE_ARGS+=(--java-options "$opt")
+            fi
+          done
+          
+          # 执行 jpackage
+          jpackage "${JPACKAGE_ARGS[@]}"
+
+      - name: Rename amd64 DEB to stable release name（统一 amd64 包名）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          ORIGINAL_DEB=$(find dist -maxdepth 1 -type f -name "*.deb" | sort | tail -n 1)
+          if [ -z "$ORIGINAL_DEB" ]; then
+            echo "No DEB file available for renaming" >&2
+            exit 1
+          fi
+
+          TARGET_DEB="dist/EasyPostman-${VERSION}-linux-amd64.deb"
+          mv "$ORIGINAL_DEB" "$TARGET_DEB"
+
+          echo "Generated amd64 DEB:"
+          ls -1 "$TARGET_DEB"
+
+      - name: Upload as Artifact（上传为构建产物）
+        uses: actions/upload-artifact@v4
+        with:
+          name: EasyPostman-Ubuntu-DEB-amd64
+          path: dist/*-linux-amd64.deb
+          retention-days: 7
+
+  build-ubuntu-arm64:
+    name: Build Ubuntu DEB arm64（构建 Ubuntu ARM64 安装包）
+    runs-on: ubuntu-22.04-arm
     needs: [ get-version, build-jar-artifact ]
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')
 
@@ -743,11 +865,221 @@ jobs:
           # 执行 jpackage
           jpackage "${JPACKAGE_ARGS[@]}"
 
+      - name: Create generic and compatibility ARM64 variants（生成通用 ARM64 和兼容版安装包）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          ORIGINAL_DEB=$(find dist -maxdepth 1 -type f -name "*.deb" | sort | tail -n 1)
+          if [ -z "$ORIGINAL_DEB" ]; then
+            echo "No DEB file available for renaming" >&2
+            exit 1
+          fi
+
+          GENERIC_DEB="dist/EasyPostman-${VERSION}-linux-arm64.deb"
+          COMPAT_DEB="dist/EasyPostman-${VERSION}-linux-arm64-compat.deb"
+
+          mv "$ORIGINAL_DEB" "$GENERIC_DEB"
+          cp "$GENERIC_DEB" "$COMPAT_DEB"
+
+          bash build/repack-deb-to-xz.sh "$COMPAT_DEB"
+
+          echo "Generated ARM64 packages:"
+          ls -1 "$GENERIC_DEB" "$COMPAT_DEB"
+          echo "Compatibility package members:"
+          ar t "$COMPAT_DEB"
+
       - name: Upload as Artifact（上传为构建产物）
         uses: actions/upload-artifact@v4
         with:
-          name: EasyPostman-Ubuntu-DEB
-          path: dist/*.deb
+          name: EasyPostman-Ubuntu-DEB-arm64
+          path: |
+            dist/*-linux-arm64.deb
+            dist/*-linux-arm64-compat.deb
+          retention-days: 7
+
+  build-rpm-amd64:
+    name: Build RPM amd64（构建 RPM x64 安装包）
+    runs-on: ubuntu-22.04
+    needs: [ get-version, build-jar-artifact ]
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')
+
+    steps:
+      - name: Checkout（检出代码）
+        uses: actions/checkout@v4
+
+      - name: Setup Java（配置 Java）
+        uses: actions/setup-java@v4
+        with:
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          java-version: ${{ env.JAVA_VERSION }}
+          check-latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Fat JAR（下载跨平台 Fat JAR）
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Install dependencies（安装系统依赖）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev binutils rpm
+
+      - name: Create runtime with jlink（使用 jlink 创建 Linux 精简 JRE）
+        run: |
+          rm -rf target/runtime
+          jlink \
+            --add-modules ${{ env.JLINK_MODULES }} \
+            --strip-debug \
+            --no-header-files \
+            --no-man-pages \
+            --compress=2 \
+            --output target/runtime
+
+      - name: Prepare dist-input（准备打包输入目录）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          rm -rf target/dist-input
+          mkdir -p target/dist-input
+          cp target/easy-postman-$VERSION.jar target/dist-input/easy-postman.jar
+
+      - name: Create RPM with jpackage（使用 jpackage 创建 RPM 安装包）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          mkdir -p dist
+          
+          IFS='|' read -ra JAVA_OPTS_COMMON <<< "${{ env.JAVA_OPTIONS_COMMON }}"
+          IFS='|' read -ra JAVA_OPTS_LINUX <<< "${{ env.JAVA_OPTIONS_LINUX }}"
+          
+          JPACKAGE_ARGS=(
+            --input target/dist-input
+            --main-jar "easy-postman.jar"
+            --main-class com.laker.postman.App
+            --runtime-image target/runtime
+            --type rpm
+            --name "EasyPostman"
+            --app-version "$VERSION"
+            --dest dist
+            --vendor "Laker"
+            --copyright "© 2025 Laker"
+            --description "A modern API testing tool similar to Postman"
+            --linux-shortcut
+            --linux-menu-group "Development"
+            --linux-app-category "Development"
+            --linux-rpm-license-type "MIT"
+          )
+          
+          for opt in "${JAVA_OPTS_COMMON[@]}"; do
+            JPACKAGE_ARGS+=(--java-options "$opt")
+          done
+          
+          for opt in "${JAVA_OPTS_LINUX[@]}"; do
+            if [ -n "$opt" ]; then
+              JPACKAGE_ARGS+=(--java-options "$opt")
+            fi
+          done
+          
+          jpackage "${JPACKAGE_ARGS[@]}"
+
+      - name: Upload as Artifact（上传为构建产物）
+        uses: actions/upload-artifact@v4
+        with:
+          name: EasyPostman-RPM-amd64
+          path: dist/*.rpm
+          retention-days: 7
+
+  build-rpm-arm64:
+    name: Build RPM arm64（构建 RPM ARM64 安装包）
+    runs-on: ubuntu-22.04-arm
+    needs: [ get-version, build-jar-artifact ]
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')
+
+    steps:
+      - name: Checkout（检出代码）
+        uses: actions/checkout@v4
+
+      - name: Setup Java（配置 Java）
+        uses: actions/setup-java@v4
+        with:
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          java-version: ${{ env.JAVA_VERSION }}
+          check-latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Fat JAR（下载跨平台 Fat JAR）
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Install dependencies（安装系统依赖）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev binutils rpm
+
+      - name: Create runtime with jlink（使用 jlink 创建 Linux 精简 JRE）
+        run: |
+          rm -rf target/runtime
+          jlink \
+            --add-modules ${{ env.JLINK_MODULES }} \
+            --strip-debug \
+            --no-header-files \
+            --no-man-pages \
+            --compress=2 \
+            --output target/runtime
+
+      - name: Prepare dist-input（准备打包输入目录）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          rm -rf target/dist-input
+          mkdir -p target/dist-input
+          cp target/easy-postman-$VERSION.jar target/dist-input/easy-postman.jar
+
+      - name: Create RPM with jpackage（使用 jpackage 创建 RPM 安装包）
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          mkdir -p dist
+          
+          IFS='|' read -ra JAVA_OPTS_COMMON <<< "${{ env.JAVA_OPTIONS_COMMON }}"
+          IFS='|' read -ra JAVA_OPTS_LINUX <<< "${{ env.JAVA_OPTIONS_LINUX }}"
+          
+          JPACKAGE_ARGS=(
+            --input target/dist-input
+            --main-jar "easy-postman.jar"
+            --main-class com.laker.postman.App
+            --runtime-image target/runtime
+            --type rpm
+            --name "EasyPostman"
+            --app-version "$VERSION"
+            --dest dist
+            --vendor "Laker"
+            --copyright "© 2025 Laker"
+            --description "A modern API testing tool similar to Postman"
+            --linux-shortcut
+            --linux-menu-group "Development"
+            --linux-app-category "Development"
+            --linux-rpm-license-type "MIT"
+          )
+          
+          for opt in "${JAVA_OPTS_COMMON[@]}"; do
+            JPACKAGE_ARGS+=(--java-options "$opt")
+          done
+          
+          for opt in "${JAVA_OPTS_LINUX[@]}"; do
+            if [ -n "$opt" ]; then
+              JPACKAGE_ARGS+=(--java-options "$opt")
+            fi
+          done
+          
+          jpackage "${JPACKAGE_ARGS[@]}"
+
+      - name: Upload as Artifact（上传为构建产物）
+        uses: actions/upload-artifact@v4
+        with:
+          name: EasyPostman-RPM-arm64
+          path: dist/*.rpm
           retention-days: 7
 
   # ============================================================
@@ -757,8 +1089,8 @@ jobs:
   # ============================================================
   upload-to-github-release:
     name: Upload All to GitHub Release（统一上传到 GitHub Release）
-    if: (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) && github.event_name == 'release'
-    needs: [ build-windows-portable, build-windows-exe, build-macos-intel, build-macos-arm, build-jar, build-ubuntu ]
+    if: always() && (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) && github.event_name == 'release'
+    needs: [ build-windows-portable, build-windows-exe, build-macos-intel, build-macos-arm, build-jar, build-ubuntu-amd64, build-ubuntu-arm64, build-rpm-amd64, build-rpm-arm64 ]
     runs-on: ubuntu-latest
     steps:
       - name: Download all release artifacts（下载所有平台构建产物）
@@ -784,6 +1116,7 @@ jobs:
             all-artifacts/*-macos-arm64.dmg
             all-artifacts/*.jar
             all-artifacts/*.deb
+            all-artifacts/*.rpm
           fail_on_unmatched_files: false
           overwrite_files: true
         env:
@@ -798,7 +1131,7 @@ jobs:
       (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) &&
       github.event_name == 'release' &&
       always()
-    needs: [ build-windows-portable, build-windows-exe, build-macos-arm ]
+    needs: [ build-jar, build-windows-portable, build-windows-exe, build-macos-arm ]
     runs-on: ubuntu-latest
     outputs:
       should_create_release: ${{ steps.check.outputs.should_create }}
@@ -808,12 +1141,14 @@ jobs:
         id: check
         run: |
           echo "📊 检查构建状态..."
+          echo "  Standalone JAR: ${{ needs.build-jar.result }}"
           echo "  Windows Portable: ${{ needs.build-windows-portable.result }}"
           echo "  Windows EXE: ${{ needs.build-windows-exe.result }}"
           echo "  macOS ARM: ${{ needs.build-macos-arm.result }}"
           
           # 只要有一个成功就创建 Release
-          if [ "${{ needs.build-windows-portable.result }}" == "success" ] || \
+          if [ "${{ needs.build-jar.result }}" == "success" ] || \
+             [ "${{ needs.build-windows-portable.result }}" == "success" ] || \
              [ "${{ needs.build-windows-exe.result }}" == "success" ] || \
              [ "${{ needs.build-macos-arm.result }}" == "success" ]; then
             echo "✅ 至少有一个构建成功，可以创建 Gitee Release"
@@ -830,10 +1165,17 @@ jobs:
   verify-gitee-assets:
     name: Verify Gitee Assets（校验 Gitee 附件大小）
     if: (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) && github.event_name == 'release' && needs.check-any-build-success.outputs.should_create_release == 'true'
-    needs: [ check-any-build-success, build-windows-portable, build-windows-exe, build-macos-arm ]
+    needs: [ check-any-build-success, build-jar, build-windows-portable, build-windows-exe, build-macos-arm ]
     runs-on: ubuntu-latest
 
     steps:
+      - name: Download standalone JAR artifact（下载独立 JAR 产物）
+        if: needs.build-jar.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: EasyPostman-Standalone-JAR
+          path: verify/jar
+
       - name: Download Windows Portable artifact（下载 Windows 绿色版产物）
         if: needs.build-windows-portable.result == 'success'
         uses: actions/download-artifact@v4
@@ -875,6 +1217,10 @@ jobs:
             fi
           }
 
+          if [ "${{ needs.build-jar.result }}" = "success" ]; then
+            validate_file "$(find verify/jar -name '*.jar' | head -n 1)" "Standalone JAR"
+          fi
+
           if [ "${{ needs.build-windows-portable.result }}" = "success" ]; then
             validate_file "$(find verify/windows-portable -name '*-portable.zip' | head -n 1)" "Windows Portable"
           fi
@@ -910,6 +1256,8 @@ jobs:
 
       - name: Create Gitee Release（创建 Gitee Release）
         id: gitee_release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           TAG_NAME="${{ steps.get_version.outputs.tag }}"
@@ -924,84 +1272,110 @@ jobs:
           printf '%s\n' "${RELEASE_BODY}" > "$BODY_FILE"
 
           echo "🚀 Creating Gitee Release for tag: $TAG_NAME"
-          
-          # 重试机制
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          SUCCESS=false
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
-            echo "⏳ Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
-          
-            # 使用更健壮的 curl 选项
-            # --retry 3: curl 内部重试 3 次
-            # --retry-delay 2: 重试间隔 2 秒
-            # --connect-timeout 30: 连接超时 30 秒
-            # --max-time 60: 整体超时 60 秒
-            set +e  # 临时禁用 exit on error
-            HTTP_CODE=$(curl -w "%{http_code}" \
-              --retry 3 \
-              --retry-delay 2 \
-              --connect-timeout 30 \
-              --max-time 60 \
-              -S -X POST \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "tag_name=$TAG_NAME" \
-              -F "name=$TAG_NAME" \
-              -F "body=<${BODY_FILE}" \
-              -F "prerelease=false" \
-              -F "target_commitish=master" \
-              "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases" \
-              -o /tmp/release.json 2>&1 | tail -n1)
-            CURL_EXIT_CODE=$?
-            set -e  # 重新启用 exit on error
-          
+
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "❌ Missing GITEE_TOKEN secret"
+            exit 1
+          fi
+
+          RESPONSE_FILE="/tmp/release.json"
+          GITEE_RELEASES_API="https://gitee.com/api/v5/repos/lakernote/easy-postman/releases"
+          RELEASE_ID=""
+
+          resolve_existing_release() {
+            local curl_exit_code
+            local http_code
+
+            if http_code=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+                --retry 3 \
+                --retry-delay 2 \
+                --retry-all-errors \
+                --connect-timeout 30 \
+                --max-time 60 \
+                --get \
+                --data-urlencode "access_token=${GITEE_TOKEN}" \
+                "${GITEE_RELEASES_API}/tags/${TAG_NAME}"); then
+              curl_exit_code=0
+            else
+              curl_exit_code=$?
+            fi
+
+            if [ "$curl_exit_code" -eq 0 ] && [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+              RELEASE_ID=$(jq -r '.id // empty' "$RESPONSE_FILE" 2>/dev/null || true)
+            fi
+          }
+
+          # A rerun may encounter a release created by an earlier partial run.
+          resolve_existing_release
+
+          if [ -n "$RELEASE_ID" ]; then
+            echo "✅ Reusing existing Gitee Release with ID: $RELEASE_ID"
+          else
+            if HTTP_CODE=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+                --retry 3 \
+                --retry-delay 2 \
+                --retry-all-errors \
+                --connect-timeout 30 \
+                --max-time 60 \
+                -X POST \
+                -F "access_token=${GITEE_TOKEN}" \
+                -F "tag_name=$TAG_NAME" \
+                -F "name=$TAG_NAME" \
+                -F "body=<${BODY_FILE}" \
+                -F "prerelease=false" \
+                -F "target_commitish=master" \
+                "$GITEE_RELEASES_API"); then
+              CURL_EXIT_CODE=0
+            else
+              CURL_EXIT_CODE=$?
+            fi
+
             echo "curl exit code: $CURL_EXIT_CODE"
             echo "HTTP Status Code: $HTTP_CODE"
-          
+
             if [ $CURL_EXIT_CODE -eq 0 ] && [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              SUCCESS=true
-              echo "✅ API call successful!"
+              RELEASE_ID=$(jq -r '.id // empty' "$RESPONSE_FILE" 2>/dev/null || true)
             else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Failed (curl: $CURL_EXIT_CODE, HTTP: $HTTP_CODE), retrying in 5 seconds..."
-                sleep 5
-              fi
+              # The create request may have succeeded even if its response was lost.
+              echo "⚠️ Create request failed; checking whether the release now exists..."
+              resolve_existing_release
             fi
-          done
-          
-          if [ "$SUCCESS" = false ]; then
-            echo "❌ Failed to create Gitee Release after $MAX_RETRIES attempts"
-            echo "Last curl exit code: $CURL_EXIT_CODE"
-            echo "Last HTTP code: $HTTP_CODE"
-            cat /tmp/release.json 2>/dev/null || echo "No response file"
+          fi
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "❌ Failed to create or resolve Gitee Release for tag $TAG_NAME"
+            cat "$RESPONSE_FILE" 2>/dev/null || echo "No response file"
             exit 1
           fi
-          
-          echo "API Response:"
-          cat /tmp/release.json
-          
-          # 优先使用 jq（GitHub Actions Ubuntu runner 预装）
-          RELEASE_ID=$(jq -r '.id // empty' /tmp/release.json 2>/dev/null || echo "")
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "jq extraction failed, trying python3..."
-            RELEASE_ID=$(python3 -c "import sys, json; print(json.load(open('/tmp/release.json'))['id'])" 2>/dev/null || echo "")
-          fi
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "python3 failed, trying grep..."
-            RELEASE_ID=$(grep -o '"id":[0-9]*' /tmp/release.json | head -1 | grep -o '[0-9]*')
-          fi
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "❌ Error: Failed to extract release ID from response"
-            exit 1
-          fi
-          
-          echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
           echo "✅ Gitee Release created successfully with ID: $RELEASE_ID"
+
+  # 跨平台 JAR 上传到 Gitee
+  sync-jar-to-gitee:
+    name: Upload Standalone JAR to Gitee（上传独立 JAR 到 Gitee）
+    if: (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) && github.event_name == 'release' && needs.build-jar.result == 'success'
+    needs: [ create-gitee-release, build-jar ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout（检出代码）
+        uses: actions/checkout@v4
+
+      - name: Download standalone JAR artifact（下载独立 JAR 产物）
+        uses: actions/download-artifact@v4
+        with:
+          name: EasyPostman-Standalone-JAR
+          path: artifacts
+
+      - name: Upload standalone JAR to Gitee（上传独立 JAR 到 Gitee）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          RELEASE_ID="${{ needs.create-gitee-release.outputs.release_id }}"
+          FILE=$(find artifacts -name "*.jar" | head -n 1)
+          bash .github/scripts/upload-gitee-release-asset.sh "$RELEASE_ID" "$FILE"
 
   # Windows 绿色版上传到 Gitee
   sync-windows-portable-to-gitee:
@@ -1009,8 +1383,12 @@ jobs:
     if: (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) && github.event_name == 'release' && needs.build-windows-portable.result == 'success'
     needs: [ create-gitee-release, build-windows-portable ]
     runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
+      - name: Checkout（检出代码）
+        uses: actions/checkout@v4
+
       - name: Download Windows Portable artifact（下载 Windows 绿色版产物）
         uses: actions/download-artifact@v4
         with:
@@ -1018,43 +1396,12 @@ jobs:
           path: artifacts
 
       - name: Upload Windows Portable to Gitee（上传 Windows 绿色版到 Gitee）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           RELEASE_ID="${{ needs.create-gitee-release.outputs.release_id }}"
           FILE=$(find artifacts -name "*-portable.zip" | head -n 1)
-          
-          if [ -z "$FILE" ]; then
-            echo "❌ Windows Portable ZIP file not found!"
-            exit 1
-          fi
-          
-          FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || stat -f%z "$FILE")
-          FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE/1048576" | bc)
-          echo "📏 File size: ${FILE_SIZE_MB} MB"
-          
-          if [ "$FILE_SIZE" -gt 104857600 ]; then
-            echo "❌ File size ${FILE_SIZE_MB} MB exceeds Gitee 100MB limit."
-            exit 1
-          fi
-          
-          echo "📦 Uploading $(basename $FILE) to Gitee..."
-          
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -X POST "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases/$RELEASE_ID/attach_files" \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "file=@$FILE"; then
-              echo "✅ Windows Portable uploaded successfully!"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              [ $RETRY_COUNT -lt $MAX_RETRIES ] && echo "⚠️ Retrying ($RETRY_COUNT/$MAX_RETRIES)..." && sleep 5
-            fi
-          done
-          
-          echo "❌ Failed to upload Windows Portable after $MAX_RETRIES attempts"
-          exit 1
+          bash .github/scripts/upload-gitee-release-asset.sh "$RELEASE_ID" "$FILE"
 
   # Windows EXE 上传到 Gitee
   sync-windows-exe-to-gitee:
@@ -1062,8 +1409,12 @@ jobs:
     if: (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) && github.event_name == 'release' && needs.build-windows-exe.result == 'success'
     needs: [ create-gitee-release, build-windows-exe ]
     runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
+      - name: Checkout（检出代码）
+        uses: actions/checkout@v4
+
       - name: Download Windows EXE artifact（下载 Windows EXE 产物）
         uses: actions/download-artifact@v4
         with:
@@ -1071,43 +1422,12 @@ jobs:
           path: artifacts
 
       - name: Upload Windows EXE to Gitee（上传 Windows EXE 到 Gitee）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           RELEASE_ID="${{ needs.create-gitee-release.outputs.release_id }}"
           FILE=$(find artifacts -name "*.exe" | head -n 1)
-          
-          if [ -z "$FILE" ]; then
-            echo "❌ Windows EXE file not found!"
-            exit 1
-          fi
-          
-          FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || stat -f%z "$FILE")
-          FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE/1048576" | bc)
-          echo "📏 File size: ${FILE_SIZE_MB} MB"
-          
-          if [ "$FILE_SIZE" -gt 104857600 ]; then
-            echo "❌ File size ${FILE_SIZE_MB} MB exceeds Gitee 100MB limit."
-            exit 1
-          fi
-          
-          echo "📦 Uploading $(basename $FILE) to Gitee..."
-          
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -X POST "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases/$RELEASE_ID/attach_files" \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "file=@$FILE"; then
-              echo "✅ Windows EXE uploaded successfully!"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              [ $RETRY_COUNT -lt $MAX_RETRIES ] && echo "⚠️ Retrying ($RETRY_COUNT/$MAX_RETRIES)..." && sleep 5
-            fi
-          done
-          
-          echo "❌ Failed to upload Windows EXE after $MAX_RETRIES attempts"
-          exit 1
+          bash .github/scripts/upload-gitee-release-asset.sh "$RELEASE_ID" "$FILE"
 
   # macOS ARM 上传到 Gitee
   sync-macos-to-gitee:
@@ -1115,8 +1435,12 @@ jobs:
     if: (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) && github.event_name == 'release' && needs.build-macos-arm.result == 'success'
     needs: [ create-gitee-release, build-macos-arm ]
     runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
+      - name: Checkout（检出代码）
+        uses: actions/checkout@v4
+
       - name: Download macOS ARM artifact（下载 macOS ARM 产物）
         uses: actions/download-artifact@v4
         with:
@@ -1124,43 +1448,12 @@ jobs:
           path: artifacts
 
       - name: Upload macOS ARM to Gitee（上传 macOS ARM 到 Gitee）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           RELEASE_ID="${{ needs.create-gitee-release.outputs.release_id }}"
           FILE=$(find artifacts -name "*-macos-arm64.dmg" | head -n 1)
-          
-          if [ -z "$FILE" ]; then
-            echo "❌ macOS ARM DMG file not found!"
-            exit 1
-          fi
-          
-          FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || stat -f%z "$FILE")
-          FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE/1048576" | bc)
-          echo "📏 File size: ${FILE_SIZE_MB} MB"
-          
-          if [ "$FILE_SIZE" -gt 104857600 ]; then
-            echo "❌ File size ${FILE_SIZE_MB} MB exceeds Gitee 100MB limit."
-            exit 1
-          fi
-          
-          echo "🍎 Uploading $(basename $FILE) to Gitee..."
-          
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -X POST "https://gitee.com/api/v5/repos/lakernote/easy-postman/releases/$RELEASE_ID/attach_files" \
-              -F "access_token=${{ secrets.GITEE_TOKEN }}" \
-              -F "file=@$FILE"; then
-              echo "✅ macOS ARM uploaded successfully!"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              [ $RETRY_COUNT -lt $MAX_RETRIES ] && echo "⚠️ Retrying ($RETRY_COUNT/$MAX_RETRIES)..." && sleep 5
-            fi
-          done
-          
-          echo "❌ Failed to upload macOS ARM after $MAX_RETRIES attempts"
-          exit 1
+          bash .github/scripts/upload-gitee-release-asset.sh "$RELEASE_ID" "$FILE"
 
   # 汇总结果
   sync-summary:
@@ -1169,7 +1462,7 @@ jobs:
       (github.event_name != 'release' || startsWith(github.event.release.tag_name || '', 'v')) &&
       github.event_name == 'release' &&
       always()
-    needs: [ check-any-build-success, verify-gitee-assets, create-gitee-release, sync-windows-portable-to-gitee, sync-windows-exe-to-gitee, sync-macos-to-gitee ]
+    needs: [ check-any-build-success, verify-gitee-assets, create-gitee-release, sync-jar-to-gitee, sync-windows-portable-to-gitee, sync-windows-exe-to-gitee, sync-macos-to-gitee ]
     runs-on: ubuntu-latest
 
     steps:
@@ -1180,6 +1473,7 @@ jobs:
           CHECK_STATUS="${{ needs.check-any-build-success.result }}"
           VERIFY_STATUS="${{ needs.verify-gitee-assets.result }}"
           RELEASE_STATUS="${{ needs.create-gitee-release.result }}"
+          JAR_STATUS="${{ needs.sync-jar-to-gitee.result }}"
           PORTABLE_STATUS="${{ needs.sync-windows-portable-to-gitee.result }}"
           EXE_STATUS="${{ needs.sync-windows-exe-to-gitee.result }}"
           MACOS_STATUS="${{ needs.sync-macos-to-gitee.result }}"
@@ -1195,6 +1489,7 @@ jobs:
           
           echo ""
           echo "已同步到 Gitee 的文件："
+          echo "  ☕ Standalone JAR - $JAR_STATUS"
           echo "  📦 Windows Portable (绿色版) - $PORTABLE_STATUS"
           echo "  🪟 Windows EXE (安装包) - $EXE_STATUS"
           echo "  🍎 macOS Apple Silicon (ARM64) - $MACOS_STATUS"
@@ -1206,7 +1501,8 @@ jobs:
           fi
 
           if [ "$VERIFY_STATUS" == "failure" ] || [ "$RELEASE_STATUS" == "failure" ] || \
-             [ "$PORTABLE_STATUS" == "failure" ] || [ "$EXE_STATUS" == "failure" ] || [ "$MACOS_STATUS" == "failure" ]; then
+             [ "$JAR_STATUS" == "failure" ] || [ "$PORTABLE_STATUS" == "failure" ] || \
+             [ "$EXE_STATUS" == "failure" ] || [ "$MACOS_STATUS" == "failure" ]; then
             echo "❌ Gitee Release 流程存在失败步骤"
             exit 1
           fi

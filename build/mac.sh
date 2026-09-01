@@ -66,7 +66,7 @@ cp "${APP_TARGET_DIR}/$JAR_NAME_WITH_VERSION" "${APP_TARGET_DIR}/$JAR_NAME"
 echo "⚙️ 使用 jlink 创建最小化运行时..."
 rm -rf target/runtime
 jlink \
-    --add-modules java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki \
+    --add-modules java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,jdk.httpserver,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki \
     --strip-debug \
     --no-header-files \
     --no-man-pages \
@@ -103,7 +103,7 @@ jpackage \
     --icon "${ICON_DIR}" \
     --vendor "Laker" \
     --copyright "© 2025 Laker" \
-    --java-options "-Xms512m" \
+    --java-options "-Xms256m" \
     --java-options "-Xmx1g" \
     --java-options "-XX:MaxMetaspaceSize=256m" \
     --java-options "-XX:MetaspaceSize=128m" \

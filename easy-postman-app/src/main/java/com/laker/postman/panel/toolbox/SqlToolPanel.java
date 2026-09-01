@@ -1,7 +1,10 @@
 package com.laker.postman.panel.toolbox;
 
+import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
 import com.laker.postman.common.component.SearchableTextArea;
+import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.util.EditorThemeUtil;
+import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import com.laker.postman.util.SqlFormatter;
@@ -40,8 +43,7 @@ public class SqlToolPanel extends JPanel {
     }
 
     private void initUI() {
-        setLayout(new BorderLayout(5, 5));
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        ToolboxWorkbench.applyRoot(this);
 
         add(createTopPanel(), BorderLayout.NORTH);
         add(createCenterPanel(), BorderLayout.CENTER);
@@ -51,16 +53,10 @@ public class SqlToolPanel extends JPanel {
     }
 
     private JPanel createTopPanel() {
-        JPanel container = new JPanel(new BorderLayout(0, 6));
-        container.add(createToolbarPanel(), BorderLayout.NORTH);
-        container.add(createOptionsPanel(), BorderLayout.SOUTH);
-        return container;
+        return ToolboxWorkbench.stackedTop(createToolbarPanel(), createOptionsPanel());
     }
 
     private JPanel createToolbarPanel() {
-        JPanel topPanel = new JPanel(new BorderLayout());
-
-        JPanel leftBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
         JButton formatBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_FORMAT));
         JButton compressBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_COMPRESS));
         JButton validateBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_VALIDATE));
@@ -69,16 +65,13 @@ public class SqlToolPanel extends JPanel {
         compressBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_TOOLTIP_COMPRESS));
         validateBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_TOOLTIP_VALIDATE));
 
-        leftBtnPanel.add(formatBtn);
-        leftBtnPanel.add(compressBtn);
-        leftBtnPanel.add(validateBtn);
+        JPanel leftBtnPanel = ToolboxWorkbench.leftToolbar(formatBtn, compressBtn, validateBtn);
 
-        JPanel rightBtnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 5));
-        JButton sampleBtn = new JButton("📝 " + I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_SAMPLE));
+        JButton sampleBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_SAMPLE));
         JButton copyBtn = new JButton(I18nUtil.getMessage(MessageKeys.BUTTON_COPY));
         JButton pasteBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_PASTE));
         JButton clearBtn = new JButton(I18nUtil.getMessage(MessageKeys.BUTTON_CLEAR));
-        JButton swapBtn = new JButton("↕ " + I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_SWAP));
+        JButton swapBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_SWAP));
 
         sampleBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_TOOLTIP_SAMPLE));
         copyBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_TOOLTIP_COPY));
@@ -86,14 +79,7 @@ public class SqlToolPanel extends JPanel {
         clearBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_TOOLTIP_CLEAR));
         swapBtn.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_TOOLTIP_SWAP));
 
-        rightBtnPanel.add(sampleBtn);
-        rightBtnPanel.add(copyBtn);
-        rightBtnPanel.add(pasteBtn);
-        rightBtnPanel.add(clearBtn);
-        rightBtnPanel.add(swapBtn);
-
-        topPanel.add(leftBtnPanel, BorderLayout.WEST);
-        topPanel.add(rightBtnPanel, BorderLayout.EAST);
+        JPanel rightBtnPanel = ToolboxWorkbench.rightToolbar(sampleBtn, copyBtn, pasteBtn, clearBtn, swapBtn);
 
         formatBtn.addActionListener(e -> formatSql());
         compressBtn.addActionListener(e -> compressSql());
@@ -104,19 +90,11 @@ public class SqlToolPanel extends JPanel {
         clearBtn.addActionListener(e -> clearAll());
         swapBtn.addActionListener(e -> swapInputOutput());
 
-        return topPanel;
+        return ToolboxWorkbench.toolbar(leftBtnPanel, rightBtnPanel);
     }
 
     private JPanel createOptionsPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 6));
-        Color borderColor = UIManager.getColor("Component.borderColor");
-        if (borderColor == null) {
-            borderColor = UIManager.getColor("Separator.foreground");
-        }
-        panel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 1, 0, borderColor),
-                BorderFactory.createEmptyBorder(6, 0, 6, 0)
-        ));
+        JPanel panel = ToolboxWorkbench.optionsRow();
 
         panel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_SQL_INDENT) + ":"));
         indentSpinner = new JSpinner(new SpinnerNumberModel(2, 0, 8, 1));
@@ -158,31 +136,23 @@ public class SqlToolPanel extends JPanel {
     }
 
     private JPanel createCenterPanel() {
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setTopComponent(createEditorPanel(true));
-        splitPane.setBottomComponent(createEditorPanel(false));
-        splitPane.setDividerLocation(300);
-        splitPane.setResizeWeight(0.5);
+        JSplitPane splitPane = ToolboxWorkbench.editorSplit(
+                createEditorPanel(true),
+                createEditorPanel(false),
+                300
+        );
 
         JPanel panel = new JPanel(new BorderLayout());
+        panel.setOpaque(false);
         panel.add(splitPane, BorderLayout.CENTER);
         return panel;
     }
 
     private JPanel createEditorPanel(boolean input) {
-        JPanel panel = new JPanel(new BorderLayout(5, 5));
-        JLabel titleLabel = new JLabel(I18nUtil.getMessage(
-                input ? MessageKeys.TOOLBOX_SQL_INPUT : MessageKeys.TOOLBOX_SQL_OUTPUT));
-
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.add(titleLabel, BorderLayout.WEST);
-        panel.add(headerPanel, BorderLayout.NORTH);
-
         RSyntaxTextArea textArea = createSqlTextArea();
         textArea.setEditable(input);
         SearchableTextArea searchableTextArea = new SearchableTextArea(textArea, input);
         searchableTextArea.setLineNumbersEnabled(true);
-        panel.add(searchableTextArea, BorderLayout.CENTER);
 
         if (input) {
             inputArea = textArea;
@@ -190,19 +160,20 @@ public class SqlToolPanel extends JPanel {
             outputArea = textArea;
         }
 
-        return panel;
+        return ToolboxWorkbench.editorSection(
+                I18nUtil.getMessage(input ? MessageKeys.TOOLBOX_SQL_INPUT : MessageKeys.TOOLBOX_SQL_OUTPUT),
+                searchableTextArea
+        );
     }
 
     private JPanel createStatusPanel() {
-        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 3));
         statusLabel = new JLabel(" ");
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
-        statusPanel.add(statusLabel);
-        return statusPanel;
+        statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        return ToolboxWorkbench.statusBar(statusLabel);
     }
 
     private RSyntaxTextArea createSqlTextArea() {
-        RSyntaxTextArea textArea = new RSyntaxTextArea(10, 40);
+        RSyntaxTextArea textArea = new FallbackAwareRSyntaxTextArea(10, 40);
         textArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
         textArea.setCodeFoldingEnabled(true);
         textArea.setAntiAliasingEnabled(true);
@@ -424,7 +395,7 @@ public class SqlToolPanel extends JPanel {
 
     private void updateStatus(String message, boolean success) {
         statusLabel.setText(message);
-        statusLabel.setForeground(success ? new Color(0, 128, 0) : new Color(180, 0, 0));
+        statusLabel.setForeground(success ? ModernColors.getSuccess() : ModernColors.getError());
 
         Timer timer = new Timer(3000, e -> statusLabel.setText(" "));
         timer.setRepeats(false);

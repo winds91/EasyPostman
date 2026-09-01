@@ -22,12 +22,37 @@
         </dependency>
         <dependency>
             <groupId>com.laker.tools</groupId>
-            <artifactId>easy-postman-plugin-bridge</artifactId>
+            <artifactId>easy-postman-foundation</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>com.laker.tools</groupId>
-            <artifactId>easy-postman-plugin-ui</artifactId>
+            <artifactId>easy-postman-request-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.laker.tools</groupId>
+            <artifactId>easy-postman-http-runtime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.laker.tools</groupId>
+            <artifactId>easy-postman-collection-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.laker.tools</groupId>
+            <artifactId>easy-postman-platform</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.laker.tools</groupId>
+            <artifactId>easy-postman-performance-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.laker.tools</groupId>
+            <artifactId>easy-postman-ui</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -74,16 +99,6 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.github.jiconfont</groupId>
-            <artifactId>jiconfont-swing</artifactId>
-            <version>${jiconfont-swing.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.github.jiconfont</groupId>
-            <artifactId>jiconfont-font_awesome</artifactId>
-            <version>${jiconfont-font_awesome.version}</version>
         </dependency>
         <dependency>
             <groupId>org.jfree</groupId>
@@ -148,6 +163,18 @@
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>mockwebserver</artifactId>
+            <version>${okhttp.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-tls</artifactId>
+            <version>${okhttp.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

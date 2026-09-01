@@ -20,6 +20,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_COL_KEY = "toolbox.kafka.col.key";
     public static final String TOOLBOX_KAFKA_COL_OFFSET = "toolbox.kafka.col.offset";
     public static final String TOOLBOX_KAFKA_COL_PARTITION = "toolbox.kafka.col.partition";
+    public static final String TOOLBOX_KAFKA_COL_MESSAGE_TIME = "toolbox.kafka.col.message.time";
     public static final String TOOLBOX_KAFKA_COL_RECORD_TIME = "toolbox.kafka.col.record.time";
     public static final String TOOLBOX_KAFKA_COL_TIME = "toolbox.kafka.col.time";
     public static final String TOOLBOX_KAFKA_COL_TOPIC = "toolbox.kafka.col.topic";
@@ -28,6 +29,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_CONSUMER_CLEAR = "toolbox.kafka.consumer.clear";
     public static final String TOOLBOX_KAFKA_CONSUMER_READY = "toolbox.kafka.consumer.ready";
     public static final String TOOLBOX_KAFKA_CONSUMER_TITLE = "toolbox.kafka.consumer.title";
+    public static final String TOOLBOX_KAFKA_CONSUMER_TAB = "toolbox.kafka.consumer.tab";
     public static final String TOOLBOX_KAFKA_DISCONNECT = "toolbox.kafka.disconnect";
     public static final String TOOLBOX_KAFKA_DISCONNECT_SUCCESS = "toolbox.kafka.disconnect.success";
     public static final String TOOLBOX_KAFKA_ERR_COMMITTED_OFFSET_REQUIRED = "toolbox.kafka.err.committed_offset_required";
@@ -47,6 +49,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_HEADERS_PLACEHOLDER = "toolbox.kafka.headers.placeholder";
     public static final String TOOLBOX_KAFKA_HOST = "toolbox.kafka.host";
     public static final String TOOLBOX_KAFKA_HOST_PLACEHOLDER = "toolbox.kafka.host.placeholder";
+    public static final String TOOLBOX_KAFKA_OPTIONS = "toolbox.kafka.options";
     public static final String TOOLBOX_KAFKA_KEY = "toolbox.kafka.key";
     public static final String TOOLBOX_KAFKA_KEY_PLACEHOLDER = "toolbox.kafka.key.placeholder";
     public static final String TOOLBOX_KAFKA_MAX_VIEW = "toolbox.kafka.max.view";
@@ -62,6 +65,21 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_PARTITION = "toolbox.kafka.partition";
     public static final String TOOLBOX_KAFKA_PASS = "toolbox.kafka.pass";
     public static final String TOOLBOX_KAFKA_PASS_PLACEHOLDER = "toolbox.kafka.pass.placeholder";
+    public static final String TOOLBOX_KAFKA_PROFILE = "toolbox.kafka.profile";
+    public static final String TOOLBOX_KAFKA_PROFILE_NEW = "toolbox.kafka.profile.new";
+    public static final String TOOLBOX_KAFKA_PROFILE_NEW_DEFAULT = "toolbox.kafka.profile.new.default";
+    public static final String TOOLBOX_KAFKA_PROFILE_SAVE = "toolbox.kafka.profile.save";
+    public static final String TOOLBOX_KAFKA_PROFILE_SAVE_AS = "toolbox.kafka.profile.save_as";
+    public static final String TOOLBOX_KAFKA_PROFILE_SAVE_AS_TITLE = "toolbox.kafka.profile.save_as.title";
+    public static final String TOOLBOX_KAFKA_PROFILE_DELETE = "toolbox.kafka.profile.delete";
+    public static final String TOOLBOX_KAFKA_PROFILE_SAVED = "toolbox.kafka.profile.saved";
+    public static final String TOOLBOX_KAFKA_PROFILE_DELETED = "toolbox.kafka.profile.deleted";
+    public static final String TOOLBOX_KAFKA_PROFILE_DELETE_CONFIRM = "toolbox.kafka.profile.delete.confirm";
+    public static final String TOOLBOX_KAFKA_PROFILE_DELETE_CONFIRM_TITLE = "toolbox.kafka.profile.delete.confirm.title";
+    public static final String TOOLBOX_KAFKA_PROFILE_NOT_SELECTED = "toolbox.kafka.profile.not_selected";
+    public static final String TOOLBOX_KAFKA_PROFILE_DEFAULT_NOT_DELETABLE = "toolbox.kafka.profile.default_not_deletable";
+    public static final String TOOLBOX_KAFKA_PROFILE_NAME_REQUIRED = "toolbox.kafka.profile.name.required";
+    public static final String TOOLBOX_KAFKA_PROFILE_NAME_EXISTS = "toolbox.kafka.profile.name.exists";
     public static final String TOOLBOX_KAFKA_PAYLOAD = "toolbox.kafka.payload";
     public static final String TOOLBOX_KAFKA_POLL_TIMEOUT = "toolbox.kafka.poll.timeout";
     public static final String TOOLBOX_KAFKA_PRODUCER_CUSTOM_PROPERTIES = "toolbox.kafka.producer.custom.properties";
@@ -69,13 +87,17 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_PRODUCER_CUSTOM_PROPERTIES_PLACEHOLDER = "toolbox.kafka.producer.custom.properties.placeholder";
     public static final String TOOLBOX_KAFKA_PRODUCER_READY = "toolbox.kafka.producer.ready";
     public static final String TOOLBOX_KAFKA_PRODUCER_TITLE = "toolbox.kafka.producer.title";
+    public static final String TOOLBOX_KAFKA_PRODUCER_TAB = "toolbox.kafka.producer.tab";
     public static final String TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES = "toolbox.kafka.consumer.custom.properties";
     public static final String TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES_HINT = "toolbox.kafka.consumer.custom.properties.hint";
     public static final String TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES_PLACEHOLDER = "toolbox.kafka.consumer.custom.properties.placeholder";
     public static final String TOOLBOX_KAFKA_SASL_MECHANISM = "toolbox.kafka.sasl.mechanism";
+    public static final String TOOLBOX_KAFKA_SASL_MECHANISM_SHORT = "toolbox.kafka.sasl.mechanism.short";
     public static final String TOOLBOX_KAFKA_SECURITY_PROTOCOL = "toolbox.kafka.security.protocol";
+    public static final String TOOLBOX_KAFKA_SECURITY_PROTOCOL_SHORT = "toolbox.kafka.security.protocol.short";
     public static final String TOOLBOX_KAFKA_SEND = "toolbox.kafka.send";
     public static final String TOOLBOX_KAFKA_START_CONSUME = "toolbox.kafka.start.consume";
+    public static final String TOOLBOX_KAFKA_START_CONSUME_SHORT = "toolbox.kafka.start.consume.short";
     public static final String TOOLBOX_KAFKA_STATUS_CONNECTED = "toolbox.kafka.status.connected";
     public static final String TOOLBOX_KAFKA_STATUS_CONNECT_FAILED = "toolbox.kafka.status.connect_failed";
     public static final String TOOLBOX_KAFKA_STATUS_CONSUME_FAILED = "toolbox.kafka.status.consume_failed";
@@ -89,8 +111,10 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_STATUS_STOPPED = "toolbox.kafka.status.stopped";
     public static final String TOOLBOX_KAFKA_STATUS_TOPICS_LOADED = "toolbox.kafka.status.topics_loaded";
     public static final String TOOLBOX_KAFKA_STOP_CONSUME = "toolbox.kafka.stop.consume";
+    public static final String TOOLBOX_KAFKA_STOP_CONSUME_SHORT = "toolbox.kafka.stop.consume.short";
     public static final String TOOLBOX_KAFKA_TOPIC = "toolbox.kafka.topic";
     public static final String TOOLBOX_KAFKA_TOPIC_MANAGEMENT = "toolbox.kafka.topic.management";
+    public static final String TOOLBOX_KAFKA_TOPIC_TAB = "toolbox.kafka.topic.tab";
     public static final String TOOLBOX_KAFKA_TOPIC_PLACEHOLDER = "toolbox.kafka.topic.placeholder";
     public static final String TOOLBOX_KAFKA_TOPIC_REFRESH = "toolbox.kafka.topic.refresh";
     public static final String TOOLBOX_KAFKA_TOPIC_SEARCH_PLACEHOLDER = "toolbox.kafka.topic.search.placeholder";
@@ -101,4 +125,7 @@ public final class MessageKeys {
     public static final String TOOLBOX_KAFKA_COPY_VALUE = "toolbox.kafka.copy.value";
     public static final String TOOLBOX_KAFKA_CLOSE_DETAIL = "toolbox.kafka.close.detail";
     public static final String TOOLBOX_KAFKA_VALUE_COPIED = "toolbox.kafka.value.copied";
+    public static final String TOOLBOX_KAFKA_DETAIL_MESSAGE_TIME = "toolbox.kafka.detail.message.time";
+    public static final String TOOLBOX_KAFKA_DETAIL_CONSUME_TIME = "toolbox.kafka.detail.consume.time";
+    public static final String TOOLBOX_KAFKA_DETAIL_LAG = "toolbox.kafka.detail.lag";
 }

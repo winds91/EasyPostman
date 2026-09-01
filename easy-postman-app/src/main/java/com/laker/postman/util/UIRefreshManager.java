@@ -1,11 +1,18 @@
 package com.laker.postman.util;
 
+import com.formdev.flatlaf.FlatLaf;
 import com.laker.postman.common.IRefreshable;
+import com.laker.postman.common.component.SyntaxEditorScrollPane;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.frame.MainFrame;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.function.Consumer;
 
 /**
  * UI 刷新管理器
@@ -38,10 +45,16 @@ public class UIRefreshManager {
     public static void refreshAllWindows() {
         try {
             Window[] windows = Window.getWindows();
+            FlatLaf.updateUI();
             for (Window window : windows) {
                 if (window.isDisplayable()) {
-                    // 更新组件树 UI，应用新的 Look and Feel
-                    SwingUtilities.updateComponentTreeUI(window);
+                    refreshEditorThemes(window);
+
+                    if (window instanceof MainFrame mainFrame) {
+                        mainFrame.refreshWindowChrome();
+                    } else if (window instanceof JDialog dialog) {
+                        ToolWindowSurfaceStyle.applyDialogWindowChrome(dialog);
+                    }
 
                     // 重新验证布局
                     window.validate();
@@ -57,12 +70,103 @@ public class UIRefreshManager {
     }
 
     /**
+     * 只刷新编辑器字体设置。
+     * <p>
+     * 编辑器字体变化不需要重装 Look and Feel。避免调用 {@link FlatLaf#updateUI()}，
+     * 防止请求页签、响应页签、工具栏等非编辑器组件在运行时被重新安装 UI delegate 后丢失自定义状态颜色。
+     */
+    public static void refreshEditorFonts() {
+        try {
+            Window[] windows = Window.getWindows();
+            int refreshedCount = 0;
+
+            for (Window window : windows) {
+                if (window.isDisplayable()) {
+                    refreshEditorFonts(window);
+                    window.validate();
+                    window.repaint();
+                    refreshedCount++;
+                    log.debug("Refreshed editor fonts in window: {}", window.getClass().getSimpleName());
+                }
+            }
+
+            log.debug("Successfully refreshed editor fonts in {} window(s)", refreshedCount);
+        } catch (Exception e) {
+            log.error("Failed to refresh editor fonts", e);
+        }
+    }
+
+    static void refreshEditorThemes(Component component) {
+        visitComponentTree(component, UIRefreshManager::refreshEditorThemeComponent);
+    }
+
+    private static void refreshEditorThemeComponent(Component component) {
+        if (component == null) {
+            return;
+        }
+
+        if (component instanceof RSyntaxTextArea textArea) {
+            try {
+                EditorThemeUtil.loadTheme(textArea);
+                log.debug("Refreshed editor theme: {}", component.getClass().getSimpleName());
+            } catch (Exception e) {
+                log.error("Failed to refresh editor theme: {}", component.getClass().getSimpleName(), e);
+            }
+        }
+
+        if (component instanceof SyntaxEditorScrollPane syntaxEditorScrollPane) {
+            syntaxEditorScrollPane.refreshEditorChrome();
+        } else if (component instanceof RTextScrollPane scrollPane) {
+            EditorThemeUtil.applyScrollPaneChrome(scrollPane);
+        }
+    }
+
+    static void refreshEditorFonts(Component component) {
+        visitComponentTree(component, UIRefreshManager::refreshEditorFontComponent);
+    }
+
+    private static void refreshEditorFontComponent(Component component) {
+        if (component == null) {
+            return;
+        }
+
+        if (component instanceof RSyntaxTextArea textArea) {
+            try {
+                EditorFontManager.applyConfiguredEditorFont(textArea);
+                textArea.revalidate();
+                textArea.repaint();
+                log.debug("Refreshed editor font: {}", component.getClass().getSimpleName());
+            } catch (Exception e) {
+                log.error("Failed to refresh editor font: {}", component.getClass().getSimpleName(), e);
+            }
+        }
+    }
+
+    private static void visitComponentTree(Component component, Consumer<Component> visitor) {
+        if (component == null) {
+            return;
+        }
+        visitor.accept(component);
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                visitComponentTree(child, visitor);
+            }
+        }
+
+        if (component instanceof JFrame frame) {
+            JMenuBar menuBar = frame.getJMenuBar();
+            if (menuBar != null) {
+                visitComponentTree(menuBar, visitor);
+            }
+        }
+    }
+
+    /**
      * 刷新语言（语言切换时调用）
      * <p>
      * 此方法会：
      * <ul>
      *   <li>递归刷新实现了 IRefreshable 接口的组件（包括窗口标题更新）</li>
-     *   <li>更新组件树 UI</li>
      *   <li>重新验证布局和重绘</li>
      * </ul>
      * <p>
@@ -80,13 +184,10 @@ public class UIRefreshManager {
                     // 1. 递归刷新所有实现了 IRefreshable 的组件
                     refreshComponentRecursively(window);
 
-                    // 2. 更新组件树 UI（确保 UI 样式正确）
-                    SwingUtilities.updateComponentTreeUI(window);
-
-                    // 3. 重新验证布局
+                    // 2. 重新验证布局
                     window.validate();
 
-                    // 4. 重绘窗口
+                    // 3. 重绘窗口
                     window.repaint();
 
                     refreshedCount++;
@@ -140,4 +241,3 @@ public class UIRefreshManager {
     }
 
 }
-

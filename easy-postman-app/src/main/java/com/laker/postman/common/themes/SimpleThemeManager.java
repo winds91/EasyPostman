@@ -1,13 +1,20 @@
 package com.laker.postman.common.themes;
 
+import com.laker.postman.common.component.notification.NotificationCenter;
+
+import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.extras.FlatAnimatedLafChange;
 import com.formdev.flatlaf.util.SystemInfo;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.util.*;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * 简单主题管理器
@@ -18,36 +25,48 @@ import java.awt.*;
 public class SimpleThemeManager {
 
     private static final String THEME_SETTING_KEY = "ui.theme";
-    private static final String THEME_LIGHT = "light";
-    private static final String THEME_DARK = "dark";
 
-    private static String currentTheme = THEME_LIGHT;
+    private static String currentThemeId = ThemeRegistry.DEFAULT_THEME_ID;
+    private static final Set<String> registeredDefaultsSources = new HashSet<>();
 
     /**
      * 初始化主题（应用启动时调用）
      */
     public static void initTheme() {
         // 从 UserSettings 中读取上次选择的主题
-        String savedTheme = UserSettingsUtil.getString(THEME_SETTING_KEY);
-        currentTheme = (savedTheme != null) ? savedTheme : THEME_LIGHT;
-        applyTheme(currentTheme, false);
+        String savedTheme = UserPreferencesStore.getString(THEME_SETTING_KEY);
+        ThemeDescriptor theme = ThemeRegistry.getOrDefault(savedTheme);
+        currentThemeId = theme.id();
+        applyTheme(theme, false);
     }
 
-    /**
-     * 切换到亮色主题（带动画过渡）
-     */
-    public static void switchToLightTheme() {
-        if (!THEME_LIGHT.equals(currentTheme)) {
-            switchWithAnimation(() -> applyTheme(THEME_LIGHT, true));
-        }
+    public static void switchTheme(String themeId) {
+        ThemeRegistry.find(themeId).ifPresent(theme -> {
+            if (!theme.id().equals(currentThemeId)) {
+                switchWithAnimation(() -> applyTheme(theme, true));
+            }
+        });
     }
 
-    /**
-     * 切换到暗色主题（带动画过渡）
-     */
-    public static void switchToDarkTheme() {
-        if (!THEME_DARK.equals(currentTheme)) {
-            switchWithAnimation(() -> applyTheme(THEME_DARK, true));
+    public static List<ThemeDescriptor> availableThemes() {
+        return ThemeRegistry.all();
+    }
+
+    public static String currentThemeId() {
+        return currentThemeId;
+    }
+
+    private static ThemeDescriptor currentTheme() {
+        return ThemeRegistry.getOrDefault(currentThemeId);
+    }
+
+    private static void applyEditorThemeResources(ThemeDescriptor theme) {
+        EditorThemeUtil.configureEditorFontApplier(EditorFontManager::applyConfiguredEditorFont);
+        if (theme != null) {
+            EditorThemeUtil.configureThemeResources(
+                    theme.editorThemeResourcePath(),
+                    theme.fallbackEditorThemeResourcePath()
+            );
         }
     }
 
@@ -67,15 +86,12 @@ public class SimpleThemeManager {
     /**
      * 获取当前主题
      */
-    public static boolean isLightTheme() {
-        return THEME_LIGHT.equals(currentTheme);
-    }
-
-    /**
-     * 获取当前主题
-     */
     public static boolean isDarkTheme() {
-        return THEME_DARK.equals(currentTheme);
+        LookAndFeel laf = UIManager.getLookAndFeel();
+        if (laf instanceof FlatLaf) {
+            return FlatLaf.isLafDark();
+        }
+        return currentTheme().dark();
     }
 
     /**
@@ -84,39 +100,53 @@ public class SimpleThemeManager {
      * @param theme            主题名称
      * @param showNotification 是否显示通知
      */
-    private static void applyTheme(String theme, boolean showNotification) {
+    private static void applyTheme(ThemeDescriptor theme, boolean showNotification) {
         try {
-            boolean success;
-            if (THEME_DARK.equals(theme)) {
-                success = EasyDarkLaf.setup();
-            } else {
-                success = EasyLightLaf.setup();
-            }
+            ensureDefaultsSourceRegistered(theme);
 
+            boolean success = theme.applyLookAndFeel();
             if (success) {
-                currentTheme = theme;
+                currentThemeId = theme.id();
+                applyEditorThemeResources(theme);
 
-                // 保存主题设置到 UserSettings
-                UserSettingsUtil.set(THEME_SETTING_KEY, theme);
+                // Look and Feel 切换会重建 UIDefaults，先恢复用户字体再刷新窗口。
+                FontManager.captureLookAndFeelDefaultFont();
+                FontManager.installSavedFontDefaults();
+                ToolWindowSurfaceStyle.installGlobalDialogWindowChrome();
+
+                UserPreferencesStore.put(THEME_SETTING_KEY, theme.id());
 
                 // 更新所有已打开的窗口
                 updateAllWindows();
 
-                log.info("Applied theme: {}", theme);
+                log.info("Applied theme: {}", theme.id());
 
                 if (showNotification) {
-                    String message = THEME_DARK.equals(theme)
-                            ? I18nUtil.getMessage(MessageKeys.THEME_SWITCHED_TO_DARK)
-                            : I18nUtil.getMessage(MessageKeys.THEME_SWITCHED_TO_LIGHT);
-                    NotificationUtil.showSuccess(message);
+                    NotificationCenter.showSuccess(switchNotificationMessage(theme));
                 }
             }
         } catch (Exception e) {
-            log.error("Failed to apply theme: {}", theme, e);
+            log.error("Failed to apply theme: {}", theme.id(), e);
             if (showNotification) {
-                NotificationUtil.showError(I18nUtil.getMessage(MessageKeys.GENERAL_ERROR_MESSAGE, e.getMessage()));
+                NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.GENERAL_ERROR_MESSAGE, e.getMessage()));
             }
         }
+    }
+
+    private static void ensureDefaultsSourceRegistered(ThemeDescriptor theme) {
+        String defaultsSource = theme.flatLafDefaultsSource();
+        if (defaultsSource == null || defaultsSource.isBlank() || registeredDefaultsSources.contains(defaultsSource)) {
+            return;
+        }
+        FlatLaf.registerCustomDefaultsSource(defaultsSource);
+        registeredDefaultsSources.add(defaultsSource);
+    }
+
+    private static String switchNotificationMessage(ThemeDescriptor theme) {
+        if (theme.dark()) {
+            return I18nUtil.getMessage(MessageKeys.THEME_SWITCHED_TO_DARK);
+        }
+        return I18nUtil.getMessage(MessageKeys.THEME_SWITCHED_TO_LIGHT);
     }
 
     /**
@@ -132,7 +162,7 @@ public class SimpleThemeManager {
                     // 设置 macOS 窗口外观模式：dark 或 light
                     // NSAppearanceNameVibrantDark: 暗色外观，标题栏文字为白色
                     // NSAppearanceNameVibrantLight: 亮色外观，标题栏文字为黑色
-                    if (THEME_DARK.equals(currentTheme)) {
+                    if (isDarkTheme()) {
                         rootPane.putClientProperty("apple.awt.windowAppearance", "NSAppearanceNameVibrantDark");
                     } else {
                         rootPane.putClientProperty("apple.awt.windowAppearance", "NSAppearanceNameVibrantLight");

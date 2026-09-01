@@ -1,11 +1,18 @@
 package com.laker.postman.common.component.dialog;
 
 import com.formdev.flatlaf.extras.FlatSVGIcon;
-import com.laker.postman.common.SingletonFactory;
+import com.laker.postman.common.UiSingletonFactory;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.button.ModernButtonFactory;
+import com.laker.postman.common.component.setting.SettingsInputStyle;
+import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.frame.MainFrame;
+import com.laker.postman.model.GitRepoSource;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
+import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
+import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.MessageKeys;
 
 import javax.swing.*;
@@ -27,20 +34,25 @@ public class WorkspaceSelectionDialog extends JDialog {
     private final JTextField searchField;
 
     public WorkspaceSelectionDialog(String title, List<Workspace> workspaces) {
-        super(SingletonFactory.getInstance(MainFrame.class), title, true);
+        super(UiSingletonFactory.getInstance(MainFrame.class), title, true);
         setSize(500, 400);
-        setLocationRelativeTo(SingletonFactory.getInstance(MainFrame.class));
+        setLocationRelativeTo(UiSingletonFactory.getInstance(MainFrame.class));
         setLayout(new BorderLayout(10, 10));
+        ToolWindowSurfaceStyle.applyDialogWindowChrome(this);
+        ToolWindowSurfaceStyle.applyDialogSurface((JComponent) getContentPane());
 
         // 主面板
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
+        ToolWindowSurfaceStyle.applyDialogSurface(mainPanel);
         mainPanel.setBorder(new EmptyBorder(15, 15, 15, 15));
 
         // 顶部搜索框
         JPanel searchPanel = new JPanel(new BorderLayout(5, 0));
+        searchPanel.setOpaque(false);
         JLabel searchLabel = new JLabel(I18nUtil.getMessage(MessageKeys.GENERAL_SEARCH) + ":");
         searchField = new JTextField();
         searchField.setPreferredSize(new Dimension(0, 30));
+        SettingsInputStyle.apply(searchField);
         searchPanel.add(searchLabel, BorderLayout.WEST);
         searchPanel.add(searchField, BorderLayout.CENTER);
         mainPanel.add(searchPanel, BorderLayout.NORTH);
@@ -57,13 +69,13 @@ public class WorkspaceSelectionDialog extends JDialog {
         workspaceList.setCellRenderer(new WorkspaceListCellRenderer());
 
         JScrollPane scrollPane = new JScrollPane(workspaceList);
-        scrollPane.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+        ToolWindowSurfaceStyle.applyDialogListScrollPane(scrollPane, workspaceList);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
 
         // 说明文字
         JLabel hintLabel = new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_SELECT_HINT));
-        hintLabel.setFont(hintLabel.getFont().deriveFont(Font.ITALIC, 11f));
-        hintLabel.setForeground(Color.GRAY);
+        hintLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.ITALIC, -2));
+        hintLabel.setForeground(ModernColors.getTextSecondary());
         hintLabel.setBorder(new EmptyBorder(5, 0, 0, 0));
         mainPanel.add(hintLabel, BorderLayout.SOUTH);
 
@@ -71,10 +83,10 @@ public class WorkspaceSelectionDialog extends JDialog {
 
         // 按钮面板
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        buttonPanel.setBorder(new EmptyBorder(0, 15, 10, 15));
+        ToolWindowSurfaceStyle.applyDialogFooter(buttonPanel);
 
-        JButton okButton = new JButton(I18nUtil.getMessage(MessageKeys.GENERAL_OK));
-        JButton cancelButton = new JButton(I18nUtil.getMessage(MessageKeys.GENERAL_CANCEL));
+        JButton okButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.GENERAL_OK), true);
+        JButton cancelButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.GENERAL_CANCEL), false);
 
         okButton.setPreferredSize(new Dimension(80, 30));
         cancelButton.setPreferredSize(new Dimension(80, 30));
@@ -209,10 +221,9 @@ public class WorkspaceSelectionDialog extends JDialog {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 
             if (value instanceof Workspace workspace) {
-                // 根据工作区类型设置图标
-                FlatSVGIcon icon = workspace.getType() == WorkspaceType.GIT
-                        ? new FlatSVGIcon("icons/git.svg", 20, 20)
-                        : new FlatSVGIcon("icons/local.svg", 18, 18);
+                FlatSVGIcon icon = workspace.getType() == WorkspaceType.LOCAL
+                        ? IconUtil.createThemed("icons/local.svg", 20, 20)
+                        : createGitIcon(workspace);
                 setIcon(icon);
 
                 // 构建显示文本：名称 + 类型 + 描述
@@ -220,7 +231,9 @@ public class WorkspaceSelectionDialog extends JDialog {
                 text.append(HTML_START);
                 text.append("<b>").append(workspace.getName()).append("</b>");
                 text.append("<br>");
-                text.append("<small style='color: gray;'>");
+                text.append("<small style='color: ")
+                        .append(ModernColors.toHtmlColor(ModernColors.getTextHint()))
+                        .append(";'>");
 
                 // 显示工作区类型
                 text.append(workspace.getType() == WorkspaceType.LOCAL
@@ -240,6 +253,16 @@ public class WorkspaceSelectionDialog extends JDialog {
             }
 
             return this;
+        }
+
+        private FlatSVGIcon createGitIcon(Workspace workspace) {
+            if (workspace.getGitRemoteUrl() == null || workspace.getGitRemoteUrl().trim().isEmpty()) {
+                return IconUtil.create("icons/git-warning.svg", 20, 20);
+            }
+            if (workspace.getGitRepoSource() == GitRepoSource.CLONED) {
+                return IconUtil.create("icons/git-remote.svg", 20, 20);
+            }
+            return IconUtil.create("icons/git.svg", 20, 20);
         }
     }
 }

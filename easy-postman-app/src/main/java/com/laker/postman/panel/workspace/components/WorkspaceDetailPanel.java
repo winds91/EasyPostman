@@ -1,6 +1,9 @@
 package com.laker.postman.panel.workspace.components;
 
 import com.formdev.flatlaf.FlatClientProperties;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.model.GitOperation;
 import com.laker.postman.model.GitRepoSource;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.model.WorkspaceType;
@@ -20,81 +23,119 @@ import java.util.Date;
 @Slf4j
 public class WorkspaceDetailPanel extends JPanel {
 
+    public record GitActions(
+            Runnable commitAction,
+            Runnable pullAction,
+            Runnable pushAction,
+            Runnable remoteConfigAction,
+            Runnable historyAction,
+            Runnable branchManagementAction,
+            Runnable diffAction
+    ) {
+        private boolean hasAnyAction() {
+            return commitAction != null
+                    || pullAction != null
+                    || pushAction != null
+                    || remoteConfigAction != null
+                    || historyAction != null
+                    || branchManagementAction != null
+                    || diffAction != null;
+        }
+    }
+
     public WorkspaceDetailPanel(Workspace workspace) {
-        setLayout(new BorderLayout());
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        this(workspace, (GitActions) null);
+    }
 
-        JPanel infoSection = new JPanel(new GridBagLayout());
-        infoSection.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_BASIC_INFO)));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.anchor = GridBagConstraints.WEST;
+    public WorkspaceDetailPanel(Workspace workspace, Runnable branchManagementAction) {
+        this(workspace, branchManagementAction, null);
+    }
 
-        // 名称
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        infoSection.add(new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_NAME) + ":"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+    public WorkspaceDetailPanel(Workspace workspace, Runnable branchManagementAction, Runnable diffAction) {
+        this(workspace, new GitActions(null, null, null, null, null, branchManagementAction, diffAction));
+    }
+
+    public WorkspaceDetailPanel(Workspace workspace, GitActions gitActions) {
+        setLayout(new GridBagLayout());
+        ToolWindowSurfaceStyle.applyCard(this);
+        setBorder(BorderFactory.createEmptyBorder(14, 18, 18, 18));
+
+        JPanel infoGrid = createDetailGrid();
         JLabel nameLabel = new JLabel(workspace.getName());
         nameLabel.setFont(FontsUtil.getDefaultFont(Font.BOLD));
-        infoSection.add(nameLabel, gbc);
+        int row = 0;
+        addRow(infoGrid, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_NAME) + ":", nameLabel);
+        addRow(infoGrid, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE) + ":",
+                workspace.getType() == WorkspaceType.LOCAL
+                        ? I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_LOCAL)
+                        : I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_GIT));
+        addRow(infoGrid, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_PATH) + ":", new PathFieldPanel(workspace.getPath()));
+        addRow(infoGrid, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DESCRIPTION) + ":", workspace.getDescription());
+        addRow(infoGrid, row, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_CREATED_TIME) + ":",
+                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(workspace.getCreatedAt())));
 
-        // 类型
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        infoSection.add(new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE) + ":"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        infoSection.add(new JLabel(workspace.getType() == WorkspaceType.LOCAL ?
-                I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_LOCAL) :
-                I18nUtil.getMessage(MessageKeys.WORKSPACE_TYPE_GIT)), gbc);
-
-        // 路径 —— 交互式路径组件
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        infoSection.add(new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_PATH) + ":"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.WEST;
-        infoSection.add(new PathFieldPanel(workspace.getPath()), gbc);
-
-        // 描述
-        gbc.gridx = 0;
-        gbc.gridy = 3;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        infoSection.add(new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_DESCRIPTION) + ":"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        infoSection.add(new JLabel(workspace.getDescription()), gbc);
-
-        // 创建时间
-        gbc.gridx = 0;
-        gbc.gridy = 4;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        infoSection.add(new JLabel(I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_CREATED_TIME) + ":"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        infoSection.add(new JLabel(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(workspace.getCreatedAt()))), gbc);
-
-        add(infoSection, BorderLayout.NORTH);
+        int sectionRow = 0;
+        addSection(sectionRow++, createSection(I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_BASIC_INFO), infoGrid),
+                new Insets(0, 0, 0, 0));
 
         if (workspace.getType() == WorkspaceType.GIT) {
-            add(createGitInfoPanel(workspace), BorderLayout.CENTER);
+            addSection(sectionRow++, createSection(
+                    I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_GIT_INFO),
+                    createGitInfoPanel(workspace),
+                    createGitActionPanel(gitActions)
+            ), new Insets(14, 0, 0, 0));
         }
+        addVerticalFiller(sectionRow);
+    }
+
+    private void addSection(int row, JPanel section, Insets insets) {
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0;
+        constraints.gridy = row;
+        constraints.weightx = 1.0;
+        constraints.weighty = 0.0;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.anchor = GridBagConstraints.NORTHWEST;
+        constraints.insets = insets;
+        add(section, constraints);
+    }
+
+    private void addVerticalFiller(int row) {
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0;
+        constraints.gridy = row;
+        constraints.weightx = 1.0;
+        constraints.weighty = 1.0;
+        constraints.fill = GridBagConstraints.BOTH;
+        add(Box.createVerticalGlue(), constraints);
+    }
+
+    private static JPanel createSection(String title, JComponent body) {
+        return createSection(title, body, null);
+    }
+
+    private static JPanel createSection(String title, JComponent body, JComponent headerAction) {
+        JPanel section = new JPanel(new BorderLayout(0, 8));
+        section.setOpaque(false);
+
+        JPanel header = new JPanel(new BorderLayout(8, 0));
+        header.setOpaque(false);
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, 1));
+        titleLabel.setForeground(ModernColors.getTextPrimary());
+        header.add(titleLabel, BorderLayout.WEST);
+        if (headerAction != null) {
+            header.add(headerAction, BorderLayout.EAST);
+        }
+        section.add(header, BorderLayout.NORTH);
+        section.add(body, BorderLayout.CENTER);
+        return section;
+    }
+
+    private static JPanel createDetailGrid() {
+        JPanel grid = new JPanel(new GridBagLayout());
+        grid.setOpaque(false);
+        return grid;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -134,7 +175,7 @@ public class WorkspaceDetailPanel extends JPanel {
                         .setContents(new StringSelection(path), null);
                 // 临时换绿色 check 图标作为成功反馈
                 btn.setIcon(IconUtil.createColored("icons/check.svg",
-                        IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL, new Color(40, 167, 69)));
+                        IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL, ModernColors.getSuccess()));
                 Timer t = new Timer(1500, ev ->
                         btn.setIcon(IconUtil.createThemed("icons/copy.svg",
                                 IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL)));
@@ -186,51 +227,114 @@ public class WorkspaceDetailPanel extends JPanel {
     // ──────────────────────────────────────────────────────────────────────────
 
     private JPanel createGitInfoPanel(Workspace workspace) {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_GIT_INFO)));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.anchor = GridBagConstraints.WEST;
+        JPanel panel = createDetailGrid();
         int row = 0;
 
-        addRow(panel, gbc, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":",
+        addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REPO_SOURCE) + ":",
                 workspace.getGitRepoSource() == GitRepoSource.CLONED
                         ? I18nUtil.getMessage(MessageKeys.WORKSPACE_CLONE_FROM_REMOTE)
                         : I18nUtil.getMessage(MessageKeys.WORKSPACE_INIT_LOCAL));
 
-        addRow(panel, gbc, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REMOTE_REPO) + ":",
+        addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REMOTE_REPO) + ":",
                 workspace.getGitRemoteUrl());
 
-        addRow(panel, gbc, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_LOCAL_BRANCH) + ":",
+        addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_LOCAL_BRANCH) + ":",
                 workspace.getCurrentBranch());
 
-        addRow(panel, gbc, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REMOTE_BRANCH) + ":",
+        addRow(panel, row++, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_REMOTE_BRANCH) + ":",
                 workspace.getRemoteBranch());
 
         String shortCommitId = workspace.getLastCommitId() == null ? "" :
                 workspace.getLastCommitId().length() > 8
                         ? workspace.getLastCommitId().substring(0, 8)
                         : workspace.getLastCommitId();
-        addRow(panel, gbc, row, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_LAST_COMMIT) + ":",
+        addRow(panel, row, I18nUtil.getMessage(MessageKeys.WORKSPACE_DETAIL_LAST_COMMIT) + ":",
                 shortCommitId);
 
         return panel;
     }
 
+    private JComponent createGitActionPanel(GitActions gitActions) {
+        if (gitActions == null || !gitActions.hasAnyAction()) {
+            return null;
+        }
+
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        panel.setOpaque(false);
+        addGitOperationButton(panel, GitOperation.COMMIT, gitActions.commitAction());
+        addGitOperationButton(panel, GitOperation.PULL, gitActions.pullAction());
+        addGitOperationButton(panel, GitOperation.PUSH, gitActions.pushAction());
+        addHeaderActionButton(panel, I18nUtil.getMessage(MessageKeys.WORKSPACE_REMOTE_CONFIG_TITLE),
+                "icons/git-remote-config.svg", gitActions.remoteConfigAction());
+        addHeaderActionButton(panel, I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_DIFF),
+                "icons/detail.svg", gitActions.diffAction());
+        addHeaderActionButton(panel, I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_BRANCHES),
+                "icons/git.svg", gitActions.branchManagementAction());
+        addHeaderActionButton(panel, I18nUtil.getMessage(MessageKeys.WORKSPACE_GIT_HISTORY),
+                "icons/history.svg", gitActions.historyAction());
+        return panel;
+    }
+
+    private void addGitOperationButton(JPanel panel, GitOperation operation, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        panel.add(createHeaderIconButton(
+                operation.getDisplayName(),
+                GitOperationPresentation.getIconName(operation),
+                action
+        ));
+    }
+
+    private void addHeaderActionButton(JPanel panel, String text, String iconPath, Runnable action) {
+        if (action == null) {
+            return;
+        }
+        panel.add(createHeaderIconButton(text, iconPath, action));
+    }
+
+    private JButton createHeaderIconButton(String tooltip, String iconPath, Runnable action) {
+        JButton button = new JButton(IconUtil.createThemed(iconPath, 16, 16));
+        button.setPreferredSize(new Dimension(30, 30));
+        button.setMinimumSize(new Dimension(30, 30));
+        button.setMaximumSize(new Dimension(30, 30));
+        button.setToolTipText(tooltip);
+        button.getAccessibleContext().setAccessibleName(tooltip);
+        button.setFocusPainted(false);
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        button.addActionListener(e -> action.run());
+        return button;
+    }
+
     /**
      * 向 GridBagLayout 面板追加一行 label + value
      */
-    private static void addRow(JPanel panel, GridBagConstraints gbc, int row, String label, String value) {
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel(label), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+    private static void addRow(JPanel panel, int row, String label, String value) {
         JLabel v = new JLabel(value == null ? "" : value);
         v.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-        panel.add(v, gbc);
+        addRow(panel, row, label, v);
+    }
+
+    private static void addRow(JPanel panel, int row, String label, JComponent value) {
+        GridBagConstraints labelConstraints = new GridBagConstraints();
+        labelConstraints.gridx = 0;
+        labelConstraints.gridy = row;
+        labelConstraints.weightx = 0;
+        labelConstraints.fill = GridBagConstraints.NONE;
+        labelConstraints.anchor = GridBagConstraints.WEST;
+        labelConstraints.insets = new Insets(4, 0, 4, 18);
+        JLabel labelComponent = new JLabel(label);
+        labelComponent.setForeground(ModernColors.getTextPrimary());
+        panel.add(labelComponent, labelConstraints);
+
+        GridBagConstraints valueConstraints = new GridBagConstraints();
+        valueConstraints.gridx = 1;
+        valueConstraints.gridy = row;
+        valueConstraints.weightx = 1.0;
+        valueConstraints.fill = GridBagConstraints.HORIZONTAL;
+        valueConstraints.anchor = GridBagConstraints.WEST;
+        valueConstraints.insets = new Insets(4, 0, 4, 0);
+        panel.add(value, valueConstraints);
     }
 }

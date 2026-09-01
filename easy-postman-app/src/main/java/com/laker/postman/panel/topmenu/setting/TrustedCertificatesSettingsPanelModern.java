@@ -1,15 +1,20 @@
 package com.laker.postman.panel.topmenu.setting;
 
 import cn.hutool.json.JSONUtil;
+import com.formdev.flatlaf.util.SystemFileChooser;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.setting.SettingsHintLabel;
+import com.laker.postman.common.component.setting.SettingsSectionPanel;
 import com.laker.postman.common.constants.ModernColors;
-import com.laker.postman.model.TrustedCertificateEntry;
-import com.laker.postman.service.http.okhttp.OkHttpClientManager;
-import com.laker.postman.service.http.ssl.CustomTrustMaterialLoader;
+import com.laker.postman.certificate.TrustedCertificateEntry;
+import com.laker.postman.http.runtime.okhttp.OkHttpClientManager;
+import com.laker.postman.http.runtime.ssl.CustomTrustMaterialLoader;
 import com.laker.postman.service.setting.SettingManager;
+import com.laker.postman.util.FileChooserUtil;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
-import com.laker.postman.util.NotificationUtil;
+import com.laker.postman.common.component.notification.NotificationCenter;
 import lombok.Getter;
 
 import javax.swing.*;
@@ -54,13 +59,11 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
         ));
         trustedMaterialSection.add(createVerticalSpace(8));
 
-        JLabel hintLabel = new JLabel("<html>" +
-                I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TRUSTED_MATERIAL_HINT) +
-                "</html>");
-        hintLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
-        hintLabel.setForeground(getTextSecondaryColor());
+        SettingsHintLabel hintLabel = new SettingsHintLabel(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TRUSTED_MATERIAL_HINT),
+                SettingsSectionPanel.DEFAULT_DESCRIPTION_WIDTH
+        );
         hintLabel.setBorder(new EmptyBorder(0, 0, 0, 0));
-        hintLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         trustedMaterialSection.add(hintLabel);
         trustedMaterialSection.add(createVerticalSpace(12));
 
@@ -104,7 +107,8 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
     private JPanel createActionBar() {
         JPanel actionBar = new JPanel();
         actionBar.setLayout(new BoxLayout(actionBar, BoxLayout.X_AXIS));
-        actionBar.setBackground(getCardBackgroundColor());
+        actionBar.setOpaque(false);
+        actionBar.setBackground(getBackgroundColor());
         actionBar.setAlignmentX(Component.LEFT_ALIGNMENT);
         actionBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
 
@@ -137,9 +141,8 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
         trustMaterialTable.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
         trustMaterialTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
         trustMaterialTable.setFillsViewportHeight(true);
-        trustMaterialTable.setBackground(getInputBackgroundColor());
-        trustMaterialTable.setForeground(getTextPrimaryColor());
-        trustMaterialTable.setSelectionBackground(getHoverBackgroundColor());
+        ToolWindowSurfaceStyle.applyTableCard(trustMaterialTable);
+        trustMaterialTable.setSelectionBackground(ModernColors.getHoverBackgroundColor());
 
         trustMaterialTable.getColumnModel().getColumn(0).setPreferredWidth(72);
         trustMaterialTable.getColumnModel().getColumn(0).setMinWidth(68);
@@ -171,9 +174,9 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
         });
 
         JScrollPane scrollPane = new JScrollPane(trustMaterialTable);
-        scrollPane.setBorder(BorderFactory.createLineBorder(ModernColors.getBorderLightColor(), 1));
-        scrollPane.setPreferredSize(new Dimension(520, 260));
-        scrollPane.setMaximumSize(new Dimension(640, 340));
+        ToolWindowSurfaceStyle.applyTableScrollPaneCard(scrollPane, trustMaterialTable);
+        scrollPane.setPreferredSize(new Dimension(SettingsSectionPanel.DEFAULT_DESCRIPTION_WIDTH, 260));
+        scrollPane.setMaximumSize(new Dimension(SettingsSectionPanel.DEFAULT_DESCRIPTION_WIDTH, 340));
         scrollPane.setMinimumSize(new Dimension(360, 180));
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -185,14 +188,14 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
         List<TrustedCertificateEntry> entries = tableModel.getEntries();
         if (customTrustMaterialEnabledCheckBox.isSelected()) {
             if (entries.isEmpty()) {
-                NotificationUtil.showError(I18nUtil.getMessage(
+                NotificationCenter.showError(I18nUtil.getMessage(
                         MessageKeys.SETTINGS_VALIDATION_TRUSTED_MATERIAL_PATH_ERROR));
                 return;
             }
             try {
                 CustomTrustMaterialLoader.loadTrustManager(entries);
             } catch (Exception ex) {
-                NotificationUtil.showError(I18nUtil.getMessage(
+                NotificationCenter.showError(I18nUtil.getMessage(
                         MessageKeys.SETTINGS_VALIDATION_TRUSTED_MATERIAL_LOAD_ERROR) + ": " + ex.getMessage());
                 return;
             }
@@ -206,7 +209,7 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
             originalEnabled = customTrustMaterialEnabledCheckBox.isSelected();
             originalEntriesSnapshot = snapshotEntries();
             setHasUnsavedChanges(false);
-            NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_SUCCESS_MESSAGE));
+            NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_SUCCESS_MESSAGE));
 
             if (closeAfterSave) {
                 Window window = SwingUtilities.getWindowAncestor(this);
@@ -215,7 +218,7 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
                 }
             }
         } catch (Exception ex) {
-            NotificationUtil.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_ERROR_MESSAGE) + ": " + ex.getMessage());
+            NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_ERROR_MESSAGE) + ": " + ex.getMessage());
         }
     }
 
@@ -431,7 +434,9 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
         }
 
         private void initUI(Window owner) {
+            ToolWindowSurfaceStyle.applyDialogWindowChrome(this);
             setLayout(new BorderLayout(10, 10));
+            ToolWindowSurfaceStyle.applyDialogSurface((JPanel) getContentPane());
             ((JPanel) getContentPane()).setBorder(new EmptyBorder(18, 18, 18, 18));
 
             JPanel formPanel = new JPanel(new GridBagLayout());
@@ -489,11 +494,10 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
             gbc.gridwidth = 2;
             formPanel.add(enabledCheckBox, gbc);
 
-            JLabel hintLabel = new JLabel("<html>" +
-                    I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TRUSTED_MATERIAL_HINT) +
-                    "</html>");
-            hintLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
-            hintLabel.setForeground(ModernColors.getTextSecondary());
+            SettingsHintLabel hintLabel = new SettingsHintLabel(
+                    I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TRUSTED_MATERIAL_HINT),
+                    520
+            );
             hintLabel.setBorder(new EmptyBorder(4, 0, 0, 0));
             gbc.gridx = 0;
             gbc.gridy = 3;
@@ -520,10 +524,9 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
         }
 
         private void chooseFile() {
-            JFileChooser fileChooser = new JFileChooser();
-            fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-            fileChooser.setDialogTitle(I18nUtil.getMessage(
-                    MessageKeys.SETTINGS_REQUEST_TRUSTED_MATERIAL_DIALOG_BROWSE_TITLE));
+            SystemFileChooser fileChooser = FileChooserUtil.createOpenFileChooser(
+                    "settings.trustedMaterial.file",
+                    I18nUtil.getMessage(MessageKeys.SETTINGS_REQUEST_TRUSTED_MATERIAL_DIALOG_BROWSE_TITLE));
             String currentPath = pathField.getText().trim();
             if (!currentPath.isEmpty()) {
                 File currentFile = new File(currentPath);
@@ -532,7 +535,7 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
                     fileChooser.setCurrentDirectory(parent);
                 }
             }
-            if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            if (fileChooser.showOpenDialog(this) == SystemFileChooser.APPROVE_OPTION) {
                 File file = fileChooser.getSelectedFile();
                 if (file != null) {
                     pathField.setText(file.getAbsolutePath());
@@ -543,14 +546,14 @@ public class TrustedCertificatesSettingsPanelModern extends ModernSettingsPanel 
         private void onConfirm() {
             String path = pathField.getText().trim();
             if (path.isEmpty() || !new File(path).isFile()) {
-                NotificationUtil.showError(I18nUtil.getMessage(
+                NotificationCenter.showError(I18nUtil.getMessage(
                         MessageKeys.SETTINGS_VALIDATION_TRUSTED_MATERIAL_PATH_ERROR));
                 return;
             }
             try {
                 CustomTrustMaterialLoader.loadTrustManager(path, new String(passwordField.getPassword()));
             } catch (Exception ex) {
-                NotificationUtil.showError(I18nUtil.getMessage(
+                NotificationCenter.showError(I18nUtil.getMessage(
                         MessageKeys.SETTINGS_VALIDATION_TRUSTED_MATERIAL_LOAD_ERROR) + ": " + ex.getMessage());
                 return;
             }

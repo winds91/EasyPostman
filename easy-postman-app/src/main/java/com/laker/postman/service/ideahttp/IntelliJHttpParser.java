@@ -1,9 +1,18 @@
 package com.laker.postman.service.ideahttp;
 
-import com.laker.postman.model.*;
-import com.laker.postman.service.common.AuthParserUtil;
-import com.laker.postman.service.common.CollectionParseResult;
-import com.laker.postman.service.http.HttpUtil;
+import com.laker.postman.collection.model.RequestGroup;
+import com.laker.postman.model.Variable;
+import com.laker.postman.request.model.RequestAuthTypes;
+import com.laker.postman.request.model.RequestBodyTypes;
+import com.laker.postman.request.model.RequestItemProtocolEnum;
+import com.laker.postman.request.model.HttpHeader;
+import com.laker.postman.request.model.HttpFormData;
+import com.laker.postman.request.model.HttpFormUrlencoded;
+import com.laker.postman.request.model.HttpRequestItem;
+
+import com.laker.postman.collection.importer.AuthParserUtil;
+import com.laker.postman.collection.model.CollectionParseResult;
+import com.laker.postman.http.request.HttpRequestProtocol;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.experimental.UtilityClass;
@@ -15,9 +24,12 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.laker.postman.panel.collections.right.request.sub.AuthTabPanel.AUTH_TYPE_BASIC;
-import static com.laker.postman.panel.collections.right.request.sub.AuthTabPanel.AUTH_TYPE_BEARER;
-import static com.laker.postman.panel.collections.right.request.sub.RequestBodyPanel.*;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BASIC;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BEARER;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_DATA;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_URLENCODED;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_NONE;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_RAW;
 
 /**
  * IntelliJ IDEA HTTP Client 文件解析器
@@ -29,14 +41,20 @@ import static com.laker.postman.panel.collections.right.request.sub.RequestBodyP
 public class IntelliJHttpParser {
     // 匹配请求分隔符：### 开头的注释
     private static final Pattern REQUEST_SEPARATOR_PATTERN = Pattern.compile("^###\\s*(.+)$");
-    // 匹配 HTTP 方法 + URL：GET/POST/PUT/DELETE/PATCH + URL
-    private static final Pattern HTTP_METHOD_PATTERN = Pattern.compile("^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\\s+(.+)$");
+    // 匹配 HTTP 方法 + URL + 可选 HTTP 版本，支持自定义方法
+    private static final Pattern HTTP_METHOD_PATTERN = Pattern.compile(
+            "^([A-Z][A-Z0-9_-]*)\\s+(.+?)(?:\\s+(HTTP/1\\.1|HTTP/2(?:\\s*\\(Prior Knowledge\\))?))?$"
+    );
     // 匹配头部：Key: Value
     private static final Pattern HEADER_PATTERN = Pattern.compile("^([^:]+):\\s*(.+)$");
     // 匹配单行注释：# 开头
     private static final Pattern COMMENT_PATTERN = Pattern.compile("^#\\s*(.*)$");
+    // 匹配请求名称注解：# @name RequestName
+    private static final Pattern REQUEST_NAME_PATTERN = Pattern.compile("^#\\s*@name\\s*(?:=\\s*)?(.+)$");
     // 匹配变量定义：@变量名=值
     private static final Pattern VARIABLE_PATTERN = Pattern.compile("^@([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*(.*)$");
+    // 匹配请求行末尾的内联 response handler
+    private static final Pattern INLINE_RESPONSE_HANDLER_PATTERN = Pattern.compile("^(.*?)\\s+>\\s*\\{%\\s*(.*?)\\s*%}\\s*$");
 
     /**
      * 解析 HTTP 文件，返回包含分组信息和请求列表的解析结果
@@ -129,10 +147,13 @@ public class IntelliJHttpParser {
         HttpRequestItem currentRequest = null;
         StringBuilder bodyBuilder = null;
         StringBuilder responseScriptBuilder = null;
+        StringBuilder preRequestScriptBuilder = new StringBuilder();
         boolean inBody = false;
         boolean inResponseScript = false;
+        boolean inPreRequestScript = false;
         String contentType = null;
         String boundary = null;
+        String pendingRequestName = null;
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
@@ -147,12 +168,55 @@ public class IntelliJHttpParser {
                 continue;
             }
 
+            if (inPreRequestScript) {
+                int endIndex = trimmedLine.indexOf("%}");
+                if (endIndex >= 0) {
+                    String scriptLine = trimmedLine.substring(0, endIndex).trim();
+                    if (!scriptLine.isEmpty()) {
+                        appendScriptLine(preRequestScriptBuilder, convertPreRequestScript(scriptLine));
+                    }
+                    inPreRequestScript = false;
+                    trimmedLine = trimmedLine.substring(endIndex + 2).trim();
+                    if (trimmedLine.isEmpty()) {
+                        continue;
+                    }
+                } else {
+                    appendScriptLine(preRequestScriptBuilder, convertPreRequestScript(trimmedLine));
+                    continue;
+                }
+            }
+
             // 检查是否是变量定义（@ 开头）
             Matcher variableMatcher = VARIABLE_PATTERN.matcher(trimmedLine);
             if (variableMatcher.matches()) {
                 String varName = variableMatcher.group(1).trim();
                 String varValue = variableMatcher.group(2).trim();
                 variables.put(varName, varValue);
+                continue;
+            }
+
+            // JetBrains 官方支持 # @name 指定请求名称
+            Matcher requestNameMatcher = REQUEST_NAME_PATTERN.matcher(trimmedLine);
+            if (requestNameMatcher.matches()) {
+                pendingRequestName = requestNameMatcher.group(1).trim();
+                continue;
+            }
+
+            ScriptLineResult scriptLineResult = parseScriptLine(trimmedLine);
+            if (!scriptLineResult.preScript.isEmpty()) {
+                appendScriptLine(preRequestScriptBuilder, convertPreRequestScript(scriptLineResult.preScript));
+            }
+            if (!scriptLineResult.postScript.isEmpty()) {
+                if (responseScriptBuilder == null) {
+                    responseScriptBuilder = new StringBuilder();
+                }
+                appendScriptLine(responseScriptBuilder, convertResponseScriptToPostman(scriptLineResult.postScript));
+            }
+            if (scriptLineResult.startsMultilinePreScript) {
+                inPreRequestScript = true;
+            }
+            trimmedLine = scriptLineResult.remainingLine;
+            if (trimmedLine.isEmpty()) {
                 continue;
             }
 
@@ -227,6 +291,7 @@ public class IntelliJHttpParser {
                 currentRequest = new HttpRequestItem();
                 currentRequest.setId(UUID.randomUUID().toString());
                 currentRequest.setName(requestName.isEmpty() ? I18nUtil.getMessage(MessageKeys.COLLECTIONS_IMPORT_HTTP_UNNAMED_REQUEST) : requestName);
+                pendingRequestName = applyPendingRequestNameIfNeeded(currentRequest, pendingRequestName);
                 bodyBuilder = new StringBuilder();
                 responseScriptBuilder = new StringBuilder();
                 inBody = false;
@@ -243,16 +308,27 @@ public class IntelliJHttpParser {
                     currentRequest = new HttpRequestItem();
                     currentRequest.setId(UUID.randomUUID().toString());
                     currentRequest.setName(I18nUtil.getMessage(MessageKeys.COLLECTIONS_IMPORT_HTTP_UNNAMED_REQUEST));
-                    bodyBuilder = new StringBuilder();
-                    responseScriptBuilder = new StringBuilder();
+                    if (bodyBuilder == null) {
+                        bodyBuilder = new StringBuilder();
+                    }
+                    if (responseScriptBuilder == null) {
+                        responseScriptBuilder = new StringBuilder();
+                    }
                     inBody = false;
                     inResponseScript = false;
                     contentType = null;
                 }
                 String method = methodMatcher.group(1).toUpperCase();
                 String url = methodMatcher.group(2).trim();
+                String httpVersion = methodMatcher.group(3);
+                pendingRequestName = applyPendingRequestNameIfNeeded(currentRequest, pendingRequestName);
                 currentRequest.setMethod(method);
                 currentRequest.setUrl(url);
+                applyHttpVersion(currentRequest, httpVersion);
+                if (!preRequestScriptBuilder.isEmpty()) {
+                    currentRequest.setPrescript(preRequestScriptBuilder.toString());
+                    preRequestScriptBuilder = new StringBuilder();
+                }
                 continue;
             }
 
@@ -341,14 +417,108 @@ public class IntelliJHttpParser {
         return requests;
     }
 
+    private static void applyHttpVersion(HttpRequestItem request, String httpVersion) {
+        if (httpVersion == null || httpVersion.isBlank()) {
+            return;
+        }
+        if (httpVersion.startsWith("HTTP/1.1")) {
+            request.setHttpVersion(HttpRequestItem.HTTP_VERSION_HTTP_1_1);
+        } else if (httpVersion.startsWith("HTTP/2")) {
+            request.setHttpVersion(HttpRequestItem.HTTP_VERSION_HTTP_2);
+        }
+    }
+
+    private static void appendScriptLine(StringBuilder builder, String line) {
+        if (line == null || line.isBlank()) {
+            return;
+        }
+        if (!builder.isEmpty()) {
+            builder.append("\n");
+        }
+        builder.append(line.trim());
+    }
+
+    private static String convertPreRequestScript(String script) {
+        if (script == null || script.trim().isEmpty()) {
+            return "";
+        }
+
+        String converted = script.trim();
+        converted = converted.replace("request.variables.set", "pm.variables.set");
+        converted = converted.replace("request.variables.get", "pm.variables.get");
+        converted = converted.replace("client.global.set", "pm.environment.set");
+        converted = converted.replace("client.global.get", "pm.environment.get");
+        return converted;
+    }
+
+    private static String applyPendingRequestNameIfNeeded(HttpRequestItem request, String pendingRequestName) {
+        if (request == null || pendingRequestName == null || pendingRequestName.isEmpty()) {
+            return pendingRequestName;
+        }
+        String currentName = request.getName();
+        String unnamedRequest = I18nUtil.getMessage(MessageKeys.COLLECTIONS_IMPORT_HTTP_UNNAMED_REQUEST);
+        if (currentName == null || currentName.isEmpty() || unnamedRequest.equals(currentName)) {
+            request.setName(pendingRequestName);
+        }
+        return null;
+    }
+
+    private static ScriptLineResult parseScriptLine(String trimmedLine) {
+        ScriptLineResult result = new ScriptLineResult();
+        result.remainingLine = trimmedLine;
+
+        if (trimmedLine.startsWith("<")) {
+            String afterMarker = trimmedLine.substring(1).trim();
+            if (afterMarker.startsWith("{%")) {
+                int endIndex = afterMarker.indexOf("%}");
+                if (endIndex >= 0) {
+                    result.preScript = afterMarker.substring(2, endIndex).trim();
+                    result.remainingLine = afterMarker.substring(endIndex + 2).trim();
+                } else {
+                    result.preScript = afterMarker.substring(2).trim();
+                    result.remainingLine = "";
+                    result.startsMultilinePreScript = true;
+                }
+            }
+        }
+
+        String lineToCheck = result.remainingLine;
+        Matcher inlineHandlerMatcher = INLINE_RESPONSE_HANDLER_PATTERN.matcher(lineToCheck);
+        if (inlineHandlerMatcher.matches()) {
+            result.remainingLine = inlineHandlerMatcher.group(1).trim();
+            result.postScript = inlineHandlerMatcher.group(2).trim();
+            return result;
+        }
+
+        if (lineToCheck.startsWith(">")) {
+            String afterMarker = lineToCheck.substring(1).trim();
+            if (afterMarker.startsWith("{%")) {
+                int endIndex = afterMarker.indexOf("%}");
+                if (endIndex >= 0) {
+                    result.postScript = afterMarker.substring(2, endIndex).trim();
+                    result.remainingLine = afterMarker.substring(endIndex + 2).trim();
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static class ScriptLineResult {
+        String preScript = "";
+        String postScript = "";
+        String remainingLine = "";
+        boolean startsMultilinePreScript = false;
+    }
+
     /**
      * 完成请求解析，设置 body 和其他属性
      */
     private static void finishRequest(HttpRequestItem request, StringBuilder bodyBuilder, String contentType, String boundary) {
         // 设置协议类型
-        if (HttpUtil.isSSERequest(request)) {
+        if (HttpRequestProtocol.isSse(request)) {
             request.setProtocol(RequestItemProtocolEnum.SSE);
-        } else if (HttpUtil.isWebSocketRequest(request.getUrl())) {
+        } else if (HttpRequestProtocol.isWebSocketUrl(request.getUrl())) {
             request.setProtocol(RequestItemProtocolEnum.WEBSOCKET);
         } else {
             request.setProtocol(RequestItemProtocolEnum.HTTP);
@@ -623,4 +793,3 @@ public class IntelliJHttpParser {
     }
 
 }
-

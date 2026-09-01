@@ -3,6 +3,10 @@ package com.laker.postman.plugin.runtime;
 import com.laker.postman.plugin.api.EasyPostmanPlugin;
 import com.laker.postman.plugin.api.PluginContext;
 import com.laker.postman.plugin.api.PluginDescriptor;
+import com.laker.postman.plugin.api.PluginStorage;
+import com.laker.postman.util.I18nBundleRegistry;
+import lombok.RequiredArgsConstructor;
+import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -10,6 +14,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 插件加载器。
@@ -18,39 +23,64 @@ import java.util.List;
  * </p>
  */
 @Slf4j
-final class PluginLoader {
+@UtilityClass
+class PluginLoader {
 
-    private PluginLoader() {
-    }
-
-    static void loadPluginJar(Path jarPath,
-                              PluginDescriptor descriptor,
-                              PluginRegistry registry,
-                              List<EasyPostmanPlugin> loadedPlugins,
-                              List<URLClassLoader> pluginClassLoaders,
-                              List<PluginFileInfo> loadedPluginFiles,
-                              ClassLoader parentClassLoader) {
+    Optional<String> loadPluginJar(Path jarPath,
+                                   PluginDescriptor descriptor,
+                                   PluginRegistry registry,
+                                   List<EasyPostmanPlugin> loadedPlugins,
+                                   List<URLClassLoader> pluginClassLoaders,
+                                   List<PluginFileInfo> loadedPluginFiles,
+                                   ClassLoader parentClassLoader) {
+        URLClassLoader classLoader = null;
         try {
             log.info("Loading plugin: id={}, version={}, entryClass={}, jar={}",
                     descriptor.id(), descriptor.version(), descriptor.entryClass(), jarPath);
-            URLClassLoader classLoader = new URLClassLoader(new URL[]{jarPath.toUri().toURL()}, parentClassLoader);
+            classLoader = new URLClassLoader(new URL[]{jarPath.toUri().toURL()}, parentClassLoader);
             Class<?> entryClass = Class.forName(descriptor.entryClass(), true, classLoader);
             Object instance = entryClass.getDeclaredConstructor().newInstance();
             if (!(instance instanceof EasyPostmanPlugin plugin)) {
                 throw new IllegalStateException("Plugin entry class does not implement EasyPostmanPlugin: " + descriptor.entryClass());
             }
-            plugin.onLoad(new PluginContextImpl(descriptor, registry));
+            plugin.onLoad(new PluginContextImpl(descriptor, registry, classLoader, PluginFileStorage.forPlugin(descriptor.id())));
             loadedPlugins.add(plugin);
             pluginClassLoaders.add(classLoader);
             loadedPluginFiles.add(new PluginFileInfo(descriptor, jarPath, true, true, true));
             log.info("Loaded plugin successfully: id={}, version={}, jar={}",
                     descriptor.id(), descriptor.version(), jarPath);
-        } catch (Exception e) {
+            return Optional.empty();
+        } catch (Exception | LinkageError e) {
             log.error("Failed to load plugin jar: {}", jarPath, e);
+            closeFailedClassLoader(classLoader);
+            return Optional.of(buildLoadFailureMessage(e));
         }
     }
 
-    static void startPlugins(List<EasyPostmanPlugin> plugins) {
+    private String buildLoadFailureMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) {
+            return current.getClass().getSimpleName();
+        }
+        return current.getClass().getSimpleName() + ": " + message;
+    }
+
+    private void closeFailedClassLoader(URLClassLoader classLoader) {
+        if (classLoader == null) {
+            return;
+        }
+        try {
+            classLoader.close();
+        } catch (IOException closeError) {
+            log.warn("Failed to close failed plugin classloader", closeError);
+        }
+    }
+
+    void startPlugins(List<EasyPostmanPlugin> plugins) {
         for (EasyPostmanPlugin plugin : plugins) {
             try {
                 plugin.onStart();
@@ -61,7 +91,7 @@ final class PluginLoader {
         }
     }
 
-    static void stopPlugins(List<EasyPostmanPlugin> plugins) {
+    void stopPlugins(List<EasyPostmanPlugin> plugins) {
         for (EasyPostmanPlugin plugin : plugins) {
             try {
                 plugin.onStop();
@@ -71,7 +101,7 @@ final class PluginLoader {
         }
     }
 
-    static void closeClassLoaders(List<URLClassLoader> classLoaders) {
+    void closeClassLoaders(List<URLClassLoader> classLoaders) {
         for (URLClassLoader classLoader : classLoaders) {
             try {
                 classLoader.close();
@@ -81,18 +111,21 @@ final class PluginLoader {
         }
     }
 
+    @RequiredArgsConstructor
     private static final class PluginContextImpl implements PluginContext {
         private final PluginDescriptor descriptor;
         private final PluginRegistry registry;
-
-        private PluginContextImpl(PluginDescriptor descriptor, PluginRegistry registry) {
-            this.descriptor = descriptor;
-            this.registry = registry;
-        }
+        private final ClassLoader classLoader;
+        private final PluginStorage storage;
 
         @Override
         public PluginDescriptor descriptor() {
             return descriptor;
+        }
+
+        @Override
+        public PluginStorage storage() {
+            return storage;
         }
 
         @Override
@@ -106,8 +139,44 @@ final class PluginLoader {
         }
 
         @Override
+        public <T> T getService(Class<T> type) {
+            return registry.getService(type);
+        }
+
+        @Override
         public void registerToolboxContribution(com.laker.postman.plugin.api.ToolboxContribution contribution) {
             registry.registerToolboxContribution(contribution);
+        }
+
+        @Override
+        public void registerSettingsContribution(com.laker.postman.plugin.api.PluginSettingsContribution contribution) {
+            registry.registerSettingsContribution(
+                    descriptor.id(),
+                    contribution == null ? null : contribution.withTitleClassLoader(classLoader)
+            );
+        }
+
+        @Override
+        public void registerMenuContribution(com.laker.postman.plugin.api.PluginMenuContribution contribution) {
+            registry.registerMenuContribution(
+                    descriptor.id(),
+                    contribution == null ? null : contribution.withTitleClassLoader(classLoader)
+            );
+        }
+
+        @Override
+        public void registerStatusBarActionContribution(
+                com.laker.postman.plugin.api.StatusBarActionContribution contribution) {
+            registry.registerStatusBarActionContribution(
+                    descriptor.id(),
+                    contribution == null ? null : contribution.withIconClassLoader(classLoader)
+            );
+        }
+
+        @Override
+        public void registerUpdateMetadataContribution(
+                com.laker.postman.plugin.api.PluginUpdateMetadataContribution contribution) {
+            registry.registerUpdateMetadataContribution(descriptor.id(), contribution);
         }
 
         @Override
@@ -118,6 +187,11 @@ final class PluginLoader {
         @Override
         public void registerSnippet(com.laker.postman.plugin.api.SnippetDefinition definition) {
             registry.registerSnippet(definition);
+        }
+
+        @Override
+        public void registerI18nBundle(String bundleName) {
+            I18nBundleRegistry.registerBundle(descriptor.id(), bundleName, classLoader);
         }
     }
 }

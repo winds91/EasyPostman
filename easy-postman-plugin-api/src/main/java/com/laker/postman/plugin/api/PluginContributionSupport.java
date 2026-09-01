@@ -1,10 +1,9 @@
 package com.laker.postman.plugin.api;
 
-import org.fife.ui.autocomplete.BasicCompletion;
-import org.fife.ui.autocomplete.DefaultCompletionProvider;
-import org.fife.ui.autocomplete.ShorthandCompletion;
-
 import javax.swing.*;
+import java.util.List;
+import java.util.function.Function;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -40,52 +39,137 @@ public final class PluginContributionSupport {
         ));
     }
 
-    public static void addScriptApiCompletions(DefaultCompletionProvider provider,
+    public static void registerSettingsContribution(PluginContext context,
+                                                    String id,
+                                                    String titleKey,
+                                                    int order,
+                                                    String category,
+                                                    String titleBundleName,
+                                                    Function<PluginSettingsContributionContext, ? extends JComponent> panelFactory,
+                                                    Class<?> ownerClass) {
+        if (context == null) {
+            return;
+        }
+        context.registerSettingsContribution(new PluginSettingsContribution(
+                id,
+                titleKey,
+                order,
+                category,
+                panelFactory,
+                titleBundleName,
+                ownerClass == null ? null : ownerClass.getClassLoader()
+        ));
+    }
+
+    public static void registerPluginMenuAction(PluginContext context,
+                                                String id,
+                                                String titleKey,
+                                                int order,
+                                                String titleBundleName,
+                                                Consumer<PluginMenuActionContext> action,
+                                                Class<?> ownerClass) {
+        registerMenuAction(
+                context,
+                id,
+                PluginMenuContribution.PARENT_MENU_PLUGINS,
+                titleKey,
+                order,
+                titleBundleName,
+                action,
+                ownerClass
+        );
+    }
+
+    public static void registerMenuAction(PluginContext context,
+                                          String id,
+                                          String parentMenuId,
+                                          String titleKey,
+                                          int order,
+                                          String titleBundleName,
+                                          Consumer<PluginMenuActionContext> action,
+                                          Class<?> ownerClass) {
+        if (context == null) {
+            return;
+        }
+        context.registerMenuContribution(new PluginMenuContribution(
+                id,
+                parentMenuId,
+                titleKey,
+                order,
+                action,
+                titleBundleName,
+                ownerClass == null ? null : ownerClass.getClassLoader()
+        ));
+    }
+
+    public static void registerToolboxStatusBarAction(PluginContext context,
+                                                      String id,
+                                                      String tooltip,
+                                                      String iconPath,
+                                                      String toolboxToolId,
+                                                      int order,
+                                                      Class<?> ownerClass) {
+        if (context == null) {
+            return;
+        }
+        context.registerStatusBarActionContribution(new StatusBarActionContribution(
+                id,
+                tooltip,
+                iconPath,
+                StatusBarActionContribution.TARGET_TOOLBOX,
+                toolboxToolId,
+                order,
+                ownerClass == null ? null : ownerClass.getClassLoader()
+        ));
+    }
+
+    public static void registerUpdateMetadataContribution(PluginContext context,
+                                                          String id,
+                                                          int order,
+                                                          Supplier<List<PluginUpdateMetadata>> metadataSupplier) {
+        if (context == null) {
+            return;
+        }
+        context.registerUpdateMetadataContribution(new PluginUpdateMetadataContribution(
+                id,
+                order,
+                metadataSupplier
+        ));
+    }
+
+    public static void addScriptApiCompletions(ScriptCompletionSink sink,
                                                String alias,
                                                String apiDisplayName,
                                                String... methodNames) {
-        if (provider == null || alias == null || alias.isBlank()) {
+        if (sink == null || alias == null || alias.isBlank()) {
             return;
         }
 
-        provider.addCompletion(new BasicCompletion(provider, "pm.plugin", "pm.plugin(alias)"));
-        provider.addCompletion(new BasicCompletion(provider,
-                "pm.plugin(\"" + alias + "\")",
-                apiDisplayName));
+        sink.basic("pm.plugin", "pm.plugin(alias)");
+        sink.basic("pm.plugin(\"" + alias + "\")", apiDisplayName);
 
         for (String methodName : methodNames) {
             if (methodName == null || methodName.isBlank()) {
                 continue;
             }
-            provider.addCompletion(new BasicCompletion(provider,
+            sink.basic(
                     "pm.plugin(\"" + alias + "\")." + methodName,
-                    "pm.plugin(\"" + alias + "\")." + methodName + "(options)"));
+                    "pm.plugin(\"" + alias + "\")." + methodName + "(options)");
         }
 
-        provider.addCompletion(new BasicCompletion(provider, "pm." + alias, apiDisplayName));
-        for (String methodName : methodNames) {
-            if (methodName == null || methodName.isBlank()) {
-                continue;
-            }
-            provider.addCompletion(new BasicCompletion(provider,
-                    "pm." + alias + "." + methodName,
-                    "pm." + alias + "." + methodName + "(options)"));
-        }
     }
 
-    public static void addShorthandCompletion(DefaultCompletionProvider provider,
-                                              String inputText,
-                                              String replacementText,
-                                              String shortDescription) {
-        if (provider == null || inputText == null || inputText.isBlank()) {
+    public static void addSnippetCompletion(ScriptCompletionSink sink,
+                                            String inputText,
+                                            String replacementText,
+                                            String shortDescription) {
+        if (sink == null || inputText == null || inputText.isBlank()) {
             return;
         }
-        provider.addCompletion(new ShorthandCompletion(
-                provider,
+        sink.shorthand(
                 inputText,
-                replacementText == null ? "" : replacementText,
-                shortDescription
-        ));
+                replacementText,
+                shortDescription);
     }
 
     public static void registerSnippet(PluginContext context,

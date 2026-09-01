@@ -28,7 +28,6 @@ if ! command -v objcopy &> /dev/null; then
     echo "   sudo apt-get install binutils"
     exit 1
 fi
-
 # 获取项目根目录路径（包含 pom.xml）
 PROJECT_ROOT=$(cd "$(dirname "$0")/.."; pwd)
 
@@ -73,7 +72,7 @@ cp "${APP_TARGET_DIR}/$JAR_NAME_WITH_VERSION" "${APP_TARGET_DIR}/$JAR_NAME"
 echo "⚙️ 使用 jlink 创建最小化运行时..."
 rm -rf target/runtime
 jlink \
-    --add-modules java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki \
+    --add-modules java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,jdk.httpserver,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki \
     --strip-debug \
     --no-header-files \
     --no-man-pages \
@@ -111,7 +110,7 @@ jpackage \
     --linux-shortcut \
     --linux-menu-group "Development" \
     --linux-app-category "Development" \
-    --java-options "-Xms512m" \
+    --java-options "-Xms256m" \
     --java-options "-Xmx1g" \
     --java-options "-XX:MaxMetaspaceSize=256m" \
     --java-options "-XX:MetaspaceSize=128m" \
@@ -134,8 +133,21 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# 自动识别 jpackage 产出的 DEB 文件名，避免架构提示写死为 amd64
+DEB_FILE=$(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name "*.deb" | sort | tail -n 1)
+
+if [ -n "${DEB_FILE}" ]; then
+    echo "📦 生成 DEB: ${DEB_FILE}"
+fi
+
 # 完成提示
 echo "🎉 DEB 包打包完成！输出路径：$(pwd)/${OUTPUT_DIR}"
-echo "📝 安装命令: sudo dpkg -i ${OUTPUT_DIR}/EasyPostman_${VERSION}-1_amd64.deb"
-echo "📝 或使用: sudo apt install ${OUTPUT_DIR}/EasyPostman_${VERSION}-1_amd64.deb"
+if [ -n "${DEB_FILE}" ]; then
+    DEB_BASENAME=$(basename "${DEB_FILE}")
+    echo "📝 安装命令: sudo dpkg -i ${OUTPUT_DIR}/${DEB_BASENAME}"
+    echo "📝 或使用: sudo apt install ${OUTPUT_DIR}/${DEB_BASENAME}"
+else
+    echo "📝 安装命令: sudo dpkg -i ${OUTPUT_DIR}/<generated-package>.deb"
+    echo "📝 或使用: sudo apt install ${OUTPUT_DIR}/<generated-package>.deb"
+fi
 echo "📝 卸载命令: sudo dpkg -r easypostman"

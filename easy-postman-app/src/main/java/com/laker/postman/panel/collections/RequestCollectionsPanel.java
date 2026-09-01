@@ -1,35 +1,50 @@
 package com.laker.postman.panel.collections;
 
-import com.laker.postman.common.SingletonBasePanel;
-import com.laker.postman.common.SingletonFactory;
-import com.laker.postman.panel.collections.left.RequestCollectionsLeftPanel;
-import com.laker.postman.panel.collections.right.RequestEditPanel;
-import lombok.extern.slf4j.Slf4j;
+import com.laker.postman.common.UiSingletonPanel;
+import com.laker.postman.common.UiSingletonFactory;
+import com.laker.postman.common.component.AppToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.panel.collections.tree.CollectionTreePanel;
+import com.laker.postman.panel.collections.editor.RequestEditorPanel;
 
 import javax.swing.*;
 import java.awt.*;
 
 /**
- * 请求集合面板，包含左侧的请求集合列表和右侧的请求编辑面板
+ * 请求集合工作区，左侧展示集合树，右侧展示请求编辑器。
  */
-@Slf4j
-public class RequestCollectionsPanel extends SingletonBasePanel {
+public class RequestCollectionsPanel extends UiSingletonPanel {
+    private static final int DEFAULT_DIVIDER_LOCATION = AppToolWindowChrome.DEFAULT_SIDE_WIDTH;
+
     @Override
     protected void initUI() {
-        // 设置布局为 BorderLayout
-        setLayout(new BorderLayout()); // 设置布局为 BorderLayout
-        // 1.创建左侧的请求集合面板
-        RequestCollectionsLeftPanel requestCollectionsLeftPanel = SingletonFactory.getInstance(RequestCollectionsLeftPanel.class);
-        // 2. 创建右侧的请求编辑面板
-        RequestEditPanel rightRequestEditPanel = SingletonFactory.getInstance(RequestEditPanel.class); // 创建请求编辑面板实例
-        // 创建水平分割面板，将左侧的集合面板和右侧的请求编辑面板放入其中
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, requestCollectionsLeftPanel, rightRequestEditPanel);
-        mainSplit.setContinuousLayout(true); // 分割条拖动时实时更新布局
-        mainSplit.setDividerLocation(250); // 设置初始分割位置
-        mainSplit.setDividerSize(3); // 设置分割条的宽度
+        ToolWindowSurfaceStyle.applyBackground(this);
+        setLayout(new BorderLayout());
+        add(createCollectionsSplitPane(), BorderLayout.CENTER);
+    }
 
-        // 将分割面板添加到主面板
-        add(mainSplit, BorderLayout.CENTER); // 将分割面板添加到主面板的中心位置
+    private JSplitPane createCollectionsSplitPane() {
+        CollectionTreePanel collectionTreePanel = UiSingletonFactory.getInstance(CollectionTreePanel.class);
+        RequestEditorPanel requestEditorPanel = UiSingletonFactory.getInstance(RequestEditorPanel.class);
+
+        JSplitPane splitPane = createCollectionsSplitPane(collectionTreePanel, requestEditorPanel);
+        return splitPane;
+    }
+
+    static JSplitPane createCollectionsSplitPane(Component collectionTreePanel, Component requestEditorPanel) {
+        return AppToolWindowChrome.createHorizontalCardSplitPane(
+                collectionTreePanel,
+                requestEditorPanel,
+                DEFAULT_DIVIDER_LOCATION
+        );
+    }
+
+    static JComponent createCollectionToolWindow(Component collectionTreePanel) {
+        return AppToolWindowChrome.wrapLeftInsetToolWindow(collectionTreePanel);
+    }
+
+    static JComponent createRequestEditorToolWindow(Component requestEditorPanel) {
+        return AppToolWindowChrome.wrapRightToolWindow(requestEditorPanel);
     }
 
     @Override

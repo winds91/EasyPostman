@@ -1,11 +1,13 @@
 package com.laker.postman.service.js;
 
 import com.laker.postman.model.Environment;
-import com.laker.postman.model.HttpHeader;
-import com.laker.postman.model.HttpParam;
-import com.laker.postman.model.PreparedRequest;
-import com.laker.postman.model.script.PostmanApiContext;
-import com.laker.postman.model.script.ScriptRequestAccessor;
+import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.request.model.HttpHeader;
+import com.laker.postman.request.model.HttpParam;
+
+
+import com.laker.postman.service.js.api.PostmanApiContext;
+import com.laker.postman.service.js.api.ScriptRequestAccessor;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.Value;
 import org.testng.annotations.Test;

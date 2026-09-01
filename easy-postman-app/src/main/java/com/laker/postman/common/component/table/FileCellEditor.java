@@ -1,9 +1,11 @@
 package com.laker.postman.common.component.table;
 
 import com.formdev.flatlaf.extras.FlatSVGIcon;
+import com.formdev.flatlaf.util.SystemFileChooser;
+import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.util.FileChooserUtil;
 
 import javax.swing.*;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -14,6 +16,7 @@ import java.io.File;
  * 增强版：支持文件预览、文件类型过滤、最近路径记忆
  */
 public class FileCellEditor extends DefaultCellEditor {
+    private static final String BUTTON_BASE_BACKGROUND_PROPERTY = "EasyPostman.fileCellEditor.buttonBaseBackground";
 
     private final JPanel editorPanel;
     private final JButton browseButton;
@@ -25,7 +28,7 @@ public class FileCellEditor extends DefaultCellEditor {
     private File lastDirectory = null;
 
     // 可选的文件类型过滤器
-    private transient FileNameExtensionFilter fileFilter = null;
+    private transient SystemFileChooser.FileNameExtensionFilter fileFilter = null;
 
     public FileCellEditor(Component parentComponent) {
         super(new JCheckBox());
@@ -33,7 +36,8 @@ public class FileCellEditor extends DefaultCellEditor {
 
         // 创建面板，使用BorderLayout
         editorPanel = new JPanel(new BorderLayout(5, 0));
-        editorPanel.setBackground(Color.WHITE);
+        final Color tableBackground = ModernColors.getCardBackgroundColor();
+        editorPanel.setBackground(tableBackground);
 
         // 创建文本字段显示路径
         pathField = new JTextField();
@@ -43,12 +47,13 @@ public class FileCellEditor extends DefaultCellEditor {
         browseButton = new JButton();
         // 创建图标并设置颜色过滤器以适配主题
         FlatSVGIcon fileIcon = new FlatSVGIcon("icons/file.svg", TableUIConstants.ICON_SIZE, TableUIConstants.ICON_SIZE);
-        fileIcon.setColorFilter(new FlatSVGIcon.ColorFilter(color -> UIManager.getColor("Button.foreground")));
+        fileIcon.setColorFilter(new FlatSVGIcon.ColorFilter(color -> ModernColors.getTextPrimary()));
         browseButton.setIcon(fileIcon);
         browseButton.setText("Browse");
         browseButton.setMargin(new Insets(2, 8, 2, 8));
         browseButton.setFocusPainted(false);
-        browseButton.setBackground(UIManager.getColor("Table.background"));
+        browseButton.setBackground(tableBackground);
+        browseButton.putClientProperty(BUTTON_BASE_BACKGROUND_PROPERTY, tableBackground);
         browseButton.setForeground(TableUIConstants.getFileButtonTextColor());
         browseButton.setBorder(TableUIConstants.createButtonBorder());
         browseButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -62,7 +67,7 @@ public class FileCellEditor extends DefaultCellEditor {
 
             @Override
             public void mouseExited(MouseEvent e) {
-                browseButton.setBackground(UIManager.getColor("Table.background"));
+                browseButton.setBackground(getButtonBaseBackground());
             }
         });
 
@@ -92,7 +97,7 @@ public class FileCellEditor extends DefaultCellEditor {
      */
     public void setFileFilter(String description, String... extensions) {
         if (extensions != null && extensions.length > 0) {
-            this.fileFilter = new FileNameExtensionFilter(description, extensions);
+            this.fileFilter = FileChooserUtil.extensionFilter(description, extensions);
         } else {
             this.fileFilter = null;
         }
@@ -102,8 +107,9 @@ public class FileCellEditor extends DefaultCellEditor {
      * 打开文件选择对话框
      */
     private void openFileChooser() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle(TableUIConstants.SELECT_FILE_TEXT);
+        SystemFileChooser fileChooser = FileChooserUtil.createOpenFileChooser(
+                "table.fileCellEditor.open",
+                TableUIConstants.SELECT_FILE_TEXT);
 
         // 应用文件过滤器
         if (fileFilter != null) {
@@ -125,7 +131,7 @@ public class FileCellEditor extends DefaultCellEditor {
 
         // 显示文件选择器
         int result = fileChooser.showOpenDialog(parentComponent);
-        if (result == JFileChooser.APPROVE_OPTION) {
+        if (result == SystemFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
             filePath = selectedFile.getAbsolutePath();
             pathField.setText(filePath);
@@ -140,32 +146,26 @@ public class FileCellEditor extends DefaultCellEditor {
     public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
         filePath = value == null ? "" : value.toString();
 
+        TableUIConstants.styleCellEditorContainer(editorPanel, table, row);
+        TableUIConstants.styleContainedTextCellEditor(pathField, table, row);
+        browseButton.putClientProperty(BUTTON_BASE_BACKGROUND_PROPERTY, TableUIConstants.getRowBackground(table, row));
+        browseButton.setBackground(getButtonBaseBackground());
+
         if (filePath.isEmpty() || TableUIConstants.SELECT_FILE_TEXT.equals(filePath)) {
             pathField.setText("");
+            pathField.setToolTipText(null);
         } else {
             pathField.setText(filePath);
             pathField.setToolTipText(filePath);
-
-            // 设置文本框颜色
-            File file = new File(filePath);
-            if (!file.exists()) {
-                pathField.setForeground(Color.RED);
-            } else if (!file.canRead()) {
-                pathField.setForeground(Color.ORANGE);
-            } else {
-                pathField.setForeground(TableUIConstants.getFileSelectedTextColor());
-            }
+            pathField.setForeground(table.getForeground());
         }
-
-        // 设置面板背景色（使用表格背景色，不再使用斑马纹）
-        Color bgColor = table.getBackground();
-        if (isSelected) {
-            bgColor = table.getSelectionBackground();
-        }
-        editorPanel.setBackground(bgColor);
-        pathField.setBackground(bgColor);
 
         return editorPanel;
+    }
+
+    private Color getButtonBaseBackground() {
+        Object background = browseButton.getClientProperty(BUTTON_BASE_BACKGROUND_PROPERTY);
+        return background instanceof Color color ? color : ModernColors.getTableBackgroundColor();
     }
 
     @Override

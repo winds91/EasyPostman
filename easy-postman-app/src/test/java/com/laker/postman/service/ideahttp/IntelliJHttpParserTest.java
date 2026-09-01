@@ -1,15 +1,18 @@
 package com.laker.postman.service.ideahttp;
 
-import com.laker.postman.model.HttpRequestItem;
-import com.laker.postman.model.RequestGroup;
-import com.laker.postman.model.RequestItemProtocolEnum;
-import com.laker.postman.service.common.CollectionParseResult;
+import com.laker.postman.collection.model.RequestGroup;
+import com.laker.postman.request.model.RequestAuthTypes;
+import com.laker.postman.request.model.RequestItemProtocolEnum;
+import com.laker.postman.request.model.HttpRequestItem;
+
+
+import com.laker.postman.collection.model.CollectionParseResult;
 import org.testng.annotations.Test;
 
 import java.util.Base64;
 
-import static com.laker.postman.panel.collections.right.request.sub.AuthTabPanel.AUTH_TYPE_BASIC;
-import static com.laker.postman.panel.collections.right.request.sub.AuthTabPanel.AUTH_TYPE_BEARER;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BASIC;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BEARER;
 import static org.testng.Assert.*;
 
 /**
@@ -908,6 +911,57 @@ public class IntelliJHttpParserTest {
 
         // 验证两个请求
         assertEquals(result.getChildren().size(), 2);
+    }
+
+    @Test(description = "测试解析 JetBrains 官方 # @name、pre-request 和内联 response handler")
+    public void testParseJetBrainsOfficialScriptSyntax() {
+        String content = """
+                # @name CreatePet
+                < {% request.variables.set("petName", "Bella") %}
+                POST https://example.org/pets/{{petName}} HTTP/2 > {% client.global.set("createdPet", response.body.id); %}
+                Content-Type: application/json
+                
+                {
+                  "name": "{{petName}}"
+                }
+                """;
+
+        CollectionParseResult result = IntelliJHttpParser.parseHttpFile(content, "pets.http");
+        assertNotNull(result);
+        assertEquals(result.getChildren().size(), 1);
+
+        HttpRequestItem request = getRequestFromResult(result, 0);
+        assertEquals(request.getName(), "CreatePet");
+        assertEquals(request.getHttpVersion(), HttpRequestItem.HTTP_VERSION_HTTP_2);
+        assertEquals(request.getPrescript(), "pm.variables.set(\"petName\", \"Bella\")");
+        assertTrue(request.getPostscript().contains("pm.environment.set(\"createdPet\""));
+        assertTrue(request.getPostscript().contains("pm.response.json().id"));
+        assertTrue(request.getUrl().contains("{{petName}}"));
+    }
+
+    @Test(description = "测试解析多行 pre-request 脚本")
+    public void testParseMultilinePreRequestScript() {
+        String content = """
+                # @name Login
+                < {%
+                request.variables.set("user", "demo");
+                client.global.set("token", "abc");
+                %}
+                POST https://example.org/login HTTP/1.1
+                Content-Type: application/json
+                
+                {
+                  "user": "{{user}}"
+                }
+                """;
+
+        CollectionParseResult result = IntelliJHttpParser.parseHttpFile(content, "login.http");
+        assertNotNull(result);
+
+        HttpRequestItem request = getRequestFromResult(result, 0);
+        assertEquals(request.getHttpVersion(), HttpRequestItem.HTTP_VERSION_HTTP_1_1);
+        assertTrue(request.getPrescript().contains("pm.variables.set(\"user\", \"demo\")"));
+        assertTrue(request.getPrescript().contains("pm.environment.set(\"token\", \"abc\")"));
     }
 
 }

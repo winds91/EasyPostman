@@ -2,20 +2,20 @@ package com.laker.postman.service.update.plugin;
 
 import com.laker.postman.plugin.manager.PluginManagementService;
 import com.laker.postman.service.setting.SettingManager;
-import com.laker.postman.service.update.source.UpdateSource;
-import com.laker.postman.service.update.source.UpdateSourceSelector;
+import com.laker.postman.platform.update.source.UpdateSource;
+import com.laker.postman.platform.update.source.UpdateSourceSelector;
+import lombok.experimental.UtilityClass;
 
 import java.util.Locale;
 
 /**
  * 根据自动更新设置解析插件市场目录地址。
  */
-public final class PluginCatalogPreferenceResolver {
+@UtilityClass
+public class PluginCatalogPreferenceResolver {
 
-    private static final UpdateSourceSelector UPDATE_SOURCE_SELECTOR = new UpdateSourceSelector();
-
-    private PluginCatalogPreferenceResolver() {
-    }
+    private static final UpdateSourceSelector UPDATE_SOURCE_SELECTOR =
+            new UpdateSourceSelector(SettingManager::getUpdateSourcePreference);
 
     public static String resolveEffectiveCatalogUrl() {
         return resolveEffectiveCatalogUrl(true);

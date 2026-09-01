@@ -1,15 +1,35 @@
 package com.laker.postman.service.postman;
 
+import com.laker.postman.collection.model.RequestGroup;
+import com.laker.postman.model.Variable;
+import com.laker.postman.request.model.AuthApiKeyPlacement;
+import com.laker.postman.request.model.HttpHeader;
+import com.laker.postman.request.model.HttpParam;
+import com.laker.postman.request.model.HttpFormData;
+import com.laker.postman.request.model.HttpFormUrlencoded;
+import com.laker.postman.request.model.SavedResponse;
+import com.laker.postman.request.model.HttpRequestItem;
+
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
-import com.laker.postman.model.*;
+import com.laker.postman.service.collections.CollectionTreeNodes;
 import lombok.experimental.UtilityClass;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
-import static com.laker.postman.panel.collections.right.request.sub.AuthTabPanel.*;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_API_KEY;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BASIC;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BEARER;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_DIGEST;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_INHERIT;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_NONE;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_BINARY;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_DATA;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_URLENCODED;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_RAW;
 
 /**
  * Postman Collection导出器
@@ -30,15 +50,9 @@ public class PostmanCollectionExporter {
         JSONObject info = new JSONObject();
         info.put("_postman_id", UUID.randomUUID().toString());
 
-        // 检查根节点是否有 RequestGroup 对象
-        Object userObj = groupNode.getUserObject();
-        RequestGroup rootGroup = null;
-        if (userObj instanceof Object[] obj && "group".equals(obj[0])) {
-            Object groupData = obj[1];
-            if (groupData instanceof RequestGroup group) {
-                rootGroup = group;
-                groupName = group.getName(); // 使用 RequestGroup 的名称
-            }
+        RequestGroup rootGroup = CollectionTreeNodes.group(groupNode).orElse(null);
+        if (rootGroup != null) {
+            groupName = rootGroup.getName();
         }
 
         info.put("name", groupName);
@@ -53,20 +67,18 @@ public class PostmanCollectionExporter {
 
         // 导出集合级别的认证（从根节点）
         if (rootGroup != null && rootGroup.hasAuth()) {
-            JSONObject auth = new JSONObject();
-            if (AUTH_TYPE_BASIC.equals(rootGroup.getAuthType())) {
-                auth.put("type", "basic");
-                JSONArray arr = new JSONArray();
-                arr.add(new JSONObject().put("key", "username").put("value", rootGroup.getAuthUsername()));
-                arr.add(new JSONObject().put("key", "password").put("value", rootGroup.getAuthPassword()));
-                auth.put("basic", arr);
-            } else if (AUTH_TYPE_BEARER.equals(rootGroup.getAuthType())) {
-                auth.put("type", "bearer");
-                JSONArray arr = new JSONArray();
-                arr.add(new JSONObject().put("key", "token").put("value", rootGroup.getAuthToken()));
-                auth.put("bearer", arr);
+            JSONObject auth = authJson(
+                    rootGroup.getAuthType(),
+                    rootGroup.getAuthUsername(),
+                    rootGroup.getAuthPassword(),
+                    rootGroup.getAuthToken(),
+                    rootGroup.getAuthApiKeyName(),
+                    rootGroup.getAuthApiKeyValue(),
+                    rootGroup.getAuthApiKeyPlacement()
+            );
+            if (auth != null) {
+                collection.put("auth", auth);
             }
-            collection.put("auth", auth);
         }
 
         // 导出集合级别的脚本（从根节点）
@@ -119,76 +131,65 @@ public class PostmanCollectionExporter {
         JSONArray items = new JSONArray();
         for (int i = 0; i < node.getChildCount(); i++) {
             javax.swing.tree.DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
-            Object userObj = child.getUserObject();
-            if (userObj instanceof Object[] obj2) {
-                if ("group".equals(obj2[0])) {
-                    JSONObject folder = new JSONObject();
-
-                    // 处理分组对象
-                    Object groupData = obj2[1];
-                    if (groupData instanceof RequestGroup group) {
-                        // 新格式：使用RequestGroup对象
-                        folder.put("name", group.getName());
-
-                        // 导出分组描述
-                        if (group.getDescription() != null && !group.getDescription().isEmpty()) {
-                            folder.put("description", group.getDescription());
-                        }
-
-                        // 导出分组级别的认证
-                        if (group.hasAuth()) {
-                            JSONObject auth = new JSONObject();
-                            if (AUTH_TYPE_BASIC.equals(group.getAuthType())) {
-                                auth.put("type", "basic");
-                                JSONArray arr = new JSONArray();
-                                arr.add(new JSONObject().put("key", "username").put("value", group.getAuthUsername()));
-                                arr.add(new JSONObject().put("key", "password").put("value", group.getAuthPassword()));
-                                auth.put("basic", arr);
-                            } else if (AUTH_TYPE_BEARER.equals(group.getAuthType())) {
-                                auth.put("type", "bearer");
-                                JSONArray arr = new JSONArray();
-                                arr.add(new JSONObject().put("key", "token").put("value", group.getAuthToken()));
-                                auth.put("bearer", arr);
-                            }
-                            folder.put("auth", auth);
-                        }
-
-                        // 导出分组级别的脚本
-                        JSONArray events = new JSONArray();
-                        if (group.hasPreScript()) {
-                            JSONObject pre = new JSONObject();
-                            pre.put("listen", "prerequest");
-                            JSONObject script = new JSONObject();
-                            script.put("type", "text/javascript");
-                            script.put("exec", Arrays.asList(group.getPrescript().split("\n")));
-                            pre.put("script", script);
-                            events.add(pre);
-                        }
-                        if (group.hasPostScript()) {
-                            JSONObject post = new JSONObject();
-                            post.put("listen", "test");
-                            JSONObject script = new JSONObject();
-                            script.put("type", "text/javascript");
-                            script.put("exec", Arrays.asList(group.getPostscript().split("\n")));
-                            post.put("script", script);
-                            events.add(post);
-                        }
-                        if (!events.isEmpty()) {
-                            folder.put("event", events);
-                        }
-                    } else if (groupData instanceof String subGroupName) {
-                        // 旧格式兼容：字符串名称
-                        folder.put("name", subGroupName);
-                    }
-
-                    folder.put("item", buildPostmanItemsFromNode(child));
-                    items.add(folder);
-                } else if ("request".equals(obj2[0])) {
-                    items.add(toPostmanItem((com.laker.postman.model.HttpRequestItem) obj2[1]));
-                }
+            RequestGroup group = CollectionTreeNodes.group(child).orElse(null);
+            if (group != null) {
+                JSONObject folder = buildPostmanFolder(child, group);
+                items.add(folder);
+            } else {
+                CollectionTreeNodes.request(child).ifPresent(item -> items.add(toPostmanItem(item)));
             }
         }
         return items;
+    }
+
+    private static JSONObject buildPostmanFolder(DefaultMutableTreeNode child, RequestGroup group) {
+        JSONObject folder = new JSONObject();
+        folder.put("name", group.getName());
+
+        if (group.getDescription() != null && !group.getDescription().isEmpty()) {
+            folder.put("description", group.getDescription());
+        }
+
+        if (group.hasAuth()) {
+            JSONObject auth = authJson(
+                    group.getAuthType(),
+                    group.getAuthUsername(),
+                    group.getAuthPassword(),
+                    group.getAuthToken(),
+                    group.getAuthApiKeyName(),
+                    group.getAuthApiKeyValue(),
+                    group.getAuthApiKeyPlacement()
+            );
+            if (auth != null) {
+                folder.put("auth", auth);
+            }
+        }
+
+        JSONArray events = new JSONArray();
+        if (group.hasPreScript()) {
+            JSONObject pre = new JSONObject();
+            pre.put("listen", "prerequest");
+            JSONObject script = new JSONObject();
+            script.put("type", "text/javascript");
+            script.put("exec", Arrays.asList(group.getPrescript().split("\n")));
+            pre.put("script", script);
+            events.add(pre);
+        }
+        if (group.hasPostScript()) {
+            JSONObject post = new JSONObject();
+            post.put("listen", "test");
+            JSONObject script = new JSONObject();
+            script.put("type", "text/javascript");
+            script.put("exec", Arrays.asList(group.getPostscript().split("\n")));
+            post.put("script", script);
+            events.add(post);
+        }
+        if (!events.isEmpty()) {
+            folder.put("event", events);
+        }
+
+        folder.put("item", buildPostmanItemsFromNode(child));
+        return folder;
     }
 
     /**
@@ -248,11 +249,13 @@ public class PostmanCollectionExporter {
                     JSONObject q = new JSONObject();
                     q.put("key", param.getKey());
                     q.put("value", param.getValue());
+                    putDescription(q, param.getDescription());
                     queryArr.add(q);
                 }
             }
             url.put("query", queryArr);
         }
+        addPathVariables(url, item.getPathVariablesList());
         request.put("url", url);
         // headers
         if (item.getHeadersList() != null && !item.getHeadersList().isEmpty()) {
@@ -262,13 +265,21 @@ public class PostmanCollectionExporter {
                     JSONObject h = new JSONObject();
                     h.put("key", header.getKey());
                     h.put("value", header.getValue());
+                    putDescription(h, header.getDescription());
                     headerArr.add(h);
                 }
             }
             request.put("header", headerArr);
         }
         // body
-        if (item.getBody() != null && !item.getBody().isEmpty()) {
+        if (BODY_TYPE_BINARY.equals(item.getBodyType()) && item.getBody() != null && !item.getBody().isEmpty()) {
+            JSONObject body = new JSONObject();
+            body.put("mode", "file");
+            JSONObject file = new JSONObject();
+            file.put("src", item.getBody());
+            body.put("file", file);
+            request.put("body", body);
+        } else if (item.getBody() != null && !item.getBody().isEmpty()) {
             JSONObject body = new JSONObject();
             body.put("mode", "raw");
             body.put("raw", item.getBody());
@@ -288,6 +299,7 @@ public class PostmanCollectionExporter {
                         o.put("src", formData.getValue());
                         o.put("type", "file");
                     }
+                    putDescription(o, formData.getDescription());
                     arr.add(o);
                 }
             }
@@ -305,6 +317,7 @@ public class PostmanCollectionExporter {
                     o.put("key", encoded.getKey());
                     o.put("value", encoded.getValue());
                     o.put("type", "text");
+                    putDescription(o, encoded.getDescription());
                     arr.add(o);
                 }
             }
@@ -312,20 +325,16 @@ public class PostmanCollectionExporter {
             request.put("body", body);
         }
         // auth
-        if (item.getAuthType() != null && !AUTH_TYPE_NONE.equals(item.getAuthType())) {
-            JSONObject auth = new JSONObject();
-            if (AUTH_TYPE_BASIC.equals(item.getAuthType())) {
-                auth.put("type", "basic");
-                JSONArray arr = new JSONArray();
-                arr.add(new JSONObject().put("key", "username").put("value", item.getAuthUsername()));
-                arr.add(new JSONObject().put("key", "password").put("value", item.getAuthPassword()));
-                auth.put("basic", arr);
-            } else if (AUTH_TYPE_BEARER.equals(item.getAuthType())) {
-                auth.put("type", "bearer");
-                JSONArray arr = new JSONArray();
-                arr.add(new JSONObject().put("key", "token").put("value", item.getAuthToken()));
-                auth.put("bearer", arr);
-            }
+        JSONObject auth = authJson(
+                item.getAuthType(),
+                item.getAuthUsername(),
+                item.getAuthPassword(),
+                item.getAuthToken(),
+                item.getAuthApiKeyName(),
+                item.getAuthApiKeyValue(),
+                item.getAuthApiKeyPlacement()
+        );
+        if (auth != null) {
             request.put("auth", auth);
         }
         postmanItem.put("request", request);
@@ -364,6 +373,61 @@ public class PostmanCollectionExporter {
         }
 
         return postmanItem;
+    }
+
+    private static void putDescription(JSONObject target, String description) {
+        if (description != null && !description.trim().isEmpty()) {
+            target.put("description", description);
+        }
+    }
+
+    private static JSONObject authJson(String authType,
+                                       String username,
+                                       String password,
+                                       String token,
+                                       String apiKeyName,
+                                       String apiKeyValue,
+                                       String apiKeyPlacement) {
+        if (authType == null || AUTH_TYPE_NONE.equals(authType) || AUTH_TYPE_INHERIT.equals(authType)) {
+            return null;
+        }
+
+        JSONObject auth = new JSONObject();
+        if (AUTH_TYPE_BASIC.equals(authType)) {
+            auth.put("type", "basic");
+            JSONArray arr = new JSONArray();
+            arr.add(new JSONObject().put("key", "username").put("value", username));
+            arr.add(new JSONObject().put("key", "password").put("value", password));
+            auth.put("basic", arr);
+            return auth;
+        }
+        if (AUTH_TYPE_API_KEY.equals(authType)) {
+            auth.put("type", "apikey");
+            JSONArray arr = new JSONArray();
+            arr.add(new JSONObject().put("key", "key").put("value", apiKeyName));
+            arr.add(new JSONObject().put("key", "value").put("value", apiKeyValue));
+            arr.add(new JSONObject()
+                    .put("key", "in")
+                    .put("value", AuthApiKeyPlacement.fromConstant(apiKeyPlacement).getPostmanValue()));
+            auth.put("apikey", arr);
+            return auth;
+        }
+        if (AUTH_TYPE_BEARER.equals(authType)) {
+            auth.put("type", "bearer");
+            JSONArray arr = new JSONArray();
+            arr.add(new JSONObject().put("key", "token").put("value", token));
+            auth.put("bearer", arr);
+            return auth;
+        }
+        if (AUTH_TYPE_DIGEST.equals(authType)) {
+            auth.put("type", "digest");
+            JSONArray arr = new JSONArray();
+            arr.add(new JSONObject().put("key", "username").put("value", username));
+            arr.add(new JSONObject().put("key", "password").put("value", password));
+            auth.put("digest", arr);
+            return auth;
+        }
+        return null;
     }
 
     /**
@@ -447,6 +511,7 @@ public class PostmanCollectionExporter {
                 }
                 url.put("query", queryArray);
             }
+            addPathVariables(url, origReq.getPathVariables());
 
             originalRequest.put("url", url);
 
@@ -468,11 +533,16 @@ public class PostmanCollectionExporter {
             // 请求体
             if (origReq.getBodyType() != null && !origReq.getBodyType().isEmpty()) {
                 JSONObject body = new JSONObject();
-                body.put("mode", origReq.getBodyType());
+                String bodyType = origReq.getBodyType();
+                body.put("mode", BODY_TYPE_BINARY.equals(bodyType) ? "file" : bodyType);
 
-                if ("raw".equals(origReq.getBodyType()) && origReq.getBody() != null) {
+                if (BODY_TYPE_BINARY.equals(bodyType) && origReq.getBody() != null) {
+                    JSONObject file = new JSONObject();
+                    file.put("src", origReq.getBody());
+                    body.put("file", file);
+                } else if (BODY_TYPE_RAW.equals(bodyType) && origReq.getBody() != null) {
                     body.put("raw", origReq.getBody());
-                } else if ("formdata".equals(origReq.getBodyType()) && origReq.getFormDataList() != null) {
+                } else if (BODY_TYPE_FORM_DATA.equals(bodyType) && origReq.getFormDataList() != null) {
                     JSONArray formDataArray = new JSONArray();
                     for (HttpFormData formData : origReq.getFormDataList()) {
                         JSONObject formDataObj = new JSONObject();
@@ -490,7 +560,7 @@ public class PostmanCollectionExporter {
                         formDataArray.add(formDataObj);
                     }
                     body.put("formdata", formDataArray);
-                } else if ("urlencoded".equals(origReq.getBodyType()) && origReq.getUrlencodedList() != null) {
+                } else if (BODY_TYPE_FORM_URLENCODED.equals(bodyType) && origReq.getUrlencodedList() != null) {
                     JSONArray urlencodedArray = new JSONArray();
                     for (HttpFormUrlencoded encoded : origReq.getUrlencodedList()) {
                         JSONObject encodedObj = new JSONObject();
@@ -512,5 +582,28 @@ public class PostmanCollectionExporter {
 
         return respJson;
     }
-}
 
+    private static void addPathVariables(JSONObject url, List<HttpParam> pathVariables) {
+        if (pathVariables == null || pathVariables.isEmpty()) {
+            return;
+        }
+
+        JSONArray variableArray = new JSONArray();
+        for (HttpParam pathVariable : pathVariables) {
+            if (pathVariable == null || pathVariable.getKey() == null || pathVariable.getKey().isBlank()) {
+                continue;
+            }
+            JSONObject variable = new JSONObject();
+            variable.put("key", pathVariable.getKey());
+            variable.put("value", pathVariable.getValue() == null ? "" : pathVariable.getValue());
+            putDescription(variable, pathVariable.getDescription());
+            if (!pathVariable.isEnabled()) {
+                variable.put("disabled", true);
+            }
+            variableArray.add(variable);
+        }
+        if (!variableArray.isEmpty()) {
+            url.put("variable", variableArray);
+        }
+    }
+}

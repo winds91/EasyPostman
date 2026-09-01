@@ -1,7 +1,11 @@
 package com.laker.postman.panel.topmenu.help;
 
-import com.laker.postman.service.update.changelog.ChangelogService;
-import com.laker.postman.service.update.source.UpdateSource;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.button.ModernButtonFactory;
+import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.platform.update.changelog.ChangelogService;
+import com.laker.postman.platform.update.source.UpdateSource;
+import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
@@ -29,9 +33,11 @@ public class ChangelogDialog extends JDialog {
     public ChangelogDialog(Frame parent) {
         super(parent, I18nUtil.getMessage(MessageKeys.CHANGELOG_TITLE), true);
 
-        this.changelogService = new ChangelogService();
+        this.changelogService = new ChangelogService(SettingManager::getUpdateSourcePreference);
 
         setLayout(new BorderLayout(10, 10));
+        ToolWindowSurfaceStyle.applyDialogWindowChrome(this);
+        ToolWindowSurfaceStyle.applyDialogSurface((JPanel) getContentPane());
         ((JPanel) getContentPane()).setBorder(new EmptyBorder(15, 15, 15, 15));
 
         // 顶部面板：当前版本信息
@@ -41,37 +47,43 @@ public class ChangelogDialog extends JDialog {
         // 中间面板：更新日志内容
         contentArea = new JTextArea();
         contentArea.setEditable(false);
-        contentArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, +1));
+        contentArea.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
         contentArea.setLineWrap(true);
         contentArea.setWrapStyleWord(true);
         contentArea.setText(I18nUtil.getMessage(MessageKeys.CHANGELOG_LOADING));
+        ToolWindowSurfaceStyle.applyTextComponentDialogSurface(contentArea);
 
         JScrollPane scrollPane = new JScrollPane(contentArea);
+        ToolWindowSurfaceStyle.applyDialogScrollPane(scrollPane);
         scrollPane.setPreferredSize(new Dimension(700, 500));
         add(scrollPane, BorderLayout.CENTER);
 
         // 底部面板：按钮
         JPanel bottomPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyDialogFooter(bottomPanel);
 
         // 状态标签
         statusLabel = new JLabel(" ");
         statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-        statusLabel.setForeground(Color.GRAY);
+        statusLabel.setForeground(ModernColors.getTextSecondary());
         bottomPanel.add(statusLabel, BorderLayout.WEST);
 
         // 按钮面板
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        ToolWindowSurfaceStyle.applyDialogSurface(buttonPanel);
 
-        refreshButton = new JButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_REFRESH));
+        refreshButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_REFRESH), false);
         refreshButton.addActionListener(e -> loadChangelog());
 
-        JButton githubButton = new JButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_VIEW_ON_GITHUB));
+        JButton githubButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_VIEW_ON_GITHUB), false);
+        githubButton.setToolTipText(I18nUtil.getMessage(MessageKeys.CHANGELOG_VIEW_ON_GITHUB_TOOLTIP));
         githubButton.addActionListener(e -> openGitHubWeb());
 
-        JButton giteeButton = new JButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_VIEW_ON_GITEE));
+        JButton giteeButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_VIEW_ON_GITEE), false);
+        giteeButton.setToolTipText(I18nUtil.getMessage(MessageKeys.CHANGELOG_VIEW_ON_GITEE_TOOLTIP));
         giteeButton.addActionListener(e -> openGiteeWeb());
 
-        JButton closeButton = new JButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_CLOSE));
+        JButton closeButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.CHANGELOG_CLOSE), true);
         closeButton.addActionListener(e -> dispose());
 
         buttonPanel.add(refreshButton);
@@ -96,11 +108,12 @@ public class ChangelogDialog extends JDialog {
      */
     private JPanel createTopPanel() {
         JPanel panel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyDialogSurface(panel);
         panel.setBorder(new EmptyBorder(0, 0, 10, 0));
 
         String currentVersion = SystemUtil.getCurrentVersion();
         JLabel versionLabel = new JLabel(I18nUtil.getMessage(MessageKeys.CHANGELOG_CURRENT_VERSION, currentVersion));
-        versionLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, +2)); // 比标准字体大2号
+        versionLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, +1));
 
         panel.add(versionLabel, BorderLayout.WEST);
 
@@ -199,4 +212,3 @@ public class ChangelogDialog extends JDialog {
         });
     }
 }
-

@@ -15,6 +15,7 @@ public class RedisPlugin implements EasyPostmanPlugin {
 
     @Override
     public void onLoad(PluginContext context) {
+        context.registerI18nBundle(RedisI18n.BUNDLE_NAME);
         context.registerScriptApi("redis", ScriptRedisApi::new);
         PluginContributionSupport.registerToolbox(
                 context,
@@ -23,19 +24,19 @@ public class RedisPlugin implements EasyPostmanPlugin {
                 "icons/redis.svg",
                 TOOLBOX_GROUP_DATABASE,
                 t(TOOLBOX_GROUP_DATABASE),
-                RedisPanel::new,
+                () -> new RedisPanel(context.storage()),
                 RedisPlugin.class
         );
-        context.registerScriptCompletionContributor(provider -> {
+        context.registerScriptCompletionContributor(sink -> {
             PluginContributionSupport.addScriptApiCompletions(
-                    provider,
+                    sink,
                     "redis",
                     "Redis plugin API",
                     "execute",
                     "query"
             );
-            PluginContributionSupport.addShorthandCompletion(
-                    provider,
+            PluginContributionSupport.addSnippetCompletion(
+                    sink,
                     "redis.get",
                     """
                             const redis = pm.plugin("redis");

@@ -68,7 +68,7 @@ mvn clean package -DskipTests
 java -jar easy-postman-app/target/easy-postman-*.jar
 
 # 或使用自定义 JVM 选项
-java -Xms512m -Xmx2g -jar easy-postman-app/target/easy-postman-*.jar
+java -Xms256m -Xmx2g -jar easy-postman-app/target/easy-postman-*.jar
 ```
 
 ### 插件本地构建
@@ -203,7 +203,7 @@ chmod +x build/linux-deb.sh
 ./build/linux-deb.sh
 ```
 
-**输出**: `dist/EasyPostman_{版本号}-1_amd64.deb` 或 jpackage 生成的同类 DEB 文件
+**输出**: `dist/` 目录下生成与当前打包机器架构对应的 DEB 文件，例如 `dist/*.deb`
 
 #### 手动构建
 
@@ -224,7 +224,7 @@ jpackage \
 #### 安装 DEB 包
 
 ```bash
-sudo dpkg -i dist/EasyPostman_{版本号}-1_amd64.deb
+sudo dpkg -i dist/<generated-package>.deb
 
 # 如果缺少依赖
 sudo apt-get install -f
@@ -249,7 +249,7 @@ chmod +x build/linux-rpm.sh
 ./build/linux-rpm.sh
 ```
 
-**输出**: `dist/EasyPostman-{版本号}-1.x86_64.rpm`
+**输出**: `dist/` 目录下生成与当前打包机器架构对应的 RPM 文件，例如 `dist/*.rpm`
 
 ---
 
@@ -261,7 +261,7 @@ chmod +x build/linux-rpm.sh
 
 ```bash
 jpackage \
-  --java-options "-Xms512m" \
+  --java-options "-Xms256m" \
   --java-options "-Xmx2g" \
   --java-options "-Dfile.encoding=UTF-8" \
   # ... 其他选项
@@ -277,7 +277,7 @@ jdeps --print-module-deps target/easy-postman-{版本号}.jar
 
 # 创建自定义运行时
 jlink \
-  --add-modules java.base,java.desktop,java.logging,java.naming,java.net.http,java.sql,java.xml \
+  --add-modules java.base,java.desktop,java.logging,java.naming,java.net.http,jdk.httpserver,java.sql,java.xml \
   --output target/custom-runtime \
   --strip-debug \
   --compress 2 \

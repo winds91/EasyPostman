@@ -1,9 +1,15 @@
 package com.laker.postman.panel.performance.threadgroup;
 
+import com.laker.postman.common.component.EasyComboBox;
 import com.laker.postman.common.component.EasyJSpinner;
-import com.laker.postman.panel.performance.model.JMeterTreeNode;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.button.SegmentedButtonBar;
+import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.performance.core.threadgroup.ThreadGroupData;
+import com.laker.postman.performance.model.PerformanceTreeNode;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
+import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;
 import java.awt.*;
@@ -14,17 +20,31 @@ import java.util.Arrays;
 import java.util.List;
 
 public class ThreadGroupPropertyPanel extends JPanel {
-    private final JComboBox<ThreadGroupData.ThreadMode> modeComboBox;
+    private static final int CONFIG_PANEL_WIDTH = 460;
+    private static final int PREVIEW_PANEL_HEIGHT = 200;
+    private static final int FORM_CONTROL_HEIGHT = 28;
+    private static final int SPINNER_WIDTH = 80;
+    private static final int LABEL_FIELD_GAP = 8;
+    private static final int FIELD_PAIR_GAP = 30;
+    private static final int FORM_ROW_GAP = 8;
+    private static final int CONFIG_PREVIEW_GAP = 36;
+
+    private final EasyComboBox<ThreadGroupData.ThreadMode> modeComboBox;
     private final CardLayout cardLayout;
     private final JPanel cardPanel;
-    private JMeterTreeNode currentNode;
+    private PerformanceTreeNode currentNode;
+    private boolean updatingPreview;
 
     // 固定模式面板组件
     private final JPanel fixedPanel;
     private final EasyJSpinner fixedNumThreadsSpinner;
     private final EasyJSpinner fixedLoopsSpinner;
-    private final JCheckBox useTimeCheckBox;
+    private final SegmentedButtonBar<Boolean> executionModeBar;
+    private final JToggleButton useLoopCountButton;
+    private final JToggleButton useTimeCheckBox;
     private final EasyJSpinner durationSpinner;
+    private final JLabel maxInFlightWaitLabel;
+    private final EasyJSpinner maxInFlightWaitSpinner;
 
     // 递增模式面板组件
     private final JPanel rampUpPanel;
@@ -55,78 +75,83 @@ public class ThreadGroupPropertyPanel extends JPanel {
 
     public ThreadGroupPropertyPanel() {
         setLayout(new BorderLayout());
-        setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        ToolWindowSurfaceStyle.applyCard(this);
+        setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
-        // 顶部模式选择区域
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        topPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_MODE_LABEL)));
-        modeComboBox = new JComboBox<>(ThreadGroupData.ThreadMode.values());
-        modeComboBox.setPreferredSize(new Dimension(150, 28));
-        topPanel.add(modeComboBox);
+        modeComboBox = new EasyComboBox<>(
+                ThreadGroupData.ThreadMode.values(),
+                EasyComboBox.WidthMode.FIXED_MAX
+        );
+        modeComboBox.setRenderer(new ThreadModeRenderer());
 
         // 中间部分：左侧配置面板，右侧预览图
-        JPanel mainPanel = new JPanel(new BorderLayout(10, 0));
+        JPanel mainPanel = new JPanel(new MigLayout(
+                "insets 0, fillx, novisualpadding, gap 0",
+                "[" + CONFIG_PANEL_WIDTH + "!,left]" + CONFIG_PREVIEW_GAP + "[420::,grow,fill]",
+                "[]"
+        ));
+        mainPanel.setOpaque(false);
 
         // 中间卡片布局，用于切换不同模式的配置面板
         cardLayout = new CardLayout();
         cardPanel = new JPanel(cardLayout);
-        // 动态调整配置面板大小以适应不同语言的标签长度
-        int configPanelWidth = I18nUtil.isChinese() ? 380 : 480;  // 英文需要更多空间
-        cardPanel.setPreferredSize(new Dimension(configPanelWidth, 150));
+        cardPanel.setOpaque(false);
 
         // 初始化所有控件和面板
         // 1. 固定模式面板
-        fixedPanel = new JPanel(new GridBagLayout());
-        fixedPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        fixedNumThreadsSpinner = new EasyJSpinner(new SpinnerNumberModel(1, 1, 1000, 1));
-        fixedNumThreadsSpinner.setPreferredSize(new Dimension(80, 28));
-        fixedLoopsSpinner = new EasyJSpinner(new SpinnerNumberModel(1, 1, 100000, 1));
-        fixedLoopsSpinner.setPreferredSize(new Dimension(80, 28));
-        useTimeCheckBox = new JCheckBox(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_USE_TIME));
-        durationSpinner = new EasyJSpinner(new SpinnerNumberModel(60, 1, 86400, 10));
-        durationSpinner.setPreferredSize(new Dimension(80, 28));
+        fixedPanel = new JPanel(createFixedModeLayout());
+        fixedPanel.setOpaque(false);
+        fixedNumThreadsSpinner = standardThreadCountSpinner(1);
+        fixedLoopsSpinner = standardIntSpinner(1, 1, null, 1);
+        executionModeBar = new SegmentedButtonBar<>(FlowLayout.CENTER, SegmentedButtonBar.Size.COMPACT);
+        useLoopCountButton = executionModeBar.addOption(
+                Boolean.FALSE,
+                I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_EXECUTION_COUNT),
+                true
+        );
+        useTimeCheckBox = executionModeBar.addOption(
+                Boolean.TRUE,
+                I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_EXECUTION_TIME),
+                false
+        );
+        durationSpinner = standardIntSpinner(60, 1, null, 10);
+        maxInFlightWaitLabel = formLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_MAX_IN_FLIGHT_WAIT));
+        maxInFlightWaitSpinner = standardIntSpinner(
+                ThreadGroupData.DEFAULT_MAX_IN_FLIGHT_WAIT_SECONDS,
+                1,
+                null,
+                10
+        );
+        String maxInFlightWaitTooltip = I18nUtil.getMessage(MessageKeys.THREADGROUP_MAX_IN_FLIGHT_WAIT_TOOLTIP);
+        maxInFlightWaitLabel.setToolTipText(maxInFlightWaitTooltip);
+        maxInFlightWaitSpinner.setToolTipText(maxInFlightWaitTooltip);
 
         // 2. 递增模式面板
-        rampUpPanel = new JPanel(new GridBagLayout());
-        rampUpPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        rampUpStartThreadsSpinner = new EasyJSpinner(new SpinnerNumberModel(1, 1, 1000, 1));
-        rampUpStartThreadsSpinner.setPreferredSize(new Dimension(80, 28));
-        rampUpEndThreadsSpinner = new EasyJSpinner(new SpinnerNumberModel(10, 1, 1000, 1));
-        rampUpEndThreadsSpinner.setPreferredSize(new Dimension(80, 28));
-        rampUpTimeSpinner = new EasyJSpinner(new SpinnerNumberModel(30, 1, 3600, 5));
-        rampUpTimeSpinner.setPreferredSize(new Dimension(80, 28));
-        rampUpDurationSpinner = new EasyJSpinner(new SpinnerNumberModel(120, 1, 86400, 10));
-        rampUpDurationSpinner.setPreferredSize(new Dimension(80, 28));
+        rampUpPanel = new JPanel(createValuePairLayout());
+        rampUpPanel.setOpaque(false);
+        rampUpStartThreadsSpinner = standardThreadCountSpinner(1);
+        rampUpEndThreadsSpinner = standardThreadCountSpinner(10);
+        rampUpTimeSpinner = standardIntSpinner(30, 1, null, 5);
+        rampUpDurationSpinner = standardIntSpinner(120, 1, null, 10);
 
         // 3. 尖刺模式面板
-        spikePanel = new JPanel(new GridBagLayout());
-        spikePanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        spikeMinThreadsSpinner = new EasyJSpinner(new SpinnerNumberModel(1, 1, 1000, 1));
-        spikeMinThreadsSpinner.setPreferredSize(new Dimension(80, 28));
-        spikeMaxThreadsSpinner = new EasyJSpinner(new SpinnerNumberModel(20, 1, 1000, 1));
-        spikeMaxThreadsSpinner.setPreferredSize(new Dimension(80, 28));
-        spikeRampUpTimeSpinner = new EasyJSpinner(new SpinnerNumberModel(10, 1, 3600, 1));
-        spikeRampUpTimeSpinner.setPreferredSize(new Dimension(80, 28));
-        spikeHoldTimeSpinner = new EasyJSpinner(new SpinnerNumberModel(5, 0, 3600, 1));
-        spikeHoldTimeSpinner.setPreferredSize(new Dimension(80, 28));
-        spikeRampDownTimeSpinner = new EasyJSpinner(new SpinnerNumberModel(10, 1, 3600, 1));
-        spikeRampDownTimeSpinner.setPreferredSize(new Dimension(80, 28));
-        spikeDurationSpinner = new EasyJSpinner(new SpinnerNumberModel(120, 1, 86400, 10));
-        spikeDurationSpinner.setPreferredSize(new Dimension(80, 28));
+        spikePanel = new JPanel(createValuePairLayout());
+        spikePanel.setOpaque(false);
+        spikeMinThreadsSpinner = standardThreadCountSpinner(1);
+        spikeMaxThreadsSpinner = standardThreadCountSpinner(20);
+        spikeRampUpTimeSpinner = standardIntSpinner(10, 1, null, 1);
+        spikeHoldTimeSpinner = standardIntSpinner(5, 0, null, 1);
+        spikeRampDownTimeSpinner = standardIntSpinner(10, 1, null, 1);
+        spikeDurationSpinner = standardIntSpinner(120, 1, null, 10);
 
         // 4. 阶梯模式面板
-        stairsPanel = new JPanel(new GridBagLayout());
-        stairsPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        stairsStartThreadsSpinner = new EasyJSpinner(new SpinnerNumberModel(1, 1, 1000, 1));
-        stairsStartThreadsSpinner.setPreferredSize(new Dimension(80, 28));
-        stairsEndThreadsSpinner = new EasyJSpinner(new SpinnerNumberModel(20, 1, 1000, 1));
-        stairsEndThreadsSpinner.setPreferredSize(new Dimension(80, 28));
-        stairsStepSpinner = new EasyJSpinner(new SpinnerNumberModel(5, 1, 100, 1));
-        stairsStepSpinner.setPreferredSize(new Dimension(80, 28));
-        stairsHoldTimeSpinner = new EasyJSpinner(new SpinnerNumberModel(10, 1, 3600, 1));
-        stairsHoldTimeSpinner.setPreferredSize(new Dimension(80, 28));
-        stairsDurationSpinner = new EasyJSpinner(new SpinnerNumberModel(240, 1, 86400, 10));
-        stairsDurationSpinner.setPreferredSize(new Dimension(80, 28));
+        stairsPanel = new JPanel(createValuePairLayout());
+        stairsPanel.setOpaque(false);
+        stairsStartThreadsSpinner = standardThreadCountSpinner(1);
+        stairsEndThreadsSpinner = standardThreadCountSpinner(20);
+        stairsStepSpinner = standardIntSpinner(5, 1, null, 1);
+        stairsHoldTimeSpinner = standardIntSpinner(10, 1, null, 1);
+        stairsDurationSpinner = standardIntSpinner(240, 1, null, 10);
 
         // 设置各个面板的布局
         setupFixedPanel();
@@ -141,228 +166,247 @@ public class ThreadGroupPropertyPanel extends JPanel {
         cardPanel.add(stairsPanel, ThreadGroupData.ThreadMode.STAIRS.name());
 
         // 默认显示固定模式面板
-        cardLayout.show(cardPanel, ThreadGroupData.ThreadMode.FIXED.name());
+        showThreadMode(ThreadGroupData.ThreadMode.FIXED);
 
         // 模式切换监听器
         modeComboBox.addActionListener(e -> {
             ThreadGroupData.ThreadMode selectedMode = (ThreadGroupData.ThreadMode) modeComboBox.getSelectedItem();
             if (selectedMode != null) {
-                cardLayout.show(cardPanel, selectedMode.name());
+                showThreadMode(selectedMode);
+                updateMaxInFlightWaitState();
                 updatePreview();
             }
         });
 
-        // 初始设置
-        durationSpinner.setEnabled(false); // 默认按循环次数执行
-
-        // 按时间执行时禁用循环次数，按循环次数执行时禁用持续时间
-        useTimeCheckBox.addActionListener(e -> {
-            boolean useTime = useTimeCheckBox.isSelected();
-            fixedLoopsSpinner.setEnabled(!useTime);
-            durationSpinner.setEnabled(useTime);
+        executionModeBar.setSelectionListener(useTime -> {
+            updateFixedExecutionModeState();
+            updateMaxInFlightWaitState();
         });
+        updateFixedExecutionModeState();
+        updateMaxInFlightWaitState();
 
         // 预览图表区域
         previewPanel = new ThreadLoadPreviewPanel();
-        // 在英文环境下适当调整预览面板的最小尺寸
-        int previewPanelWidth = I18nUtil.isChinese() ? 500 : 450;  // 英文环境给配置面板更多空间
-        previewPanel.setPreferredSize(new Dimension(previewPanelWidth, 180));
-        previewPanel.setMinimumSize(new Dimension(400, 180));  // 设置最小尺寸防止过度压缩
-        previewPanel.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.THREADGROUP_PREVIEW_TITLE)));
+        previewPanel.setPreferredSize(new Dimension(560, PREVIEW_PANEL_HEIGHT));
+        previewPanel.setMinimumSize(new Dimension(380, PREVIEW_PANEL_HEIGHT));  // 设置最小尺寸防止过度压缩
+        previewPanel.setOpaque(false);
+        previewPanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
 
         // 左侧配置区包装在一个面板中，以便控制布局
-        JPanel configPanel = new JPanel(new BorderLayout());
-        configPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5));
-        configPanel.add(cardPanel, BorderLayout.NORTH);
-        // 动态调整配置面板宽度以匹配卡片面板
-        configPanel.setPreferredSize(new Dimension(configPanelWidth, 180));
+        JPanel configPanel = new JPanel(new MigLayout(
+                "insets 0, fillx, novisualpadding, gap 0",
+                "[left]",
+                "[]10[]8[]"
+        ));
+        configPanel.setOpaque(false);
+        configPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+        JPanel modeRow = new JPanel(new MigLayout(
+                "insets 0, novisualpadding, gap 0",
+                "[right,pref!]8[pref!,left]",
+                "[]"
+        ));
+        modeRow.setOpaque(false);
+        modeRow.add(formLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_MODE_LABEL)), "aligny center");
+        modeRow.add(modeComboBox, "w pref!, h " + FORM_CONTROL_HEIGHT + "!");
+        configPanel.add(modeRow, "left, wrap");
+        configPanel.add(cardPanel, "w " + CONFIG_PANEL_WIDTH + "!, h pref!, growx, wrap");
+        int fixedRightFieldWidth = Math.max(SPINNER_WIDTH, executionModeBar.getPreferredSize().width);
+        JPanel maxInFlightWaitRow = new JPanel(new MigLayout(
+                "insets 0, fillx, novisualpadding, gap 0",
+                "[grow,fill][right,pref!]" + LABEL_FIELD_GAP + "[" + fixedRightFieldWidth + "!,left]",
+                "[]"
+        ));
+        maxInFlightWaitRow.setOpaque(false);
+        maxInFlightWaitRow.add(maxInFlightWaitLabel, "skip 1, aligny center");
+        maxInFlightWaitRow.add(maxInFlightWaitSpinner, spinnerConstraints());
+        maxInFlightWaitRow.setPreferredSize(new Dimension(
+                fixedPanel.getPreferredSize().width,
+                FORM_CONTROL_HEIGHT
+        ));
+        configPanel.add(maxInFlightWaitRow, "left");
+        JPanel previewSection = new JPanel(new MigLayout(
+                "insets 0, fill, novisualpadding, gap 0",
+                "[grow,fill]",
+                "[" + PREVIEW_PANEL_HEIGHT + "!,fill]"
+        ));
+        previewSection.setOpaque(false);
+        previewSection.add(previewPanel, "grow");
 
         // 添加到主面板
-        mainPanel.add(configPanel, BorderLayout.WEST);
-        mainPanel.add(previewPanel, BorderLayout.CENTER);
+        mainPanel.add(configPanel, "top, growx");
+        mainPanel.add(previewSection, "top, growx, pushx");
 
         // 整体布局
-        add(topPanel, BorderLayout.NORTH);
-        add(mainPanel, BorderLayout.CENTER);
+        add(mainPanel, BorderLayout.NORTH);
 
         // 为所有输入组件添加变化监听，刷新预览图
         addPreviewUpdateListeners();
     }
 
+    private static EasyJSpinner threadCountSpinner(int value) {
+        return EasyJSpinner.intSpinner(value, ThreadGroupData.MIN_THREADS, null, 1);
+    }
+
+    private static EasyJSpinner standardThreadCountSpinner(int value) {
+        return standardSizedSpinner(threadCountSpinner(value));
+    }
+
+    private static EasyJSpinner standardIntSpinner(int value, int minimum, Integer maximum, int stepSize) {
+        return standardSizedSpinner(EasyJSpinner.intSpinner(value, minimum, maximum, stepSize));
+    }
+
+    private static EasyJSpinner standardSizedSpinner(EasyJSpinner spinner) {
+        spinner.setPreferredSize(new Dimension(SPINNER_WIDTH, FORM_CONTROL_HEIGHT));
+        return spinner;
+    }
+
+    private static MigLayout createValuePairLayout() {
+        return createThreadGroupFormLayout(3, "[" + SPINNER_WIDTH + "!]");
+    }
+
+    private static MigLayout createFixedModeLayout() {
+        return createThreadGroupFormLayout(2, "[pref!]");
+    }
+
+    private static MigLayout createThreadGroupFormLayout(int rowCount, String rightFieldColumn) {
+        return new MigLayout(
+                formLayoutConstraints(),
+                formColumns(rightFieldColumn),
+                formRows(rowCount)
+        );
+    }
+
+    private static String formLayoutConstraints() {
+        return "insets 0, novisualpadding, gap 0";
+    }
+
+    private static String formColumns(String rightFieldColumn) {
+        return "[right,pref!]" + LABEL_FIELD_GAP + "["
+                + SPINNER_WIDTH + "!]"
+                + FIELD_PAIR_GAP
+                + "[right,pref!]" + LABEL_FIELD_GAP + rightFieldColumn;
+    }
+
+    private static String formRows(int rowCount) {
+        StringBuilder rows = new StringBuilder();
+        for (int i = 0; i < rowCount; i++) {
+            if (i > 0) {
+                rows.append(FORM_ROW_GAP);
+            }
+            rows.append("[]");
+        }
+        return rows.toString();
+    }
+
+    private static JLabel formLabel(String text) {
+        return new JLabel(text, SwingConstants.RIGHT);
+    }
+
+    private static String spinnerConstraints() {
+        return "w " + SPINNER_WIDTH + "!, h " + FORM_CONTROL_HEIGHT + "!";
+    }
+
     // 设置固定模式面板
     private void setupFixedPanel() {
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 5, 3, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
+        fixedPanel.add(formLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_USERS)));
+        fixedPanel.add(fixedNumThreadsSpinner, spinnerConstraints());
+        fixedPanel.add(formLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_EXECUTION_MODE)));
+        fixedPanel.add(createExecutionModePanel(), "w pref!, h pref!, wrap");
 
-        // 第一行
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.gridwidth = 1;
-        fixedPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_USERS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        fixedPanel.add(fixedNumThreadsSpinner, gbc);
-
-        gbc.gridx = 2;
-        fixedPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_EXECUTION_MODE), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        fixedPanel.add(useTimeCheckBox, gbc);
-
-        // 第二行
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        fixedPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_LOOPS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        fixedPanel.add(fixedLoopsSpinner, gbc);
-
-        gbc.gridx = 2;
-        fixedPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_DURATION), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        fixedPanel.add(durationSpinner, gbc);
+        fixedPanel.add(formLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_LOOPS)));
+        fixedPanel.add(fixedLoopsSpinner, spinnerConstraints());
+        fixedPanel.add(formLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_FIXED_DURATION)));
+        fixedPanel.add(durationSpinner, spinnerConstraints());
     }
 
     // 设置递增模式面板
     private void setupRampUpPanel() {
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 5, 3, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-
-        // 第一行
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        rampUpPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_RAMPUP_START_USERS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        rampUpPanel.add(rampUpStartThreadsSpinner, gbc);
-
-        gbc.gridx = 2;
-        rampUpPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_RAMPUP_END_USERS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        rampUpPanel.add(rampUpEndThreadsSpinner, gbc);
-
-        // 第二行
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        rampUpPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_RAMPUP_RAMP_TIME), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        rampUpPanel.add(rampUpTimeSpinner, gbc);
-
-        gbc.gridx = 2;
-        rampUpPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_RAMPUP_TEST_DURATION), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        rampUpPanel.add(rampUpDurationSpinner, gbc);
+        addValuePairRow(
+                rampUpPanel,
+                MessageKeys.THREADGROUP_RAMPUP_START_USERS,
+                rampUpStartThreadsSpinner,
+                MessageKeys.THREADGROUP_RAMPUP_END_USERS,
+                rampUpEndThreadsSpinner
+        );
+        addValuePairRow(
+                rampUpPanel,
+                MessageKeys.THREADGROUP_RAMPUP_RAMP_TIME,
+                rampUpTimeSpinner,
+                MessageKeys.THREADGROUP_RAMPUP_TEST_DURATION,
+                rampUpDurationSpinner
+        );
     }
 
     // 设置尖刺模式面板
     private void setupSpikePanel() {
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 5, 3, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-
-        // 第一行
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        spikePanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_SPIKE_MIN_USERS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        spikePanel.add(spikeMinThreadsSpinner, gbc);
-
-        gbc.gridx = 2;
-        spikePanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_SPIKE_MAX_USERS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        spikePanel.add(spikeMaxThreadsSpinner, gbc);
-
-        // 第二行
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        spikePanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_SPIKE_RAMP_UP_TIME), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        spikePanel.add(spikeRampUpTimeSpinner, gbc);
-
-        gbc.gridx = 2;
-        spikePanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_SPIKE_HOLD_TIME), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        spikePanel.add(spikeHoldTimeSpinner, gbc);
-
-        // 第三行
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        spikePanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_SPIKE_RAMP_DOWN_TIME), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        spikePanel.add(spikeRampDownTimeSpinner, gbc);
-
-        gbc.gridx = 2;
-        spikePanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_SPIKE_TEST_DURATION), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        spikePanel.add(spikeDurationSpinner, gbc);
+        addValuePairRow(
+                spikePanel,
+                MessageKeys.THREADGROUP_SPIKE_MIN_USERS,
+                spikeMinThreadsSpinner,
+                MessageKeys.THREADGROUP_SPIKE_MAX_USERS,
+                spikeMaxThreadsSpinner
+        );
+        addValuePairRow(
+                spikePanel,
+                MessageKeys.THREADGROUP_SPIKE_RAMP_UP_TIME,
+                spikeRampUpTimeSpinner,
+                MessageKeys.THREADGROUP_SPIKE_HOLD_TIME,
+                spikeHoldTimeSpinner
+        );
+        addValuePairRow(
+                spikePanel,
+                MessageKeys.THREADGROUP_SPIKE_RAMP_DOWN_TIME,
+                spikeRampDownTimeSpinner,
+                MessageKeys.THREADGROUP_SPIKE_TEST_DURATION,
+                spikeDurationSpinner
+        );
     }
 
     // 设置阶梯模式面板
     private void setupStairsPanel() {
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 5, 3, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
+        addValuePairRow(
+                stairsPanel,
+                MessageKeys.THREADGROUP_STAIRS_START_USERS,
+                stairsStartThreadsSpinner,
+                MessageKeys.THREADGROUP_STAIRS_END_USERS,
+                stairsEndThreadsSpinner
+        );
+        addValuePairRow(
+                stairsPanel,
+                MessageKeys.THREADGROUP_STAIRS_STEP_SIZE,
+                stairsStepSpinner,
+                MessageKeys.THREADGROUP_STAIRS_HOLD_TIME,
+                stairsHoldTimeSpinner
+        );
+        addValuePairRow(
+                stairsPanel,
+                MessageKeys.THREADGROUP_STAIRS_TEST_DURATION,
+                stairsDurationSpinner,
+                null,
+                null
+        );
+    }
 
-        // 第一行
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        stairsPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_STAIRS_START_USERS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        stairsPanel.add(stairsStartThreadsSpinner, gbc);
-
-        gbc.gridx = 2;
-        stairsPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_STAIRS_END_USERS), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        stairsPanel.add(stairsEndThreadsSpinner, gbc);
-
-        // 第二行
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        stairsPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_STAIRS_STEP_SIZE), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        stairsPanel.add(stairsStepSpinner, gbc);
-
-        gbc.gridx = 2;
-        stairsPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_STAIRS_HOLD_TIME), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 3;
-        stairsPanel.add(stairsHoldTimeSpinner, gbc);
-
-        // 第三行
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        stairsPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.THREADGROUP_STAIRS_TEST_DURATION), SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        stairsPanel.add(stairsDurationSpinner, gbc);
+    private void addValuePairRow(JPanel panel,
+                                 String leftLabelKey,
+                                 JComponent leftField,
+                                 String rightLabelKey,
+                                 JComponent rightField) {
+        panel.add(formLabel(I18nUtil.getMessage(leftLabelKey)));
+        panel.add(leftField, spinnerConstraints());
+        if (rightLabelKey != null && rightField != null) {
+            panel.add(formLabel(I18nUtil.getMessage(rightLabelKey)));
+            panel.add(rightField, spinnerConstraints() + ", wrap");
+        } else {
+            panel.add(Box.createHorizontalStrut(0), "span 2, wrap");
+        }
     }
 
     private void addPreviewUpdateListeners() {
-        // 模式选择变化监听
-        modeComboBox.addActionListener(e -> updatePreview());
-
         // 固定模式参数变化监听
         fixedNumThreadsSpinner.addChangeListener(e -> updatePreview());
         fixedLoopsSpinner.addChangeListener(e -> updatePreview());
+        useLoopCountButton.addActionListener(e -> updatePreview());
         useTimeCheckBox.addActionListener(e -> updatePreview());
         durationSpinner.addChangeListener(e -> updatePreview());
 
@@ -389,6 +433,18 @@ public class ThreadGroupPropertyPanel extends JPanel {
     }
 
     private void updatePreview() {
+        if (updatingPreview) {
+            return;
+        }
+        updatingPreview = true;
+        try {
+            updatePreviewSnapshot();
+        } finally {
+            updatingPreview = false;
+        }
+    }
+
+    private void updatePreviewSnapshot() {
         ThreadGroupData.ThreadMode mode = (ThreadGroupData.ThreadMode) modeComboBox.getSelectedItem();
         if (mode == null) return;
 
@@ -397,34 +453,34 @@ public class ThreadGroupPropertyPanel extends JPanel {
 
         switch (mode) {
             case FIXED:
-                previewData.fixedThreads = (Integer) fixedNumThreadsSpinner.getValue();
+                previewData.fixedThreads = fixedNumThreadsSpinner.getCommittedIntValue();
                 previewData.useTime = useTimeCheckBox.isSelected();
-                previewData.duration = (Integer) durationSpinner.getValue();
-                previewData.loops = (Integer) fixedLoopsSpinner.getValue();
+                previewData.duration = durationSpinner.getCommittedIntValue();
+                previewData.loops = fixedLoopsSpinner.getCommittedIntValue();
                 break;
 
             case RAMP_UP:
-                previewData.rampUpStartThreads = (Integer) rampUpStartThreadsSpinner.getValue();
-                previewData.rampUpEndThreads = (Integer) rampUpEndThreadsSpinner.getValue();
-                previewData.rampUpTime = (Integer) rampUpTimeSpinner.getValue();
-                previewData.rampUpDuration = (Integer) rampUpDurationSpinner.getValue();
+                previewData.rampUpStartThreads = rampUpStartThreadsSpinner.getCommittedIntValue();
+                previewData.rampUpEndThreads = rampUpEndThreadsSpinner.getCommittedIntValue();
+                previewData.rampUpTime = rampUpTimeSpinner.getCommittedIntValue();
+                previewData.rampUpDuration = rampUpDurationSpinner.getCommittedIntValue();
                 break;
 
             case SPIKE:
-                previewData.spikeMinThreads = (Integer) spikeMinThreadsSpinner.getValue();
-                previewData.spikeMaxThreads = (Integer) spikeMaxThreadsSpinner.getValue();
-                previewData.spikeRampUpTime = (Integer) spikeRampUpTimeSpinner.getValue();
-                previewData.spikeHoldTime = (Integer) spikeHoldTimeSpinner.getValue();
-                previewData.spikeRampDownTime = (Integer) spikeRampDownTimeSpinner.getValue();
-                previewData.spikeDuration = (Integer) spikeDurationSpinner.getValue();
+                previewData.spikeMinThreads = spikeMinThreadsSpinner.getCommittedIntValue();
+                previewData.spikeMaxThreads = spikeMaxThreadsSpinner.getCommittedIntValue();
+                previewData.spikeRampUpTime = spikeRampUpTimeSpinner.getCommittedIntValue();
+                previewData.spikeHoldTime = spikeHoldTimeSpinner.getCommittedIntValue();
+                previewData.spikeRampDownTime = spikeRampDownTimeSpinner.getCommittedIntValue();
+                previewData.spikeDuration = spikeDurationSpinner.getCommittedIntValue();
                 break;
 
             case STAIRS:
-                previewData.stairsStartThreads = (Integer) stairsStartThreadsSpinner.getValue();
-                previewData.stairsEndThreads = (Integer) stairsEndThreadsSpinner.getValue();
-                previewData.stairsStep = (Integer) stairsStepSpinner.getValue();
-                previewData.stairsHoldTime = (Integer) stairsHoldTimeSpinner.getValue();
-                previewData.stairsDuration = (Integer) stairsDurationSpinner.getValue();
+                previewData.stairsStartThreads = stairsStartThreadsSpinner.getCommittedIntValue();
+                previewData.stairsEndThreads = stairsEndThreadsSpinner.getCommittedIntValue();
+                previewData.stairsStep = stairsStepSpinner.getCommittedIntValue();
+                previewData.stairsHoldTime = stairsHoldTimeSpinner.getCommittedIntValue();
+                previewData.stairsDuration = stairsDurationSpinner.getCommittedIntValue();
                 break;
         }
 
@@ -433,13 +489,14 @@ public class ThreadGroupPropertyPanel extends JPanel {
     }
 
     // 回填数据
-    public void setThreadGroupData(JMeterTreeNode node) {
+    public void setThreadGroupData(PerformanceTreeNode node) {
         this.currentNode = node;
         ThreadGroupData data = node.threadGroupData;
         if (data == null) {
             data = new ThreadGroupData();
             node.threadGroupData = data;
         }
+        data.normalize();
 
         // 设置模式
         modeComboBox.setSelectedItem(data.threadMode);
@@ -449,11 +506,13 @@ public class ThreadGroupPropertyPanel extends JPanel {
         fixedNumThreadsSpinner.setValue(data.numThreads);
         fixedLoopsSpinner.setValue(data.loops);
         useTimeCheckBox.setSelected(data.useTime);
+        useLoopCountButton.setSelected(!data.useTime);
         durationSpinner.setValue(data.duration);
+        maxInFlightWaitSpinner.setValue(data.maxInFlightWaitSeconds);
 
         // 更新UI状态
-        fixedLoopsSpinner.setEnabled(!data.useTime);
-        durationSpinner.setEnabled(data.useTime);
+        updateFixedExecutionModeState();
+        updateMaxInFlightWaitState();
 
         // 设置递增模式参数
         rampUpStartThreadsSpinner.setValue(data.rampUpStartThreads);
@@ -486,7 +545,7 @@ public class ThreadGroupPropertyPanel extends JPanel {
      */
     public void forceCommitAllSpinners() {
         List<EasyJSpinner> allSpinners = Arrays.asList(
-                fixedNumThreadsSpinner, fixedLoopsSpinner, durationSpinner,
+                fixedNumThreadsSpinner, fixedLoopsSpinner, durationSpinner, maxInFlightWaitSpinner,
                 rampUpStartThreadsSpinner, rampUpEndThreadsSpinner,
                 rampUpTimeSpinner, rampUpDurationSpinner,
                 spikeMinThreadsSpinner, spikeMaxThreadsSpinner,
@@ -511,31 +570,88 @@ public class ThreadGroupPropertyPanel extends JPanel {
         data.threadMode = (ThreadGroupData.ThreadMode) modeComboBox.getSelectedItem();
 
         // 保存固定模式参数
-        data.numThreads = (Integer) fixedNumThreadsSpinner.getValue();
-        data.loops = (Integer) fixedLoopsSpinner.getValue();
+        data.numThreads = fixedNumThreadsSpinner.getCommittedIntValue();
+        data.loops = fixedLoopsSpinner.getCommittedIntValue();
         data.useTime = useTimeCheckBox.isSelected();
-        data.duration = (Integer) durationSpinner.getValue();
+        data.duration = durationSpinner.getCommittedIntValue();
+        data.maxInFlightWaitSeconds = maxInFlightWaitSpinner.getCommittedIntValue();
 
         // 保存递增模式参数
-        data.rampUpStartThreads = (Integer) rampUpStartThreadsSpinner.getValue();
-        data.rampUpEndThreads = (Integer) rampUpEndThreadsSpinner.getValue();
-        data.rampUpTime = (Integer) rampUpTimeSpinner.getValue();
-        data.rampUpDuration = (Integer) rampUpDurationSpinner.getValue();
+        data.rampUpStartThreads = rampUpStartThreadsSpinner.getCommittedIntValue();
+        data.rampUpEndThreads = rampUpEndThreadsSpinner.getCommittedIntValue();
+        data.rampUpTime = rampUpTimeSpinner.getCommittedIntValue();
+        data.rampUpDuration = rampUpDurationSpinner.getCommittedIntValue();
 
         // 保存尖刺模式参数
-        data.spikeMinThreads = (Integer) spikeMinThreadsSpinner.getValue();
-        data.spikeMaxThreads = (Integer) spikeMaxThreadsSpinner.getValue();
-        data.spikeRampUpTime = (Integer) spikeRampUpTimeSpinner.getValue();
-        data.spikeHoldTime = (Integer) spikeHoldTimeSpinner.getValue();
-        data.spikeRampDownTime = (Integer) spikeRampDownTimeSpinner.getValue();
-        data.spikeDuration = (Integer) spikeDurationSpinner.getValue();
+        data.spikeMinThreads = spikeMinThreadsSpinner.getCommittedIntValue();
+        data.spikeMaxThreads = spikeMaxThreadsSpinner.getCommittedIntValue();
+        data.spikeRampUpTime = spikeRampUpTimeSpinner.getCommittedIntValue();
+        data.spikeHoldTime = spikeHoldTimeSpinner.getCommittedIntValue();
+        data.spikeRampDownTime = spikeRampDownTimeSpinner.getCommittedIntValue();
+        data.spikeDuration = spikeDurationSpinner.getCommittedIntValue();
 
         // 保存阶梯模式参数
-        data.stairsStartThreads = (Integer) stairsStartThreadsSpinner.getValue();
-        data.stairsEndThreads = (Integer) stairsEndThreadsSpinner.getValue();
-        data.stairsStep = (Integer) stairsStepSpinner.getValue();
-        data.stairsHoldTime = (Integer) stairsHoldTimeSpinner.getValue();
-        data.stairsDuration = (Integer) stairsDurationSpinner.getValue();
+        data.stairsStartThreads = stairsStartThreadsSpinner.getCommittedIntValue();
+        data.stairsEndThreads = stairsEndThreadsSpinner.getCommittedIntValue();
+        data.stairsStep = stairsStepSpinner.getCommittedIntValue();
+        data.stairsHoldTime = stairsHoldTimeSpinner.getCommittedIntValue();
+        data.stairsDuration = stairsDurationSpinner.getCommittedIntValue();
+        data.normalize();
+    }
+
+    private static final class ThreadModeRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list,
+                                                      Object value,
+                                                      int index,
+                                                      boolean isSelected,
+                                                      boolean cellHasFocus) {
+            Component component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof ThreadGroupData.ThreadMode threadMode) {
+                setText(I18nUtil.getMessage(threadMode.getMessageKey()));
+            }
+            return component;
+        }
+    }
+
+    private JPanel createExecutionModePanel() {
+        return executionModeBar;
+    }
+
+    private void updateFixedExecutionModeState() {
+        boolean useTime = useTimeCheckBox.isSelected();
+        fixedLoopsSpinner.setEnabled(!useTime);
+        durationSpinner.setEnabled(useTime);
+    }
+
+    private void showThreadMode(ThreadGroupData.ThreadMode mode) {
+        JPanel visiblePanel = switch (mode) {
+            case FIXED -> fixedPanel;
+            case RAMP_UP -> rampUpPanel;
+            case SPIKE -> spikePanel;
+            case STAIRS -> stairsPanel;
+        };
+        cardLayout.show(cardPanel, mode.name());
+        cardPanel.setPreferredSize(new Dimension(
+                CONFIG_PANEL_WIDTH,
+                visiblePanel.getPreferredSize().height
+        ));
+        cardPanel.revalidate();
+    }
+
+    private void updateMaxInFlightWaitState() {
+        ThreadGroupData.ThreadMode mode = (ThreadGroupData.ThreadMode) modeComboBox.getSelectedItem();
+        boolean enabled = mode != null
+                && (mode != ThreadGroupData.ThreadMode.FIXED || useTimeCheckBox.isSelected());
+        maxInFlightWaitLabel.setEnabled(enabled);
+        maxInFlightWaitSpinner.setEnabled(enabled);
+    }
+
+    private static String trimFieldLabel(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replaceAll("[:：]\\s*$", "");
     }
 
     // 预览数据模型
@@ -687,7 +803,9 @@ public class ThreadGroupPropertyPanel extends JPanel {
             g2d.drawString(I18nUtil.getMessage(MessageKeys.THREADGROUP_PREVIEW_TIME_SECONDS), PADDING + width / 2 - 20, PADDING + height + 30);
 
             // 在左上角添加模式信息
-            g2d.drawString(I18nUtil.getMessage(MessageKeys.THREADGROUP_PREVIEW_MODE_PREFIX) + " " + previewData.mode.getDisplayName(), PADDING, PADDING - 10);
+            g2d.drawString(I18nUtil.getMessage(MessageKeys.THREADGROUP_PREVIEW_MODE_PREFIX)
+                    + " "
+                    + I18nUtil.getMessage(previewData.mode.getMessageKey()), PADDING, PADDING - 10);
         }
 
         private int getMaxThreads() {
@@ -762,7 +880,7 @@ public class ThreadGroupPropertyPanel extends JPanel {
             }
 
             // 绘制点
-            Color bgColor = UIManager.getColor("Panel.background");
+            Color bgColor = ModernColors.getCardBackgroundColor();
             g2d.setColor(bgColor);
             g2d.setStroke(new BasicStroke(1.0f));
             for (Point p : points) {
@@ -817,7 +935,6 @@ public class ThreadGroupPropertyPanel extends JPanel {
             points.add(new Point(x, yMin));
 
             // 计算时间比例
-            int totalPhaseTime = previewData.spikeRampUpTime + previewData.spikeHoldTime + previewData.spikeRampDownTime;
             int availWidth = width;
 
             // 上升

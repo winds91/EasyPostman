@@ -1,6 +1,6 @@
 ---
 name: fontsutil-font-usage
-description: Use when modifying EasyPostman Swing UI fonts, especially when dialogs, labels, tables, tabs, or renderers look too large or too small, or when a change is about font size consistency with the user's configured UI font size. Prefer FontsUtil.getDefaultFontWithOffset(...) over hard-coded point sizes.
+description: Use when modifying EasyPostman Swing UI fonts, especially when dialogs, labels, tables, tabs, or renderers look too large or too small, or when a change needs to stay consistent with the user's configured UI font size.
 ---
 
 # FontsUtil Font Usage
@@ -26,11 +26,13 @@ Use this skill when changing Swing font sizes in this repo. The goal is to keep 
    - section/list titles: `+1`
    - dialog/detail titles: `+1` or `+2`
 5. If only weight changes and size should remain exactly as-is, `font.deriveFont(Font.BOLD)` is acceptable.
+6. Do not solve localized English/Chinese text overflow by shrinking fonts first. Fix layout constraints, short i18n keys, wrapping, dynamic measurement, or tooltip-backed truncation before changing typography.
 
 ## Repo-specific guidance
 
+- For module placement, `FontsUtil` and reusable typography helpers belong in `easy-postman-ui`; startup-time application of font settings is app/platform orchestration. See `docs/ARCHITECTURE_MODULES_zh.md`.
 - `FontsUtil` lives at:
-  `easy-postman-plugin-ui/src/main/java/com/laker/postman/util/FontsUtil.java`
+  `easy-postman-ui/src/main/java/com/laker/postman/util/FontsUtil.java`
 - `FontsUtil` reads the configured `ui_font_size`, clamps it, and derives from UI defaults.
 - For this repo, using `FontsUtil` is the correct way to respect user-configured font size and keep fallback chains intact.
 
@@ -39,6 +41,7 @@ Use this skill when changing Swing font sizes in this repo. The goal is to keep 
 - `label.getFont().deriveFont(Font.BOLD, 18f)` for regular dialog headers
 - Mixing `FontsUtil` and hard-coded point sizes in the same panel without a reason
 - Fixing a "font too big" complaint by picking another absolute size
+- Reducing the UI font offset because an English button, tab, or label does not fit a Chinese-sized container
 
 ## Verification
 

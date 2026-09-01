@@ -26,7 +26,7 @@ easy-postman-plugin-runtime
 ├── PluginLoader
 ├── PluginRegistry
 ├── PluginStateStore
-├── PluginSettingsStore
+├── PluginPlatformSettingsStore
 ├── PluginRuntimePaths
 ├── RuntimeVersionResolver
 ├── PluginCompatibility
@@ -57,7 +57,7 @@ easy-postman-plugin-runtime
   - 宿主运行时从这里消费插件能力
 - `PluginStateStore`
   - 维护禁用插件和待卸载插件状态
-- `PluginSettingsStore`
+- `PluginPlatformSettingsStore`
   - 底层 JSON 持久化
 - `PluginRuntimePaths`
   - 统一运行时数据目录、安装目录、包缓存目录
@@ -82,14 +82,16 @@ PluginManager / 本地放入 jar
   -> plugin.onLoad(context)
   -> PluginRegistry 收集贡献
   -> PluginLoader.startPlugins()
-  -> 宿主 UI / 脚本 / bridge 层消费贡献
+  -> 宿主 UI / 脚本 / plugin.host 访问层消费贡献
 ```
 
 这里有几个关键设计点：
 
 - 安装和加载分离
-  - `plugin-manager` 负责落盘和校验
-  - `runtime` 只负责“当前进程应该加载谁”
+  - `easy-postman-plugin-runtime` 只负责扫描、descriptor 解析、classloader、registry、生命周期和“当前进程应该加载谁”
+  - `easy-postman-plugins/*` 通常是官方插件 JAR，由 runtime 按 descriptor 加载
+  - `easy-postman-plugins/plugin-manager` 是宿主侧插件管理辅助模块，宿主 app 可直接依赖它来做 catalog 解析、下载、落盘、校验和安装来源记录
+  - `plugin-manager` 不是由 runtime 加载的普通插件，也不应作为新普通插件或新宿主侧插件管理库的默认目录模板；它保留在 `easy-postman-plugins` 下只是历史路径和发布组织选择
 - 扫描和选择分离
   - `PluginScanner` 负责“看见什么”
   - `PluginCandidateResolver` 负责“最终选谁”
@@ -101,7 +103,7 @@ PluginManager / 本地放入 jar
 
 宿主 app 层已经不再四处直连 `PluginRuntime.getRegistry()`，而是统一收口到：
 
-- [PluginAccess.java](../easy-postman-app/src/main/java/com/laker/postman/plugin/bridge/PluginAccess.java)
+- [PluginAccess.java](../easy-postman-app/src/main/java/com/laker/postman/plugin/host/PluginAccess.java)
 
 当前消费关系大致是：
 
@@ -112,7 +114,7 @@ PluginRegistry
     -> ToolboxPanel.getToolboxContributions()
     -> ScriptSnippetManager.getScriptCompletionContributors()
     -> SnippetDialog.getSnippetDefinitions()
-    -> ClientCertificatePluginServices.getService(...)
+    -> ClientCertificatePluginAccess.getService(...)
 ```
 
 这样做的价值是：
@@ -127,8 +129,9 @@ PluginRegistry
 官方插件已经开始统一走：
 
 - `PluginContributionSupport`
-- `PluginAccess`
 - `RedisI18n` / `KafkaI18n`
+
+宿主侧消费统一走 `com.laker.postman.plugin.host.PluginAccess`。
 
 例如 `KafkaPlugin` / `RedisPlugin` 的 `onLoad()` 现在更接近：
 
@@ -206,7 +209,7 @@ runtime 测试目前主要在：
   - 暂时只追踪了 script API 和 service
 - 不支持真正的热卸载
   - 当前启用/禁用/卸载仍以“下次启动生效”思路为主
-- `PluginSettingsStore` 还是通用 key-value JSON 包装
+- `PluginPlatformSettingsStore` 还是插件平台状态的 key-value JSON 包装
   - 还没有 typed state model
 
 ## 8. 后续演进建议

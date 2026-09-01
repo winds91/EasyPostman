@@ -1,5 +1,6 @@
 package com.laker.postman.panel.toolbox;
 
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
@@ -7,7 +8,6 @@ import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
@@ -40,8 +40,7 @@ public class HashPanel extends JPanel {
     }
 
     private void initUI() {
-        setLayout(new BorderLayout(5, 5));
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        ToolboxWorkbench.applyRoot(this);
 
         // 顶部工具栏
         add(createToolbar(), BorderLayout.NORTH);
@@ -54,12 +53,9 @@ public class HashPanel extends JPanel {
     }
 
     private JPanel createToolbar() {
-        JPanel toolbarPanel = new JPanel(new BorderLayout(5, 5));
-
         // 算法按钮面板
-        JPanel algorithmPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
-        TitledBorder algorithmBorder = BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_OUTPUT));
-        algorithmPanel.setBorder(algorithmBorder);
+        JPanel algorithmPanel = ToolboxWorkbench.optionsRow();
+        algorithmPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_OUTPUT) + ":"));
 
         String[] algorithms = {"MD5", "SHA-1", "SHA-256", "SHA-512"};
 
@@ -78,9 +74,6 @@ public class HashPanel extends JPanel {
             algorithmButtons.put(algorithm, btn);
             algorithmPanel.add(btn);
         }
-
-        // 选项和操作面板
-        JPanel optionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
 
         calculateAllCheckBox = new JCheckBox(I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_CALCULATE_ALL), false);
         calculateAllCheckBox.setToolTipText(I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_CALCULATE_ALL_TOOLTIP));
@@ -122,38 +115,31 @@ public class HashPanel extends JPanel {
         clearBtn.setToolTipText("Ctrl+L / Cmd+L");
         clearBtn.addActionListener(e -> clearAll());
 
-        optionsPanel.add(calculateAllCheckBox);
-        optionsPanel.add(uppercaseCheckBox);
-        optionsPanel.add(new JSeparator(SwingConstants.VERTICAL));
-        optionsPanel.add(calculateBtn);
-        optionsPanel.add(copyBtn);
-        optionsPanel.add(clearBtn);
-
-        toolbarPanel.add(algorithmPanel, BorderLayout.NORTH);
-        toolbarPanel.add(optionsPanel, BorderLayout.SOUTH);
+        JPanel optionsPanel = ToolboxWorkbench.leftToolbar(
+                calculateAllCheckBox,
+                uppercaseCheckBox,
+                ToolboxWorkbench.verticalSeparator(),
+                calculateBtn,
+                copyBtn,
+                clearBtn);
 
         // 默认选中MD5按钮
         updateButtonStates("MD5");
 
-        return toolbarPanel;
+        return ToolboxWorkbench.stackedTop(
+                algorithmPanel,
+                ToolboxWorkbench.toolbar(optionsPanel, null)
+        );
     }
 
     private JSplitPane createMainPanel() {
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setResizeWeight(0.5);
-
         // 输入区域
-        JPanel inputPanel = new JPanel(new BorderLayout(5, 5));
-        TitledBorder inputBorder = BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_INPUT));
-        inputPanel.setBorder(inputBorder);
-
         inputArea = new JTextArea();
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
         inputArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, +1));
         inputArea.setMargin(new Insets(5, 5, 5, 5));
-        inputArea.setBackground(ModernColors.getInputBackgroundColor());
-        inputArea.setForeground(ModernColors.getTextPrimary());
+        ToolWindowSurfaceStyle.applyTextComponentInput(inputArea);
 
         // 添加实时计算功能
         inputArea.getDocument().addDocumentListener(new DocumentListener() {
@@ -174,42 +160,36 @@ public class HashPanel extends JPanel {
         });
 
         JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputPanel.add(inputScroll, BorderLayout.CENTER);
+        ToolWindowSurfaceStyle.applyFramedScrollPaneCard(inputScroll);
+        JPanel inputPanel = ToolboxWorkbench.editorSection(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_INPUT),
+                inputScroll
+        );
 
         // 输出区域
-        JPanel outputPanel = new JPanel(new BorderLayout(5, 5));
-        TitledBorder outputBorder = BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_OUTPUT));
-        outputPanel.setBorder(outputBorder);
-
         outputArea = new JTextArea();
         outputArea.setLineWrap(true);
         outputArea.setEditable(false);
         outputArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, +1));
         outputArea.setMargin(new Insets(5, 5, 5, 5));
-        outputArea.setBackground(ModernColors.getBackgroundColor());
-        outputArea.setForeground(ModernColors.getTextPrimary());
+        ToolWindowSurfaceStyle.applyTextComponentCard(outputArea);
 
         JScrollPane outputScroll = new JScrollPane(outputArea);
-        outputPanel.add(outputScroll, BorderLayout.CENTER);
+        ToolWindowSurfaceStyle.applyFramedScrollPaneCard(outputScroll);
+        JPanel outputPanel = ToolboxWorkbench.editorSection(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_HASH_OUTPUT),
+                outputScroll
+        );
 
-        splitPane.setTopComponent(inputPanel);
-        splitPane.setBottomComponent(outputPanel);
-        splitPane.setDividerLocation(250);
-
-        return splitPane;
+        return ToolboxWorkbench.editorSplit(inputPanel, outputPanel, 260);
     }
 
     private JPanel createStatusBar() {
-        JPanel statusPanel = new JPanel(new BorderLayout());
-        statusPanel.setBorder(BorderFactory.createEmptyBorder(5, 0, 0, 0));
-
         statusLabel = new JLabel(" ");
         statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
         statusLabel.setForeground(ModernColors.getTextSecondary());
 
-        statusPanel.add(statusLabel, BorderLayout.WEST);
-
-        return statusPanel;
+        return ToolboxWorkbench.statusBar(statusLabel);
     }
 
     private void handleInputChange() {
@@ -298,7 +278,7 @@ public class HashPanel extends JPanel {
     private void updateButtonStates(String selectedAlgorithm) {
         algorithmButtons.forEach((algorithm, button) -> {
             if (algorithm.equals(selectedAlgorithm)) {
-                button.setBackground(new Color(100, 150, 255));
+                button.setBackground(ModernColors.getSelectionBackgroundColor());
                 button.setOpaque(true);
             } else {
                 button.setBackground(null);

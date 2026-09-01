@@ -1,6 +1,7 @@
 package com.laker.postman.service.variable;
 
 import com.laker.postman.util.I18nUtil;
+import com.laker.postman.variable.VariableType;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
 
@@ -16,7 +17,7 @@ import java.util.*;
  * <p>
  * 负责处理所有内置动态函数，如 $guid, $timestamp, $randomInt 等
  * <ul>
- *   <li>优先级最低（优先级 = 3）</li>
+ *   <li>优先级最低</li>
  *   <li>每次调用都会生成新的随机值</li>
  * </ul>
  */
@@ -36,7 +37,7 @@ public class BuiltInFunctionService implements VariableProvider {
     private static final String[] BUILT_IN_FUNCTIONS = {
             "$guid", "$uuid", "$randomUUID",
             "$timestamp", "$isoTimestamp",
-            "$randomInt", "$randomAlphaNumeric", "$randomBoolean",
+            "$randomInt", "$randomAlphaNumeric", "$randomBoolean", "$randomTF",
             "$randomIP", "$randomEmail",
             "$randomFullName", "$randomFirstName", "$randomLastName",
             "$randomColor", "$randomDate", "$randomTime",
@@ -82,8 +83,6 @@ public class BuiltInFunctionService implements VariableProvider {
     public VariableType getType() {
         return VariableType.BUILT_IN;
     }
-
-    // ==================== 内置函数特有方法 ====================
 
     // ==================== 内置函数特有方法 ====================
 
@@ -143,6 +142,10 @@ public class BuiltInFunctionService implements VariableProvider {
 
             case "$randomBoolean":
                 result = String.valueOf(RANDOM.nextBoolean());
+                break;
+
+            case "$randomTF":
+                result = RANDOM.nextBoolean() ? "T" : "F";
                 break;
 
             case "$randomIP":
@@ -300,4 +303,5 @@ public class BuiltInFunctionService implements VariableProvider {
     private static String generateMD5Hash(String input) {
         return DigestUtils.md5Hex(input);
     }
+
 }

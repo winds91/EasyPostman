@@ -1,22 +1,30 @@
 package com.laker.postman.plugin.kafka.consumer.ui;
 
 import com.formdev.flatlaf.FlatClientProperties;
+import com.laker.postman.common.component.ChipLabel;
+import com.laker.postman.common.component.EasyComboBox;
+import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
+import com.laker.postman.common.component.SearchableTextArea;
+import com.laker.postman.common.component.ToolWindowActionToolbar;
+import com.laker.postman.common.component.ToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.button.ClearButton;
+import com.laker.postman.common.component.button.CloseButton;
+import com.laker.postman.common.component.button.CompactPrimaryButton;
+import com.laker.postman.common.component.button.CopyButton;
+import com.laker.postman.common.component.button.SecondaryButton;
+import com.laker.postman.common.component.connection.ConnectionToolbarUi;
+import com.laker.postman.common.component.table.EnhancedTablePanel;
+import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.plugin.kafka.MessageKeys;
 import com.laker.postman.plugin.kafka.consumer.KafkaConsumedMessage;
 import com.laker.postman.plugin.kafka.shared.KafkaPanelSupport;
 import com.laker.postman.plugin.kafka.shared.ui.KafkaPropertiesEditorPanel;
-import com.laker.postman.common.component.SearchableTextArea;
-import com.laker.postman.common.component.button.ClearButton;
-import com.laker.postman.common.component.button.CloseButton;
-import com.laker.postman.common.component.button.CopyButton;
-import com.laker.postman.common.component.button.PrimaryButton;
-import com.laker.postman.common.component.button.SecondaryButton;
-import com.laker.postman.common.component.table.EnhancedTablePanel;
-import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.util.EditorThemeUtil;
+import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.JsonUtil;
-import com.laker.postman.util.NotificationUtil;
+import com.laker.postman.common.component.notification.NotificationCenter;
 import net.miginfocom.swing.MigLayout;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -24,15 +32,19 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 import static com.laker.postman.plugin.kafka.KafkaI18n.t;
 
 public class KafkaConsumerPanel extends JPanel {
 
-    private static final String SEPARATOR_FG = "Separator.foreground";
-    private static final String LABEL_DISABLED_FG = "Label.disabledForeground";
     private static final String CARD_CONSUME_START = "consume-start";
     private static final String CARD_CONSUME_STOP = "consume-stop";
+    private static final String EMPTY_VALUE = "—";
+    private static final DateTimeFormatter DETAIL_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
 
     public final JTextField topicField;
     public final JTextField groupIdField;
@@ -55,21 +67,18 @@ public class KafkaConsumerPanel extends JPanel {
     private final JLabel detailPartitionLabel;
     private final JLabel detailOffsetLabel;
     private final JLabel detailKeyLabel;
-    private final JLabel detailTimeLabel;
+    private final JLabel detailMessageTimeLabel;
+    private final JLabel detailConsumeTimeLabel;
+    private final JLabel detailLagLabel;
     private final JLabel consumeStartValueLabel;
 
     public KafkaConsumerPanel(Runnable startAction, Runnable stopAction, Runnable clearAction, Runnable selectionChanged) {
         super(new BorderLayout(0, 0));
-
-        JPanel titleBar = new JPanel(new MigLayout("insets 5 10 5 8, fillx", "[]push[]4[]4[]4[]", "[]"));
-        titleBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)));
-
-        JLabel titleLbl = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_TITLE));
-        titleLbl.setFont(titleLbl.getFont().deriveFont(Font.BOLD, 12f));
+        setOpaque(false);
 
         JToggleButton detailToggleBtn = new JToggleButton();
         detailToggleBtn.setIcon(IconUtil.createThemed("icons/detail.svg", 16, 16));
-        detailToggleBtn.setSelectedIcon(IconUtil.createColored("icons/detail.svg", 16, 16, ModernColors.PRIMARY));
+        detailToggleBtn.setSelectedIcon(IconUtil.createColored("icons/detail.svg", 16, 16, ModernColors.getPrimary()));
         detailToggleBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_MESSAGE_DETAIL));
         detailToggleBtn.setSelected(false);
         detailToggleBtn.setPreferredSize(new Dimension(28, 28));
@@ -79,7 +88,7 @@ public class KafkaConsumerPanel extends JPanel {
 
         JToggleButton advancedToggleBtn = new JToggleButton();
         advancedToggleBtn.setIcon(IconUtil.createThemed("icons/more.svg", 16, 16));
-        advancedToggleBtn.setSelectedIcon(IconUtil.createColored("icons/more.svg", 16, 16, ModernColors.PRIMARY));
+        advancedToggleBtn.setSelectedIcon(IconUtil.createColored("icons/more.svg", 16, 16, ModernColors.getPrimary()));
         advancedToggleBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_ADVANCED_OPTIONS));
         advancedToggleBtn.setSelected(false);
         advancedToggleBtn.setPreferredSize(new Dimension(28, 28));
@@ -91,25 +100,24 @@ public class KafkaConsumerPanel extends JPanel {
         clearConsumeBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CLEAR));
         clearConsumeBtn.addActionListener(e -> clearAction.run());
 
-        titleBar.add(titleLbl);
-        titleBar.add(clearConsumeBtn);
-        titleBar.add(advancedToggleBtn);
-        titleBar.add(detailToggleBtn);
-
         JPanel mainControls = new JPanel(new MigLayout(
-                "insets 6 10 6 8, fillx",
-                "[]8[grow,fill]8[]",
+                "insets 4 6 4 6, fillx, novisualpadding",
+                "[]8[grow,fill]8[]8[]",
                 "[]"
         ));
+        ToolWindowSurfaceStyle.applySectionHeader(mainControls);
 
         topicField = new JTextField("");
         topicField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, t(MessageKeys.TOOLBOX_KAFKA_TOPIC_PLACEHOLDER));
         topicField.setPreferredSize(new Dimension(0, 30));
 
-        PrimaryButton startConsumeBtn = new PrimaryButton(t(MessageKeys.TOOLBOX_KAFKA_START_CONSUME), "icons/start.svg");
+        CompactPrimaryButton startConsumeBtn = new CompactPrimaryButton(t(MessageKeys.TOOLBOX_KAFKA_START_CONSUME_SHORT), "icons/start.svg");
+        startConsumeBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_START_CONSUME));
         startConsumeBtn.addActionListener(e -> startAction.run());
 
-        SecondaryButton stopConsumeBtn = new SecondaryButton(t(MessageKeys.TOOLBOX_KAFKA_STOP_CONSUME), "icons/stop.svg");
+        SecondaryButton stopConsumeBtn = new SecondaryButton(t(MessageKeys.TOOLBOX_KAFKA_STOP_CONSUME_SHORT), "icons/stop.svg");
+        stopConsumeBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_STOP_CONSUME));
+        ConnectionToolbarUi.compactButton(stopConsumeBtn, 74);
         stopConsumeBtn.addActionListener(e -> stopAction.run());
 
         consumeBtnCardLayout = new CardLayout();
@@ -122,15 +130,21 @@ public class KafkaConsumerPanel extends JPanel {
         mainControls.add(new JLabel(t(MessageKeys.TOOLBOX_KAFKA_TOPIC)));
         mainControls.add(topicField);
         mainControls.add(consumeBtnCard);
+        mainControls.add(ToolWindowActionToolbar.inlineRight(
+                clearConsumeBtn,
+                advancedToggleBtn,
+                detailToggleBtn
+        ));
 
         JPanel advancedPanel = new JPanel(new BorderLayout(0, 0));
-        advancedPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, UIManager.getColor(SEPARATOR_FG)));
+        advancedPanel.setOpaque(false);
 
         JPanel advancedRowPanel = new JPanel(new MigLayout(
                 "insets 4 10 6 8, fillx",
-                "[]8[grow,fill]16[]8[grow,fill]16[]8[140!]28[]8[grow,fill]",
+                "[]8[grow,fill]16[]8[grow,fill]16[]8[pref!,fill]28[]8[grow,fill]",
                 "[]6[]"
         ));
+        ToolWindowSurfaceStyle.applySectionHeader(advancedRowPanel);
 
         groupIdField = new JTextField("easy-postman-consumer");
         groupIdField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, t(MessageKeys.TOOLBOX_KAFKA_GROUP_ID_PLACEHOLDER));
@@ -139,15 +153,16 @@ public class KafkaConsumerPanel extends JPanel {
         partitionSelector = new KafkaPartitionSelector();
         partitionSelector.setPreferredSize(new Dimension(0, 28));
 
-        autoOffsetCombo = new JComboBox<>(new String[]{
+        autoOffsetCombo = new EasyComboBox<>(new String[]{
                 t(MessageKeys.TOOLBOX_KAFKA_OFFSET_RESET_LATEST),
                 t(MessageKeys.TOOLBOX_KAFKA_OFFSET_RESET_EARLIEST),
                 t(MessageKeys.TOOLBOX_KAFKA_OFFSET_RESET_NONE),
                 t(MessageKeys.TOOLBOX_KAFKA_OFFSET_RESET_TIMESTAMP),
                 t(MessageKeys.TOOLBOX_KAFKA_OFFSET_RESET_OFFSET)
-        });
+        }, EasyComboBox.WidthMode.FIXED_MAX);
         autoOffsetCombo.setSelectedIndex(0);
-        autoOffsetCombo.setPreferredSize(new Dimension(140, 28));
+        Dimension autoOffsetSize = autoOffsetCombo.getPreferredSize();
+        autoOffsetCombo.setPreferredSize(new Dimension(autoOffsetSize.width, 28));
 
         consumeStartValueField = new JTextField("");
         consumeStartValueField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, t(MessageKeys.TOOLBOX_KAFKA_OFFSET_VALUE_PLACEHOLDER));
@@ -183,8 +198,8 @@ public class KafkaConsumerPanel extends JPanel {
                 t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES),
                 t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES_HINT),
                 t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_CUSTOM_PROPERTIES_PLACEHOLDER),
-                UIManager.getColor(SEPARATOR_FG),
-                UIManager.getColor(LABEL_DISABLED_FG));
+                ModernColors.getDividerBorderColor(),
+                ModernColors.getTextSecondary());
 
         advancedPanel.add(advancedRowPanel, BorderLayout.NORTH);
         advancedPanel.add(customPropsPanel, BorderLayout.CENTER);
@@ -192,8 +207,7 @@ public class KafkaConsumerPanel extends JPanel {
         advancedToggleBtn.addActionListener(e -> advancedPanel.setVisible(advancedToggleBtn.isSelected()));
 
         String[] columns = {
-                t(MessageKeys.TOOLBOX_KAFKA_COL_TIME),
-                t(MessageKeys.TOOLBOX_KAFKA_COL_RECORD_TIME),
+                t(MessageKeys.TOOLBOX_KAFKA_COL_MESSAGE_TIME),
                 t(MessageKeys.TOOLBOX_KAFKA_COL_TOPIC),
                 t(MessageKeys.TOOLBOX_KAFKA_COL_PARTITION),
                 t(MessageKeys.TOOLBOX_KAFKA_COL_OFFSET),
@@ -213,18 +227,25 @@ public class KafkaConsumerPanel extends JPanel {
         });
 
         JPanel detailPanel = new JPanel(new BorderLayout(0, 0));
+        detailPanel.setOpaque(false);
         detailPanel.setMinimumSize(new Dimension(0, 0));
 
-        JPanel detailHeader = new JPanel(new MigLayout("insets 4 10 4 8, fillx", "[]8[]8[]8[]8[]push[]4[]", "[]"));
-        detailHeader.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor(SEPARATOR_FG)));
+        JPanel detailHeader = new JPanel(new MigLayout("insets 4 10 4 8, fillx", "[]8[]8[]8[]8[]push[]4[]", "[]2[]"));
+        ToolWindowSurfaceStyle.applySectionHeader(detailHeader);
 
-        detailTopicLabel = buildChipLabel("Topic: —", ModernColors.INFO);
-        detailPartitionLabel = buildChipLabel("Partition: —", new Color(120, 80, 200));
-        detailOffsetLabel = buildChipLabel("Offset: —", new Color(20, 150, 100));
-        detailKeyLabel = buildChipLabel("Key: —", new Color(180, 100, 0));
-        detailTimeLabel = buildChipLabel("—", null);
-        detailTimeLabel.setFont(detailTimeLabel.getFont().deriveFont(Font.PLAIN, 10f));
-        detailTimeLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
+        detailTopicLabel = buildChipLabel("Topic: —", ModernColors.getInfo());
+        detailPartitionLabel = buildChipLabel("Partition: —", ModernColors.getSecondary());
+        detailOffsetLabel = buildChipLabel("Offset: —", ModernColors.getSuccess());
+        detailKeyLabel = buildChipLabel("Key: —", ModernColors.getWarningDark());
+        detailMessageTimeLabel = buildMetaLabel(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_MESSAGE_TIME, EMPTY_VALUE));
+        detailConsumeTimeLabel = buildMetaLabel(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_CONSUME_TIME, EMPTY_VALUE));
+        detailLagLabel = buildMetaLabel(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_LAG, EMPTY_VALUE));
+
+        JPanel timeInfoPanel = ToolWindowActionToolbar.inlineLeft(
+                detailMessageTimeLabel,
+                detailConsumeTimeLabel,
+                detailLagLabel
+        );
 
         CopyButton copyValueBtn = new CopyButton();
         copyValueBtn.setToolTipText(t(MessageKeys.TOOLBOX_KAFKA_COPY_VALUE));
@@ -241,11 +262,11 @@ public class KafkaConsumerPanel extends JPanel {
         detailHeader.add(detailPartitionLabel);
         detailHeader.add(detailOffsetLabel);
         detailHeader.add(detailKeyLabel);
-        detailHeader.add(detailTimeLabel);
-        detailHeader.add(copyValueBtn);
-        detailHeader.add(closeDetailBtn);
+        detailHeader.add(copyValueBtn, "pushx, align right");
+        detailHeader.add(closeDetailBtn, "wrap");
+        detailHeader.add(timeInfoPanel, "span, growx");
 
-        detailArea = new RSyntaxTextArea();
+        detailArea = new FallbackAwareRSyntaxTextArea();
         detailArea.setEditable(false);
         detailArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JSON);
         detailArea.setCodeFoldingEnabled(true);
@@ -259,11 +280,8 @@ public class KafkaConsumerPanel extends JPanel {
         detailPanel.add(detailHeader, BorderLayout.NORTH);
         detailPanel.add(searchableDetail, BorderLayout.CENTER);
 
-        detailSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, messageTablePanel, detailPanel);
-        detailSplit.setDividerSize(4);
+        detailSplit = ToolWindowChrome.createVerticalInnerSplitPane(messageTablePanel, detailPanel, 320);
         detailSplit.setResizeWeight(1.0);
-        detailSplit.setContinuousLayout(true);
-        detailSplit.setBorder(BorderFactory.createEmptyBorder());
         SwingUtilities.invokeLater(() -> detailSplit.setDividerLocation(1.0));
 
         detailToggleBtn.addActionListener(e -> {
@@ -276,13 +294,13 @@ public class KafkaConsumerPanel extends JPanel {
         });
 
         statusLabel = new JLabel(t(MessageKeys.TOOLBOX_KAFKA_CONSUMER_READY));
-        statusLabel.setForeground(UIManager.getColor(LABEL_DISABLED_FG));
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        statusLabel.setForeground(ModernColors.getTextSecondary());
+        statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
         statusLabel.setBorder(new EmptyBorder(3, 10, 3, 8));
 
         JPanel north = new JPanel(new BorderLayout());
-        north.add(titleBar, BorderLayout.NORTH);
-        north.add(mainControls, BorderLayout.CENTER);
+        north.setOpaque(false);
+        north.add(mainControls, BorderLayout.NORTH);
         north.add(advancedPanel, BorderLayout.SOUTH);
 
         add(north, BorderLayout.NORTH);
@@ -319,7 +337,9 @@ public class KafkaConsumerPanel extends JPanel {
         detailPartitionLabel.setText("Partition: —");
         detailOffsetLabel.setText("Offset: —");
         detailKeyLabel.setText("Key: —");
-        detailTimeLabel.setText("—");
+        detailMessageTimeLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_MESSAGE_TIME, EMPTY_VALUE));
+        detailConsumeTimeLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_CONSUME_TIME, EMPTY_VALUE));
+        detailLagLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_LAG, EMPTY_VALUE));
     }
 
     public void updateDetail(KafkaConsumedMessage msg) {
@@ -330,8 +350,10 @@ public class KafkaConsumerPanel extends JPanel {
         detailTopicLabel.setText("Topic: " + msg.topic());
         detailPartitionLabel.setText("Partition: " + msg.partition());
         detailOffsetLabel.setText("Offset: " + msg.offset());
-        detailKeyLabel.setText("Key: " + (msg.key() == null || msg.key().isBlank() ? "—" : msg.key()));
-        detailTimeLabel.setText(msg.receiveTime());
+        detailKeyLabel.setText("Key: " + displayValue(msg.key()));
+        detailMessageTimeLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_MESSAGE_TIME, displayValue(msg.recordTime())));
+        detailConsumeTimeLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_CONSUME_TIME, displayValue(msg.receiveTime())));
+        detailLagLabel.setText(t(MessageKeys.TOOLBOX_KAFKA_DETAIL_LAG, formatLag(msg)));
 
         String value = msg.value() == null ? "" : msg.value().trim();
         if (KafkaPanelSupport.isJsonText(value)) {
@@ -354,34 +376,57 @@ public class KafkaConsumerPanel extends JPanel {
         if (!txt.isEmpty()) {
             Toolkit.getDefaultToolkit().getSystemClipboard()
                     .setContents(new java.awt.datatransfer.StringSelection(txt), null);
-            NotificationUtil.showSuccess(t(MessageKeys.TOOLBOX_KAFKA_VALUE_COPIED));
+            NotificationCenter.showSuccess(t(MessageKeys.TOOLBOX_KAFKA_VALUE_COPIED));
         }
     }
 
-    private JLabel buildChipLabel(String text, Color bgColor) {
-        JLabel lbl = new JLabel(text) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                if (bgColor != null) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(new Color(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue(), 30));
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-                    g2.setColor(new Color(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue(), 140));
-                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
-                    g2.dispose();
-                }
-                super.paintComponent(g);
-            }
-        };
-        lbl.setFont(lbl.getFont().deriveFont(Font.PLAIN, 11f));
-        if (bgColor != null) {
-            lbl.setForeground(ModernColors.isDarkTheme()
-                    ? new Color(Math.min(bgColor.getRed() + 80, 255), Math.min(bgColor.getGreen() + 80, 255), Math.min(bgColor.getBlue() + 80, 255))
-                    : bgColor.darker());
+    private String formatLag(KafkaConsumedMessage msg) {
+        if (msg == null || msg.recordTime() == null || msg.recordTime().isBlank()
+                || msg.receiveTime() == null || msg.receiveTime().isBlank()) {
+            return EMPTY_VALUE;
         }
-        lbl.setBorder(new EmptyBorder(2, 6, 2, 6));
-        lbl.setOpaque(false);
+        try {
+            LocalDateTime recordTime = LocalDateTime.parse(msg.recordTime(), DETAIL_TIME_FORMATTER);
+            LocalDateTime consumeTime = LocalDateTime.parse(msg.receiveTime(), DETAIL_TIME_FORMATTER);
+            return formatDuration(Duration.between(recordTime, consumeTime).toMillis());
+        } catch (RuntimeException ignored) {
+            return EMPTY_VALUE;
+        }
+    }
+
+    private String formatDuration(long millis) {
+        String prefix = millis < 0 ? "-" : "";
+        long absMillis = Math.abs(millis);
+        if (absMillis < 1000) {
+            return prefix + absMillis + " ms";
+        }
+        if (absMillis < 60_000) {
+            String seconds = String.format(Locale.ROOT, "%.1f", absMillis / 1000.0);
+            if (seconds.endsWith(".0")) {
+                seconds = seconds.substring(0, seconds.length() - 2);
+            }
+            return prefix + seconds + " s";
+        }
+        long totalSeconds = absMillis / 1000;
+        if (totalSeconds < 3600) {
+            return String.format(Locale.ROOT, "%s%dm %02ds", prefix, totalSeconds / 60, totalSeconds % 60);
+        }
+        return String.format(Locale.ROOT, "%s%dh %02dm", prefix, totalSeconds / 3600, (totalSeconds % 3600) / 60);
+    }
+
+    private static String displayValue(String value) {
+        return value == null || value.isBlank() ? EMPTY_VALUE : value;
+    }
+
+    private JLabel buildMetaLabel(String text) {
+        JLabel lbl = new JLabel(text);
+        lbl.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -3));
+        lbl.setForeground(ModernColors.getTextSecondary());
+        lbl.setBorder(new EmptyBorder(0, 0, 0, 0));
         return lbl;
+    }
+
+    private JLabel buildChipLabel(String text, Color bgColor) {
+        return new ChipLabel(text, bgColor);
     }
 }

@@ -1,74 +1,46 @@
 package com.laker.postman.panel.sidebar;
 
-import com.formdev.flatlaf.extras.FlatSVGIcon;
-import com.laker.postman.common.SingletonBasePanel;
-import com.laker.postman.common.SingletonFactory;
-import com.laker.postman.common.constants.ModernColors;
-import com.laker.postman.model.SidebarTab;
-import com.laker.postman.model.TabInfo;
-import com.laker.postman.panel.collections.right.RequestEditPanel;
+import com.laker.postman.common.UiSingletonPanel;
+import com.laker.postman.common.UiSingletonFactory;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.panel.collections.editor.RequestEditorPanel;
+import com.laker.postman.panel.collections.editor.request.RequestSideAssistantPanel;
 import com.laker.postman.panel.env.EnvironmentPanel;
+import com.laker.postman.panel.performance.PerformanceUiWarmup;
 import com.laker.postman.panel.sidebar.cookie.CookieManagerDialog;
 import com.laker.postman.panel.sidebar.global.GlobalVariablesDialog;
+import com.laker.postman.panel.toolbox.ToolboxPanel;
+import com.laker.postman.plugin.api.StatusBarActionContribution;
+import com.laker.postman.plugin.host.PluginAccess;
+import com.laker.postman.request.model.HttpRequestItem;
 import com.laker.postman.service.setting.SettingManager;
-import com.laker.postman.startup.StartupDiagnostics;
-import com.laker.postman.util.*;
+import com.laker.postman.util.FontsUtil;
+import com.laker.postman.util.I18nUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.plaf.UIResource;
-import javax.swing.plaf.basic.BasicArrowButton;
-import javax.swing.plaf.basic.BasicTabbedPaneUI;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.geom.Path2D;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
-
 /**
  * 左侧标签页面板
  */
 @Slf4j
-public class SidebarTabPanel extends SingletonBasePanel {
+public class SidebarTabPanel extends UiSingletonPanel {
 
-    // Constants
-    private static final String ICON_LABEL_NAME = "iconLabel";
-    private static final String TITLE_LABEL_NAME = "titleLabel";
-    private static final String TOOLTIP_COLLAPSE_SIDEBAR = "Collapse sidebar";
-    private static final String TOOLTIP_EXPAND_SIDEBAR = "Expand sidebar";
-
-    // 边距和间距常量（与createTabComponent中的布局保持一致）
-    private static final int EXPANDED_TAB_PADDING_VERTICAL = 8;
-    private static final int EXPANDED_TAB_PADDING_HORIZONTAL = 12;
-    private static final int EXPANDED_TAB_SPACING_TOP = 6;
-    private static final int EXPANDED_TAB_SPACING_MIDDLE = 5;
-    private static final int EXPANDED_TAB_SPACING_BOTTOM = 6;
-
-    private static final int COLLAPSED_TAB_PADDING_VERTICAL = 14;
-    private static final int COLLAPSED_TAB_PADDING_HORIZONTAL = 10;
     @Getter
     private JTabbedPane tabbedPane;
-    @Getter
     private transient List<TabInfo> tabInfos;
     private transient List<SidebarTab> visibleTabs;
-    private JPanel consoleContainer;
-    private JPanel bottomLeftPanel;  // 底部栏左侧面板缓存
-    private JPanel bottomRightPanel; // 底部栏右侧面板缓存
-    private JLabel consoleLabel;
-    private JLabel sidebarToggleLabel; // 侧边栏展开/收起按钮
-    private JLabel layoutToggleLabel; // 布局切换按钮
-    private JLabel globalVariablesLabel;
-    private JLabel cookieLabel;
-    private JLabel versionLabel;
-    private ConsolePanel consolePanel;
+    private SidebarBottomBar bottomBar;
+    private SidebarConsoleArea consoleArea;
+    private RequestSideAssistantPanel requestSideAssistantPanel;
     private boolean sidebarExpanded = false; // 侧边栏展开状态
     private CookieManagerDialog cookieManagerDialog; // Cookie管理器对话框实例
     private GlobalVariablesDialog globalVariablesDialog; // 全局变量对话框实例
@@ -82,33 +54,20 @@ public class SidebarTabPanel extends SingletonBasePanel {
     private int calculatedCollapsedTabWidth = -1; // 计算后的收起状态tab宽度
     private int calculatedExpandedTabHeight = -1; // 计算后的展开状态tab高度
     private int calculatedCollapsedTabHeight = -1; // 计算后的收起状态tab高度
-
-    // 性能优化：缓存绘制时使用的颜色对象，避免重复创建
-    private transient Color cachedBgColor;
-    private transient GradientPaint cachedGradient;
-    private transient int lastIndicatorHeight = -1; // 用于判断是否需要重新创建渐变
+    private SidebarTabComponentFactory tabComponentFactory;
 
     @Override
     protected void initUI() {
-        // 初始化字体缓存
-        // Tab 标题使用语言感知字体（英文小一号，避免文本过长）
-        normalFont = getLanguageAwareFont(Font.PLAIN);
-        boldFont = getLanguageAwareFont(Font.BOLD);
+        refreshSidebarFonts();
         // 先读取侧边栏展开状态
         sidebarExpanded = SettingManager.isSidebarExpanded();
         setLayout(new BorderLayout());
+        ToolWindowSurfaceStyle.applyBackground(this);
 
-        // 1. 创建标签页
-        tabbedPane = createModernTabbedPane();
+        // 创建标签页
+        tabbedPane = createSidebarTabbedPane();
         reloadTabInfosFromSettings();
-
-        // Add tabs to the JTabbedPane
-        for (int i = 0; i < tabInfos.size(); i++) {
-            TabInfo info = tabInfos.get(i);
-            tabbedPane.addTab(info.title, new JPanel());
-            // 设置自定义 tab 组件以实现图标在上、文本在下的布局
-            tabbedPane.setTabComponentAt(i, createTabComponent(visibleTabs.get(i), info.title, info.icon));
-        }
+        installVisibleTabs(Map.of());
 
         // 默认设置选中第一个标签
         if (tabbedPane.getTabCount() > 0) {
@@ -117,87 +76,57 @@ public class SidebarTabPanel extends SingletonBasePanel {
 
         preloadInitialContent();
 
-        // 2. 控制台日志区和底部栏
-        consoleContainer = new JPanel(new BorderLayout());
-        consoleContainer.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, ModernColors.getDividerBorderColor()));
-        consoleContainer.setOpaque(false);
-        initBottomBar();
-        consolePanel = SingletonFactory.getInstance(ConsolePanel.class);
-        // 注册关闭按钮事件
-        consolePanel.setCloseAction(e -> setConsoleExpanded(false));
-        setConsoleExpanded(false);
+        bottomBar = createBottomBar();
+        requestSideAssistantPanel = new RequestSideAssistantPanel(this::currentRequestSnapshot);
+        consoleArea = new SidebarConsoleArea(
+                this,
+                bottomBar,
+                UiSingletonFactory.getInstance(ConsolePanel.class),
+                requestSideAssistantPanel
+        );
+        consoleArea.setTabbedPane(tabbedPane);
     }
 
-    private void setConsoleExpanded(boolean expanded) {
-        JSplitPane splitPane;
-        removeAll();
-        if (expanded) {
-            consoleContainer.removeAll();
-            consoleContainer.add(consolePanel, BorderLayout.CENTER);
-            splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tabbedPane, consoleContainer);
-            splitPane.setDividerSize(3);
-            splitPane.setResizeWeight(1.0);
-            splitPane.setMinimumSize(new Dimension(0, 10));
-            tabbedPane.setMinimumSize(new Dimension(0, 30));
-            consoleContainer.setMinimumSize(new Dimension(0, 30));
-            add(splitPane, BorderLayout.CENTER);
-            revalidate();
-            repaint();
-            SwingUtilities.invokeLater(() -> splitPane.setDividerLocation(splitPane.getHeight() - 300));
-        } else {
-            add(tabbedPane, BorderLayout.CENTER);
-            consoleContainer.removeAll();
-            // 使用缓存的面板，避免重复创建
-            consoleContainer.add(bottomLeftPanel, BorderLayout.WEST);
-            consoleContainer.add(bottomRightPanel, BorderLayout.EAST);
-            add(consoleContainer, BorderLayout.SOUTH);
-            revalidate();
-            repaint();
+    private SidebarBottomBar createBottomBar() {
+        return new SidebarBottomBar(
+                sidebarExpanded,
+                this::toggleSidebarExpansion,
+                this::toggleConsoleArea,
+                this::toggleLayoutOrientation,
+                this::showGlobalVariablesDialog,
+                this::showCookieManagerDialog,
+                PluginAccess.getStatusBarActionContributions(),
+                this::handleStatusBarAction
+        );
+    }
+
+    private void handleStatusBarAction(StatusBarActionContribution contribution) {
+        if (StatusBarActionContribution.TARGET_TOOLBOX.equals(contribution.targetType())) {
+            openToolboxTool(contribution.targetId());
         }
     }
 
-    /**
-     * 初始化底部栏，包括控制台标签和版本标签
-     */
-    private void initBottomBar() {
-        // 2. 创建底部栏组件
-        createSidebarToggleLabel();
-        createConsoleLabel();
-        createLayoutToggleLabel();
-        createGlobalVariablesLabel();
-        createCookieLabel();
-        createVersionLabel();
-
-        // 初始化底部栏面板，避免每次展开/收起时重复创建
-        bottomLeftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        bottomLeftPanel.setOpaque(false);
-        bottomLeftPanel.add(sidebarToggleLabel);
-        bottomLeftPanel.add(consoleLabel);
-
-        bottomRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        bottomRightPanel.setOpaque(false);
-        bottomRightPanel.add(versionLabel);
-        bottomRightPanel.add(globalVariablesLabel);
-        bottomRightPanel.add(cookieLabel);
-        bottomRightPanel.add(layoutToggleLabel);
+    boolean openToolboxTool(String toolId) {
+        if (toolId == null || toolId.isBlank() || !showTab(SidebarTab.TOOLBOX)) {
+            return false;
+        }
+        return UiSingletonFactory.getInstance(ToolboxPanel.class).showTool(toolId);
     }
 
-    /**
-     * 创建侧边栏展开/收起按钮
-     */
-    private void createSidebarToggleLabel() {
-        sidebarToggleLabel = new JLabel(IconUtil.createThemed("icons/sidebar-toggle.svg", 20, 20));
-        sidebarToggleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        sidebarToggleLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
-        sidebarToggleLabel.setFocusable(true);
-        sidebarToggleLabel.setEnabled(true);
-        sidebarToggleLabel.setToolTipText(sidebarExpanded ? TOOLTIP_COLLAPSE_SIDEBAR : TOOLTIP_EXPAND_SIDEBAR);
-        sidebarToggleLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                toggleSidebarExpansion();
-            }
-        });
+    private void toggleConsoleArea() {
+        if (consoleArea != null) {
+            consoleArea.toggleConsole();
+        }
+    }
+
+    private HttpRequestItem currentRequestSnapshot() {
+        try {
+            return UiSingletonFactory.getExistingInstance(RequestEditorPanel.class)
+                    .map(RequestEditorPanel::getCurrentRequestSnapshotForAssistant)
+                    .orElse(null);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /**
@@ -206,86 +135,8 @@ public class SidebarTabPanel extends SingletonBasePanel {
     private void toggleSidebarExpansion() {
         sidebarExpanded = !sidebarExpanded;
         SettingManager.setSidebarExpanded(sidebarExpanded);
-        sidebarToggleLabel.setToolTipText(sidebarExpanded ? TOOLTIP_COLLAPSE_SIDEBAR : TOOLTIP_EXPAND_SIDEBAR);
+        bottomBar.setSidebarExpanded(sidebarExpanded);
         recreateTabbedPane();
-    }
-
-    /**
-     * 创建控制台标签
-     */
-    private void createConsoleLabel() {
-        consoleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.CONSOLE_TITLE));
-        consoleLabel.setIcon(IconUtil.createThemed("icons/console.svg", 20, 20));
-        consoleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        consoleLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        consoleLabel.setFocusable(true);
-        consoleLabel.setEnabled(true);
-        consoleLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                setConsoleExpanded(true);
-            }
-        });
-    }
-
-    /**
-     * 创建全局变量标签
-     */
-    private void createGlobalVariablesLabel() {
-        globalVariablesLabel = new JLabel(I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_TITLE));
-        globalVariablesLabel.setIcon(IconUtil.createThemed("icons/global-variables.svg", 20, 20));
-        globalVariablesLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        globalVariablesLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        globalVariablesLabel.setFocusable(true);
-        globalVariablesLabel.setEnabled(true);
-        globalVariablesLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                showGlobalVariablesDialog();
-            }
-        });
-    }
-
-    /**
-     * 创建 Cookie 标签
-     */
-    private void createCookieLabel() {
-        cookieLabel = new JLabel(I18nUtil.getMessage(MessageKeys.COOKIES_TITLE));
-        FlatSVGIcon cookieIcon = new FlatSVGIcon("icons/cookie.svg", 20, 20);
-        cookieLabel.setIcon(cookieIcon);
-        cookieLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        cookieLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        cookieLabel.setFocusable(true);
-        cookieLabel.setEnabled(true);
-        cookieLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                showCookieManagerDialog();
-            }
-        });
-    }
-
-    /**
-     * 创建布局切换按钮
-     */
-    private void createLayoutToggleLabel() {
-        boolean isVertical = SettingManager.isLayoutVertical();
-        String iconPath = isVertical ? "icons/layout-horizontal.svg" : "icons/layout-vertical.svg";
-        String tooltip = isVertical ?
-                I18nUtil.getMessage(MessageKeys.LAYOUT_HORIZONTAL_TOOLTIP) :
-                I18nUtil.getMessage(MessageKeys.LAYOUT_VERTICAL_TOOLTIP);
-        layoutToggleLabel = new JLabel(IconUtil.createThemed(iconPath, 20, 20));
-        layoutToggleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        layoutToggleLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 12));
-        layoutToggleLabel.setToolTipText(tooltip);
-        layoutToggleLabel.setFocusable(true);
-        layoutToggleLabel.setEnabled(true);
-        layoutToggleLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                toggleLayoutOrientation();
-            }
-        });
     }
 
     /**
@@ -296,18 +147,11 @@ public class SidebarTabPanel extends SingletonBasePanel {
         boolean newVertical = !currentVertical;
         SettingManager.setLayoutVertical(newVertical);
 
-        // 更新图标和提示
-        String iconPath = newVertical ? "icons/layout-horizontal.svg" : "icons/layout-vertical.svg";
-        String tooltip = newVertical ?
-                I18nUtil.getMessage(MessageKeys.LAYOUT_HORIZONTAL_TOOLTIP) :
-                I18nUtil.getMessage(MessageKeys.LAYOUT_VERTICAL_TOOLTIP);
-
-        layoutToggleLabel.setIcon(IconUtil.createThemed(iconPath, 20, 20));
-        layoutToggleLabel.setToolTipText(tooltip);
+        bottomBar.updateLayoutToggleState(newVertical);
 
         // 更新所有已打开的标签页的布局
         try {
-            RequestEditPanel editPanel = SingletonFactory.getInstance(RequestEditPanel.class);
+            RequestEditorPanel editPanel = UiSingletonFactory.getInstance(RequestEditorPanel.class);
             editPanel.updateAllTabsLayout(newVertical);
         } catch (Exception e) {
             log.error("Failed to update layout for all tabs", e);
@@ -351,83 +195,29 @@ public class SidebarTabPanel extends SingletonBasePanel {
         globalVariablesDialog.requestFocus();
     }
 
-    /**
-     * 创建版本号标签
-     */
-    private void createVersionLabel() {
-        versionLabel = new JLabel(SystemUtil.getCurrentVersion());
-        versionLabel.setFont(FontsUtil.getDefaultFont(Font.PLAIN)); // 使用标准字体
-        versionLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-    }
-
     @Override
     public void updateUI() {
         super.updateUI();
 
-        // 1. 更新字体缓存
-        // Tab 标题使用语言感知字体（英文小一号）
-        normalFont = getLanguageAwareFont(Font.PLAIN);
-        boldFont = getLanguageAwareFont(Font.BOLD);
+        refreshSidebarFonts();
 
-        // 2. 清除颜色和渐变缓存（主题切换时）
-        cachedBgColor = null;
-        cachedGradient = null;
-        lastIndicatorHeight = -1;
+        resetTabLayoutCache();
+        syncSidebarExpandedFromSettings();
 
-        // 3. 清除所有宽高缓存（字体改变、主题切换会影响文本宽度和高度）
-        calculatedExpandedTabWidth = -1;
-        calculatedCollapsedTabWidth = -1;
-        calculatedExpandedTabHeight = -1;
-        calculatedCollapsedTabHeight = -1;
-
-        // 4. 同步侧边栏展开状态（支持菜单栏收起展开的动态刷新）
-        boolean newExpanded = SettingManager.isSidebarExpanded();
-        boolean stateChanged = (this.sidebarExpanded != newExpanded);
-        if (stateChanged) {
-            this.sidebarExpanded = newExpanded;
-            if (sidebarToggleLabel != null) {
-                sidebarToggleLabel.setToolTipText(sidebarExpanded ? TOOLTIP_COLLAPSE_SIDEBAR : TOOLTIP_EXPAND_SIDEBAR);
-            }
-        }
-
-        // 5. 重新应用自定义的 TabbedPane UI（super.updateUI() 会重置它）
+        // updateUI 会重置自定义 UI，需要重新应用。
         if (tabbedPane != null) {
-            // 重新创建并设置自定义 UI
             recreateTabbedPaneUI();
         }
 
-        // 6. 更新底部栏组件
-        if (consoleLabel != null) {
-            consoleLabel.setText(I18nUtil.getMessage(MessageKeys.CONSOLE_TITLE));
+        if (bottomBar != null) {
+            bottomBar.refreshLocalizedText();
         }
 
-        if (cookieLabel != null) {
-            cookieLabel.setText(I18nUtil.getMessage(MessageKeys.COOKIES_TITLE));
+        if (consoleArea != null) {
+            consoleArea.refreshTheme();
         }
 
-        // 主题切换时更新 consoleContainer 的边框颜色
-        if (consoleContainer != null) {
-            consoleContainer.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, ModernColors.getDividerBorderColor()));
-        }
-
-        // 7. 重新创建所有 tab 组件以更新字体和文本
-        if (tabbedPane != null && tabInfos != null && visibleTabs != null) {
-            int currentSelectedIndex = tabbedPane.getSelectedIndex();
-            for (int i = 0; i < tabInfos.size(); i++) {
-                SidebarTab sidebarTab = visibleTabs.get(i);
-                TabInfo info = tabInfos.get(i);
-                info.title = I18nUtil.getMessage(sidebarTab.getTitleKey());
-                boolean isSelected = (i == currentSelectedIndex);
-                Icon iconToUse = isSelected ? sidebarTab.getSelectedIcon() : sidebarTab.getIcon();
-                tabbedPane.setTabComponentAt(i, createTabComponent(sidebarTab, info.title, iconToUse));
-            }
-            // 延迟执行颜色初始化，确保所有 UI 组件都创建完成
-            SwingUtilities.invokeLater(() -> {
-                initializeAllTabColors();
-                // 再次强制刷新，确保选中状态正确显示
-                tabbedPane.repaint();
-            });
-        }
+        refreshLocalizedTabComponents();
     }
 
     /**
@@ -436,7 +226,7 @@ public class SidebarTabPanel extends SingletonBasePanel {
      */
     private void recreateTabbedPaneUI() {
         // 应用自定义 UI
-        applyCustomTabbedPaneUI(tabbedPane);
+        applySidebarTabbedPaneUi(tabbedPane);
 
         // 强制刷新 UI,确保自定义渲染立即生效
         tabbedPane.revalidate();
@@ -445,21 +235,18 @@ public class SidebarTabPanel extends SingletonBasePanel {
 
     @Override
     protected void registerListeners() {
-        tabbedPane.addChangeListener(e -> {
-            handleTabChange();
-            updateTabTextColors(); // 更新所有 tab 的文字颜色
-        });
-        SwingUtilities.invokeLater(this::initializeAllTabColors);
+        registerTabbedPaneChangeListener();
+        SwingUtilities.invokeLater(this::initializeAllTabSelectionStyles);
+        PerformanceUiWarmup.schedule();
 
         // 注册快捷键
         registerTabShortcuts();
     }
 
-    public void preloadInitialContent() {
+    private void preloadInitialContent() {
         int selectedIndex = tabbedPane != null ? tabbedPane.getSelectedIndex() : -1;
-        StartupDiagnostics.mark("SidebarTabPanel preloading initial tab index=" + (selectedIndex >= 0 ? selectedIndex : 0));
-        ensureTabComponentLoaded(selectedIndex >= 0 ? selectedIndex : 0);
-        initializeAllTabColors();
+        ensureTabComponentLoaded(Math.max(selectedIndex, 0));
+        initializeAllTabSelectionStyles();
     }
 
     /**
@@ -491,31 +278,31 @@ public class SidebarTabPanel extends SingletonBasePanel {
     }
 
     /**
-     * 初始化所有 tab 的图标和文字颜色（在首次加载时调用，展开和收起状态都需要）
+     * 初始化所有 tab 的选中样式（在首次加载时调用，展开和收起状态都需要）。
      */
-    private void initializeAllTabColors() {
+    private void initializeAllTabSelectionStyles() {
         int selectedIndex = tabbedPane.getSelectedIndex();
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
-            updateSingleTabTextColor(i, i == selectedIndex);
+            updateSingleTabSelectionStyle(i, i == selectedIndex);
         }
         lastSelectedIndex = selectedIndex;
     }
 
     /**
-     * 更新所有 tab 的图标和文字颜色（展开和收起状态都支持）
+     * 更新发生变化的 tab 选中样式（展开和收起状态都支持）。
      * 优化：只更新当前和之前选中的 tab，避免遍历所有 tab
      */
-    private void updateTabTextColors() {
+    private void updateChangedTabSelectionStyles() {
         int selectedIndex = tabbedPane.getSelectedIndex();
 
         // 更新之前选中的 tab（如果存在）
         if (lastSelectedIndex >= 0 && lastSelectedIndex < tabbedPane.getTabCount()) {
-            updateSingleTabTextColor(lastSelectedIndex, false);
+            updateSingleTabSelectionStyle(lastSelectedIndex, false);
         }
 
         // 更新当前选中的 tab
         if (selectedIndex >= 0 && selectedIndex < tabbedPane.getTabCount()) {
-            updateSingleTabTextColor(selectedIndex, true);
+            updateSingleTabSelectionStyle(selectedIndex, true);
         }
 
         // 记录当前选中的索引
@@ -523,47 +310,14 @@ public class SidebarTabPanel extends SingletonBasePanel {
     }
 
     /**
-     * 更新单个 tab 的图标和文字颜色（支持展开和收起状态）
+     * 更新单个 tab 的图标、标题字体和标题颜色。
      */
-    private void updateSingleTabTextColor(int tabIndex, boolean isSelected) {
+    private void updateSingleTabSelectionStyle(int tabIndex, boolean isSelected) {
         Component tabComponent = tabbedPane.getTabComponentAt(tabIndex);
-        if (!(tabComponent instanceof JPanel panel)) return;
-
         SidebarTab sidebarTab = getSidebarTabAt(tabIndex);
         if (sidebarTab == null) return;
 
-        updateTabIcon(panel, sidebarTab, isSelected);
-        updateTabTitle(panel, isSelected);
-    }
-
-    /**
-     * 更新tab图标
-     */
-    private void updateTabIcon(JPanel panel, SidebarTab sidebarTab, boolean isSelected) {
-        for (Component comp : panel.getComponents()) {
-            if (comp instanceof JLabel label && ICON_LABEL_NAME.equals(label.getName())) {
-                label.setIcon(isSelected ? sidebarTab.getSelectedIcon() : sidebarTab.getIcon());
-                break;
-            }
-        }
-    }
-
-    /**
-     * 更新tab标题
-     */
-    private void updateTabTitle(JPanel panel, boolean isSelected) {
-        for (Component comp : panel.getComponents()) {
-            if (comp instanceof JLabel label && TITLE_LABEL_NAME.equals(label.getName())) {
-                if (isSelected) {
-                    label.setForeground(ModernColors.PRIMARY);
-                    label.setFont(boldFont);
-                } else {
-                    label.setForeground(ModernColors.getTextSecondary());
-                    label.setFont(normalFont);
-                }
-                break;
-            }
-        }
+        tabComponentFactory().updateSelection(tabComponent, sidebarTab, isSelected);
     }
 
     // Tab切换时才加载真正的面板内容
@@ -572,345 +326,121 @@ public class SidebarTabPanel extends SingletonBasePanel {
         ensureTabComponentLoaded(selectedIndex); // 懒加载当前选中的tab内容
         SidebarTab selectedTab = getSidebarTabAt(selectedIndex);
         if (selectedTab == SidebarTab.ENVIRONMENTS) {
-            Component comp = tabbedPane.getComponentAt(selectedIndex);
+            Component comp = SidebarTabContentHost.contentOf(tabbedPane.getComponentAt(selectedIndex));
             if (comp instanceof EnvironmentPanel environmentPanel) {
                 environmentPanel.refreshUI();
             }
+        }
+        if (consoleArea != null) {
+            consoleArea.handleSelectedTabChanged();
         }
     }
 
     private void ensureTabComponentLoaded(int index) {
         if (index < 0 || index >= tabInfos.size()) return;
         TabInfo info = tabInfos.get(index);
-        Component comp = tabbedPane.getComponentAt(index);
+        SidebarTabContentHost host = SidebarTabContentHost.from(tabbedPane.getComponentAt(index));
+        if (host == null) {
+            return;
+        }
+        Component comp = host.content();
         if (comp == null || comp.getClass() == JPanel.class) {
             JPanel realPanel = info.getPanel(); // 懒加载真正的面板内容
-            tabbedPane.setComponentAt(index, realPanel);
+            host.setContent(realPanel);
         }
     }
 
     /**
-     * 创建现代化标签页
+     * 创建侧边栏专用标签页
      */
-    private JTabbedPane createModernTabbedPane() {
+    private JTabbedPane createSidebarTabbedPane() {
         JTabbedPane pane = new JTabbedPane(SwingConstants.LEFT, JTabbedPane.SCROLL_TAB_LAYOUT) {
             @Override
             public void updateUI() {
-                // 先调用父类的 updateUI，这会重置 UI
                 super.updateUI();
-                // 立即重新应用我们的自定义 UI
-                applyCustomTabbedPaneUI(this);
+                applySidebarTabbedPaneUi(this);
             }
         };
-        // 自定义标签页UI（包含统一的分隔线绘制）
-        applyCustomTabbedPaneUI(pane);
+        applySidebarTabbedPaneUi(pane);
         return pane;
     }
 
-    /**
-     * 应用自定义的 TabbedPane UI
-     * 提取为独立方法，便于在 updateUI() 时重用
-     */
-    private void applyCustomTabbedPaneUI(JTabbedPane pane) {
-        pane.setUI(new CustomTabbedPaneUI());
+    private void applySidebarTabbedPaneUi(JTabbedPane pane) {
+        pane.setOpaque(true);
+        pane.setBackground(SidebarTheme.railBackground());
+        pane.setBorder(BorderFactory.createEmptyBorder());
+        pane.setUI(new SidebarTabbedPaneUi(
+                () -> sidebarExpanded,
+                this::calculateExpandedTabWidth,
+                this::calculateCollapsedTabWidth,
+                this::calculateExpandedTabHeight,
+                this::calculateCollapsedTabHeight
+        ));
     }
 
-    /**
-     * 自定义的 TabbedPane UI
-     * 负责绘制左侧渐变指示条、选中背景和自定义 tab 尺寸
-     */
-    private class CustomTabbedPaneUI extends BasicTabbedPaneUI {
-        @Override
-        protected void installDefaults() {
-            super.installDefaults();
-            // 增加 tab 区域的上下边距，让 tab 之间有更多空间
-            tabAreaInsets = new Insets(8, 6, 8, 0);
-            // 内容区域左侧留1像素空间用于绘制分隔线
-            contentBorderInsets = new Insets(0, 1, 0, 0);
-            // tab 之间的间距
-            tabInsets = new Insets(2, 2, 2, 2);
-            selectedTabPadInsets = new Insets(0, 0, 0, 0);
+    private SidebarTabComponentFactory tabComponentFactory() {
+        if (tabComponentFactory == null) {
+            tabComponentFactory = new SidebarTabComponentFactory(
+                    tabbedPane,
+                    () -> sidebarExpanded,
+                    this::findTabIndex,
+                    this::calculateExpandedTabWidth,
+                    this::calculateCollapsedTabWidth,
+                    () -> normalFont,
+                    () -> boldFont
+            );
         }
+        return tabComponentFactory;
+    }
 
-        @Override
-        protected void paintTabBackground(Graphics g, int tabPlacement, int tabIndex,
-                                          int x, int y, int w, int h, boolean isSelected) {
-            if (!isSelected) {
-                return; // 未选中状态不绘制任何背景
-            }
+    private void refreshSidebarFonts() {
+        normalFont = getLanguageAwareFont(Font.PLAIN);
+        boldFont = getLanguageAwareFont(Font.BOLD);
+    }
 
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                enableHighQualityRendering(g2);
-                paintSelectedTabBackground(g2, x, y, w, h);
-                paintSelectedTabIndicator(g2, x, y, h);
-            } finally {
-                g2.dispose();
-            }
+    private void syncSidebarExpandedFromSettings() {
+        boolean newExpanded = SettingManager.isSidebarExpanded();
+        if (this.sidebarExpanded == newExpanded) {
+            return;
         }
-
-        /**
-         * 启用高质量渲染
-         */
-        private void enableHighQualityRendering(Graphics2D g2) {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            g2.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
-            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-        }
-
-        /**
-         * 绘制选中 tab 的淡雅背景
-         */
-        private void paintSelectedTabBackground(Graphics2D g2, int x, int y, int w, int h) {
-            // 使用缓存的颜色对象，避免重复创建
-            if (cachedBgColor == null) {
-                cachedBgColor = new Color(
-                        ModernColors.PRIMARY.getRed(),
-                        ModernColors.PRIMARY.getGreen(),
-                        ModernColors.PRIMARY.getBlue(),
-                        25  // 稍微增加透明度，让背景更明显
-                );
-            }
-            g2.setColor(cachedBgColor);
-            g2.fillRect(x, y, w, h);
-        }
-
-        /**
-         * 绘制选中 tab 的左侧渐变指示条
-         */
-        private void paintSelectedTabIndicator(Graphics2D g2, int x, int y, int h) {
-            int leftMargin = 2;        // 左边距，距离边缘更近
-            int verticalMargin = 6;    // 上下边距，让指示条稍短一些
-            int indicatorWidth = 4;    // 指示条宽度
-            int indicatorRadius = 2;   // 圆角半径，减小到2px避免模糊
-
-            int indicatorX = x + leftMargin;
-            int indicatorY = y + verticalMargin;
-            int indicatorHeight = h - verticalMargin * 2;
-
-            // 只有在高度变化时才重新创建渐变对象，使用更饱和的颜色
-            if (cachedGradient == null || lastIndicatorHeight != indicatorHeight) {
-                cachedGradient = new GradientPaint(
-                        0, 0, ModernColors.PRIMARY,  // 顶部：标准蓝（更清晰）
-                        0, indicatorHeight, ModernColors.PRIMARY_LIGHT  // 底部：亮蓝
-                );
-                lastIndicatorHeight = indicatorHeight;
-            }
-
-            g2.setPaint(cachedGradient);
-            g2.translate(indicatorX, indicatorY);
-            // 使用fillRoundRect绘制实心指示条，清晰锐利
-            g2.fillRoundRect(0, 0, indicatorWidth, indicatorHeight, indicatorRadius, indicatorRadius);
-            g2.translate(-indicatorX, -indicatorY);
-        }
-
-        @Override
-        protected void paintTabBorder(Graphics g, int tabPlacement, int tabIndex,
-                                      int x, int y, int w, int h, boolean isSelected) {
-            // 不绘制任何边框
-        }
-
-        @Override
-        protected void paintFocusIndicator(Graphics g, int tabPlacement, Rectangle[] rects,
-                                           int tabIndex, Rectangle iconRect, Rectangle textRect,
-                                           boolean isSelected) {
-            // 不绘制焦点指示器（虚线框）
-        }
-
-        @Override
-        protected void paintContentBorder(Graphics g, int tabPlacement, int selectedIndex) {
-            // 只绘制内容区域左侧的分隔线
-            if (tabPlacement == SwingConstants.LEFT) {
-                int height = tabbedPane.getHeight();
-                int tabAreaWidth = calculateTabAreaWidth(tabPlacement, runCount, maxTabWidth);
-
-                g.setColor(ModernColors.getDividerBorderColor());
-                // 在tab区域右侧绘制一条垂直分隔线
-                g.drawLine(tabAreaWidth, 0, tabAreaWidth, height);
-            }
-        }
-
-        @Override
-        protected int calculateTabWidth(int tabPlacement, int tabIndex, FontMetrics metrics) {
-            // 根据展开状态调整宽度，使用动态计算的宽度
-            return sidebarExpanded ? calculateExpandedTabWidth() : calculateCollapsedTabWidth();
-        }
-
-        @Override
-        protected int calculateTabHeight(int tabPlacement, int tabIndex, int fontHeight) {
-            // 根据展开状态调整高度，使用动态计算的高度
-            return sidebarExpanded ? calculateExpandedTabHeight(fontHeight) : calculateCollapsedTabHeight();
-        }
-
-        @Override
-        protected JButton createScrollButton(int direction) {
-            return new SidebarScrollButton(direction);
+        this.sidebarExpanded = newExpanded;
+        if (bottomBar != null) {
+            bottomBar.setSidebarExpanded(sidebarExpanded);
         }
     }
 
-    private final class SidebarScrollButton extends BasicArrowButton implements UIResource {
-        private final int direction;
-
-        private SidebarScrollButton(int direction) {
-            super(direction,
-                    UIManager.getColor("TabbedPane.selected"),
-                    UIManager.getColor("TabbedPane.shadow"),
-                    UIManager.getColor("TabbedPane.darkShadow"),
-                    UIManager.getColor("TabbedPane.highlight"));
-            this.direction = direction;
-            setFocusable(false);
-            setOpaque(false);
-            setContentAreaFilled(false);
-            setBorderPainted(false);
-            setFocusPainted(false);
-            setRolloverEnabled(true);
-            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            setBorder(new EmptyBorder(0, 0, 0, 0));
+    private void refreshLocalizedTabComponents() {
+        if (tabbedPane == null || tabInfos == null || visibleTabs == null) {
+            return;
         }
 
-        @Override
-        public void paint(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-
-                ButtonModel model = getModel();
-                boolean hovered = model.isRollover() && isEnabled();
-                boolean pressed = (model.isPressed() || model.isArmed()) && isEnabled();
-                boolean enabled = isEnabled();
-
-                int inset = 2;
-                int width = Math.max(0, getWidth() - inset * 2);
-                int height = Math.max(0, getHeight() - inset * 2);
-
-                if (hovered || pressed) {
-                    Color background = pressed ? ModernColors.getButtonPressedColor() : ModernColors.getHoverBackgroundColor();
-                    g2.setColor(withAlpha(background, 230));
-                    g2.fillRoundRect(inset, inset, width, height, 8, 8);
-                }
-
-                Color arrowColor;
-                if (!enabled) {
-                    arrowColor = ModernColors.getTextDisabled();
-                } else if (pressed || hovered) {
-                    arrowColor = ModernColors.PRIMARY;
-                } else {
-                    arrowColor = ModernColors.getTextSecondary();
-                }
-
-                g2.setColor(arrowColor);
-                g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                paintChevron(g2, direction, getWidth(), getHeight());
-            } finally {
-                g2.dispose();
-            }
+        int tabCount = Math.min(tabInfos.size(), tabbedPane.getTabCount());
+        for (int i = 0; i < tabCount; i++) {
+            SidebarTab sidebarTab = visibleTabs.get(i);
+            TabInfo info = tabInfos.get(i);
+            info.setTitle(I18nUtil.getMessage(sidebarTab.getTitleKey()));
+            tabbedPane.setTabComponentAt(i, tabComponentFactory().create(sidebarTab, info.getTitle(), info.getIcon()));
         }
+
+        SwingUtilities.invokeLater(this::refreshTabSelectionStyles);
     }
 
-    /**
-     * 创建自定义 Tab 组件（图标在上，文本在下）
-     */
-    private Component createTabComponent(SidebarTab sidebarTab, String title, Icon icon) {
-        JPanel panel = new JPanel() {
-            @Override
-            public Dimension getPreferredSize() {
-                Dimension size = super.getPreferredSize();
-                if (sidebarExpanded) {
-                    // 展开状态：使用计算出的最佳宽度，基于最长文本
-                    size.width = calculateExpandedTabWidth();
-                } else {
-                    // 收起状态：使用计算出的宽度，基于图标和边距
-                    size.width = calculateCollapsedTabWidth();
-                }
-                return size;
-            }
-        };
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setOpaque(false);
-
-        if (sidebarExpanded) {
-            // 展开状态：图标在上，文本在下
-            JLabel iconLabel = new JLabel(icon);
-            iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-            iconLabel.setName(ICON_LABEL_NAME); // 标记为图标标签
-
-            JLabel titleLabel = new JLabel(title);
-            titleLabel.setName(TITLE_LABEL_NAME); // 标记为文字标签
-            // 根据当前是否选中设置初始颜色
-            int currentIndex = getTabIndex(sidebarTab);
-            boolean isCurrentlySelected = currentIndex >= 0 && tabbedPane.getSelectedIndex() == currentIndex;
-
-            if (isCurrentlySelected) {
-                titleLabel.setFont(boldFont);
-                titleLabel.setForeground(ModernColors.PRIMARY);
-            } else {
-                titleLabel.setFont(normalFont);
-                titleLabel.setForeground(ModernColors.getTextSecondary());
-            }
-            titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-            panel.add(Box.createVerticalStrut(EXPANDED_TAB_SPACING_TOP));
-            panel.add(iconLabel);
-            panel.add(Box.createVerticalStrut(EXPANDED_TAB_SPACING_MIDDLE));
-            panel.add(titleLabel);
-            panel.add(Box.createVerticalStrut(EXPANDED_TAB_SPACING_BOTTOM));
-
-            panel.setBorder(BorderFactory.createEmptyBorder(
-                    EXPANDED_TAB_PADDING_VERTICAL,
-                    EXPANDED_TAB_PADDING_HORIZONTAL,
-                    EXPANDED_TAB_PADDING_VERTICAL,
-                    EXPANDED_TAB_PADDING_HORIZONTAL
-            ));
-        } else {
-            // 收起状态：只显示图标，居中，增加上下左右间距
-            JLabel iconLabel = new JLabel(icon);
-            iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-            iconLabel.setName(ICON_LABEL_NAME); // 标记为图标标签
-            // 设置 tooltip 在 panel 上而非 label 上
-            panel.setToolTipText(title);
-
-            panel.add(Box.createVerticalGlue());
-            panel.add(iconLabel);
-            panel.add(Box.createVerticalGlue());
-
-            panel.setBorder(BorderFactory.createEmptyBorder(
-                    COLLAPSED_TAB_PADDING_VERTICAL,
-                    COLLAPSED_TAB_PADDING_HORIZONTAL,
-                    COLLAPSED_TAB_PADDING_VERTICAL,
-                    COLLAPSED_TAB_PADDING_HORIZONTAL
-            ));
+    private void refreshTabSelectionStyles() {
+        if (tabbedPane == null) {
+            return;
         }
+        initializeAllTabSelectionStyles();
+        tabbedPane.repaint();
+    }
 
-        // 只为 panel 添加一个鼠标监听器
-        panel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                int tabIndex = getTabIndex(sidebarTab);
-                if (tabIndex >= 0) {
-                    tabbedPane.setSelectedIndex(tabIndex);
-                }
-            }
-
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                panel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                panel.setCursor(Cursor.getDefaultCursor());
-            }
+    private void registerTabbedPaneChangeListener() {
+        tabbedPane.addChangeListener(e -> {
+            handleTabChange();
+            updateChangedTabSelectionStyles();
         });
-
-        return panel;
     }
 
-    /**
-     * 根据标题获取 tab 索引
-     */
-    private int getTabIndex(SidebarTab sidebarTab) {
+    private int findTabIndex(SidebarTab sidebarTab) {
         if (visibleTabs == null) {
             return -1;
         }
@@ -936,17 +466,12 @@ public class SidebarTabPanel extends SingletonBasePanel {
         tempLabel.setFont(boldFont); // 使用粗体字体计算，因为选中时会变粗
 
         for (TabInfo info : tabInfos) {
-            tempLabel.setText(info.title);
+            tempLabel.setText(info.getTitle());
             int textWidth = tempLabel.getPreferredSize().width;
             maxWidth = Math.max(maxWidth, textWidth);
         }
 
-        // 计算总宽度 = 文本宽度 + 左右边距
-        calculatedExpandedTabWidth = maxWidth + (EXPANDED_TAB_PADDING_HORIZONTAL * 2);
-
-        // 设置宽度限制范围
-        calculatedExpandedTabWidth = Math.max(calculatedExpandedTabWidth, 60);  // 最小宽度
-        calculatedExpandedTabWidth = Math.min(calculatedExpandedTabWidth, 140); // 最大宽度
+        calculatedExpandedTabWidth = SidebarTabMetrics.expandedWidth(maxWidth);
 
         return calculatedExpandedTabWidth;
     }
@@ -962,16 +487,12 @@ public class SidebarTabPanel extends SingletonBasePanel {
 
         int maxIconWidth = 0;
         for (TabInfo info : tabInfos) {
-            if (info.icon != null) {
-                maxIconWidth = Math.max(maxIconWidth, info.icon.getIconWidth());
+            if (info.getIcon() != null) {
+                maxIconWidth = Math.max(maxIconWidth, info.getIcon().getIconWidth());
             }
         }
 
-        // 计算总宽度 = 图标宽度 + 左右边距
-        calculatedCollapsedTabWidth = maxIconWidth + (COLLAPSED_TAB_PADDING_HORIZONTAL * 2);
-
-        // 设置最小宽度限制
-        calculatedCollapsedTabWidth = Math.max(calculatedCollapsedTabWidth, 40);
+        calculatedCollapsedTabWidth = SidebarTabMetrics.collapsedWidth(maxIconWidth);
 
         return calculatedCollapsedTabWidth;
     }
@@ -987,23 +508,12 @@ public class SidebarTabPanel extends SingletonBasePanel {
 
         int maxIconHeight = 0;
         for (TabInfo info : tabInfos) {
-            if (info.icon != null) {
-                maxIconHeight = Math.max(maxIconHeight, info.icon.getIconHeight());
+            if (info.getIcon() != null) {
+                maxIconHeight = Math.max(maxIconHeight, info.getIcon().getIconHeight());
             }
         }
 
-        // 计算总高度 = padding + 间距 + 图标高度 + 间距 + 字体高度 + 间距 + padding
-        calculatedExpandedTabHeight =
-                EXPANDED_TAB_PADDING_VERTICAL +
-                        EXPANDED_TAB_SPACING_TOP +
-                        maxIconHeight +
-                        EXPANDED_TAB_SPACING_MIDDLE +
-                        fontHeight +
-                        EXPANDED_TAB_SPACING_BOTTOM +
-                        EXPANDED_TAB_PADDING_VERTICAL;
-
-        // 设置最小高度限制
-        calculatedExpandedTabHeight = Math.max(calculatedExpandedTabHeight, 70);
+        calculatedExpandedTabHeight = SidebarTabMetrics.expandedHeight(maxIconHeight, fontHeight);
 
         return calculatedExpandedTabHeight;
     }
@@ -1019,59 +529,41 @@ public class SidebarTabPanel extends SingletonBasePanel {
 
         int maxIconHeight = 0;
         for (TabInfo info : tabInfos) {
-            if (info.icon != null) {
-                maxIconHeight = Math.max(maxIconHeight, info.icon.getIconHeight());
+            if (info.getIcon() != null) {
+                maxIconHeight = Math.max(maxIconHeight, info.getIcon().getIconHeight());
             }
         }
 
-        // 计算总高度 = 图标高度 + 上下边距
-        calculatedCollapsedTabHeight = maxIconHeight + (COLLAPSED_TAB_PADDING_VERTICAL * 2);
-
-        // 设置最小高度限制
-        calculatedCollapsedTabHeight = Math.max(calculatedCollapsedTabHeight, 52);
+        calculatedCollapsedTabHeight = SidebarTabMetrics.collapsedHeight(maxIconHeight);
 
         return calculatedCollapsedTabHeight;
-    }
-
-    /**
-     * 更新侧边栏展开/收起状态
-     * 从设置对话框调用，用于实时更新UI
-     */
-    public void updateSidebarExpansion() {
-        boolean newExpanded = SettingManager.isSidebarExpanded();
-        if (this.sidebarExpanded != newExpanded) {
-            this.sidebarExpanded = newExpanded;
-            // 重置所有宽高缓存
-            calculatedExpandedTabWidth = -1;
-            calculatedCollapsedTabWidth = -1;
-            calculatedExpandedTabHeight = -1;
-            calculatedCollapsedTabHeight = -1;
-            // 重新创建 TabbedPane 以应用新的展开状态
-            recreateTabbedPane();
-        }
     }
 
     public void refreshSidebarConfiguration() {
         boolean newExpanded = SettingManager.isSidebarExpanded();
         boolean expansionChanged = this.sidebarExpanded != newExpanded;
         this.sidebarExpanded = newExpanded;
-        if (sidebarToggleLabel != null) {
-            sidebarToggleLabel.setToolTipText(sidebarExpanded ? TOOLTIP_COLLAPSE_SIDEBAR : TOOLTIP_EXPAND_SIDEBAR);
+        if (bottomBar != null) {
+            bottomBar.setSidebarExpanded(sidebarExpanded);
         }
 
-        List<SidebarTab> configuredTabs = SettingManager.getVisibleSidebarTabs();
+        List<SidebarTab> configuredTabs = SidebarTabSettingsResolver.getVisibleSidebarTabs();
         boolean tabsChanged = visibleTabs == null || !visibleTabs.equals(configuredTabs);
         if (expansionChanged || tabsChanged) {
-            calculatedExpandedTabWidth = -1;
-            calculatedCollapsedTabWidth = -1;
-            calculatedExpandedTabHeight = -1;
-            calculatedCollapsedTabHeight = -1;
+            resetTabLayoutCache();
             recreateTabbedPane();
         }
     }
 
+    private void resetTabLayoutCache() {
+        calculatedExpandedTabWidth = -1;
+        calculatedCollapsedTabWidth = -1;
+        calculatedExpandedTabHeight = -1;
+        calculatedCollapsedTabHeight = -1;
+    }
+
     public boolean showTab(SidebarTab sidebarTab) {
-        int tabIndex = getTabIndex(sidebarTab);
+        int tabIndex = findTabIndex(sidebarTab);
         if (tabIndex < 0 || tabIndex >= tabbedPane.getTabCount()) {
             return false;
         }
@@ -1083,71 +575,70 @@ public class SidebarTabPanel extends SingletonBasePanel {
      * 重新创建标签页以应用新的展开/收起状态
      */
     private void recreateTabbedPane() {
+        if (consoleArea != null) {
+            consoleArea.restoreContentHost();
+        }
         int selectedIndex = tabbedPane.getSelectedIndex();
         SidebarTab selectedTab = getSidebarTabAt(selectedIndex);
 
-        // 保存所有已加载的面板
-        Map<SidebarTab, Component> loadedPanels = new EnumMap<>(SidebarTab.class);
-        if (visibleTabs != null) {
-            for (int i = 0; i < visibleTabs.size(); i++) {
-                loadedPanels.put(visibleTabs.get(i), tabbedPane.getComponentAt(i));
-            }
-        }
-
-        // 移除旧的 TabbedPane
-        Component consoleComp = null;
-        LayoutManager layout = getLayout();
-        if (layout instanceof BorderLayout borderLayout) {
-            consoleComp = borderLayout.getLayoutComponent(BorderLayout.SOUTH);
-            remove(tabbedPane);
-        }
+        Map<SidebarTab, Component> loadedPanels = collectLoadedPanels();
 
         // 创建新的 TabbedPane
-        tabbedPane = createModernTabbedPane();
+        tabbedPane = createSidebarTabbedPane();
+        tabComponentFactory = null;
         reloadTabInfosFromSettings();
+        installVisibleTabs(loadedPanels);
+        restoreSelectedTab(selectedTab, selectedIndex);
 
-        // 恢复所有 tab - 重用 tabInfos 中缓存的图标
-        for (int i = 0; i < tabInfos.size(); i++) {
-            TabInfo info = tabInfos.get(i);
-            SidebarTab sidebarTab = visibleTabs.get(i);
-            Component content = loadedPanels.getOrDefault(sidebarTab, new JPanel());
-            tabbedPane.addTab(info.title, content);
-            // 设置自定义 tab 组件 - icon 从 tabInfos 获取，已经缓存
-            tabbedPane.setTabComponentAt(i, createTabComponent(sidebarTab, info.title, info.icon));
+        if (consoleArea != null) {
+            consoleArea.setTabbedPane(tabbedPane);
         }
 
-        int restoredIndex = getTabIndex(selectedTab);
-        if (restoredIndex >= 0 && restoredIndex < tabbedPane.getTabCount()) {
-            tabbedPane.setSelectedIndex(restoredIndex);
-        } else if (tabbedPane.getTabCount() > 0) {
-            tabbedPane.setSelectedIndex(Math.min(selectedIndex, tabbedPane.getTabCount() - 1));
-        }
+        registerTabbedPaneChangeListener();
 
-        // 重新添加组件
-        add(tabbedPane, BorderLayout.CENTER);
-        if (consoleComp != null) {
-            add(consoleComp, BorderLayout.SOUTH);
-        }
-
-        // 重新注册监听器
-        tabbedPane.addChangeListener(e -> {
-            handleTabChange();
-            updateTabTextColors();
-        });
-
-        // 重置 lastSelectedIndex 避免 bug
         lastSelectedIndex = -1;
 
-        // 更新初始文字颜色
-        initializeAllTabColors();
+        initializeAllTabSelectionStyles();
 
         // 刷新UI
         revalidate();
         repaint();
     }
 
+    private void installVisibleTabs(Map<SidebarTab, Component> retainedContent) {
+        for (int i = 0; i < tabInfos.size(); i++) {
+            SidebarTab sidebarTab = visibleTabs.get(i);
+            TabInfo info = tabInfos.get(i);
+            Component content = retainedContent.getOrDefault(sidebarTab, new JPanel());
+            tabbedPane.addTab(info.getTitle(), new SidebarTabContentHost(content));
+            tabbedPane.setTabComponentAt(i, tabComponentFactory().create(sidebarTab, info.getTitle(), info.getIcon()));
+        }
+    }
+
+    private Map<SidebarTab, Component> collectLoadedPanels() {
+        Map<SidebarTab, Component> loadedPanels = new EnumMap<>(SidebarTab.class);
+        if (visibleTabs == null) {
+            return loadedPanels;
+        }
+
+        int tabCount = Math.min(visibleTabs.size(), tabbedPane.getTabCount());
+        for (int i = 0; i < tabCount; i++) {
+            loadedPanels.put(visibleTabs.get(i), SidebarTabContentHost.contentOf(tabbedPane.getComponentAt(i)));
+        }
+        return loadedPanels;
+    }
+
+    private void restoreSelectedTab(SidebarTab selectedTab, int previousSelectedIndex) {
+        int restoredIndex = findTabIndex(selectedTab);
+        if (restoredIndex >= 0 && restoredIndex < tabbedPane.getTabCount()) {
+            tabbedPane.setSelectedIndex(restoredIndex);
+        } else if (tabbedPane.getTabCount() > 0) {
+            tabbedPane.setSelectedIndex(Math.min(previousSelectedIndex, tabbedPane.getTabCount() - 1));
+        }
+    }
+
     private void reloadTabInfosFromSettings() {
-        visibleTabs = new ArrayList<>(SettingManager.getVisibleSidebarTabs());
+        visibleTabs = new ArrayList<>(SidebarTabSettingsResolver.getVisibleSidebarTabs());
         tabInfos = new ArrayList<>(visibleTabs.size());
         for (SidebarTab tab : visibleTabs) {
             tabInfos.add(tab.toTabInfo());
@@ -1171,47 +662,12 @@ public class SidebarTabPanel extends SingletonBasePanel {
      */
     private Font getLanguageAwareFont(int style) {
         if (I18nUtil.isChinese()) {
-            // 中文使用标准字体大小
-            return FontsUtil.getDefaultFont(style);
+            // 中文标题在侧边栏中略收小，避免展开态显得过重。
+            return FontsUtil.getDefaultFontWithOffset(style, -2);
         } else {
             // 英文使用小字体
             return FontsUtil.getDefaultFontWithOffset(style, -3);
         }
     }
 
-    private void paintChevron(Graphics2D g2, int direction, int width, int height) {
-        int midX = width / 2;
-        int midY = height / 2;
-        int size = 4;
-        Path2D.Float chevron = new Path2D.Float();
-
-        switch (direction) {
-            case SwingConstants.NORTH -> {
-                chevron.moveTo(midX - size, midY + 2);
-                chevron.lineTo(midX, midY - size);
-                chevron.lineTo(midX + size, midY + 2);
-            }
-            case SwingConstants.SOUTH -> {
-                chevron.moveTo(midX - size, midY - 2);
-                chevron.lineTo(midX, midY + size);
-                chevron.lineTo(midX + size, midY - 2);
-            }
-            case SwingConstants.WEST -> {
-                chevron.moveTo(midX + 2, midY - size);
-                chevron.lineTo(midX - size, midY);
-                chevron.lineTo(midX + 2, midY + size);
-            }
-            default -> {
-                chevron.moveTo(midX - 2, midY - size);
-                chevron.lineTo(midX + size, midY);
-                chevron.lineTo(midX - 2, midY + size);
-            }
-        }
-
-        g2.draw(chevron);
-    }
-
-    private Color withAlpha(Color color, int alpha) {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
-    }
 }

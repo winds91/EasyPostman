@@ -18,13 +18,14 @@
 
 ## 1. 组件分层和原理
 
-当前插件体系分成 6 层：
+当前插件体系分成 7 层：
 
 ```text
 easy-postman-parent
 ├── easy-postman-plugin-api
-├── easy-postman-plugin-bridge
-├── easy-postman-plugin-ui
+├── easy-postman-foundation
+├── easy-postman-platform
+├── easy-postman-ui
 ├── easy-postman-plugin-runtime
 ├── easy-postman-app
 └── easy-postman-plugins
@@ -41,23 +42,27 @@ easy-postman-parent
 - `easy-postman-plugin-api`
   - 插件对宿主暴露的稳定 SPI
   - 包含 `EasyPostmanPlugin`、`PluginContext`、`PluginDescriptor`
+  - 插件服务契约也放在这里，例如 `GitPluginService`、`ClientCertificatePluginService`、`RequestCollectionImportService`
   - 新插件的入口类必须实现这里的接口
-- `easy-postman-plugin-bridge`
-  - 宿主和插件共享的桥接契约、工具类、消息 key、公共模型
-  - 插件需要和宿主共享某些非 UI 能力时，优先放这里
-- `easy-postman-plugin-ui`
+- `easy-postman-foundation`
+  - 宿主和插件共享的基础工具、消息 key、公共模型
+  - 插件需要和宿主共享非 UI DTO、enum、常量、路径、JSON、系统、设置工具或通用解析/格式化工具时，优先放这里
+- `easy-postman-platform`
+  - 宿主平台框架能力，例如 IOC 和更新发现核心
+  - 不是普通插件 SPI；插件需要扩展宿主时仍应优先依赖 `easy-postman-plugin-api`
+- `easy-postman-ui`
   - 插件和宿主公用的 UI 基础组件和视觉常量
-  - 插件面板如果需要复用统一 UI 风格，优先依赖这一层
+  - 插件面板如果需要复用统一 UI 风格、按钮、搜索框、表格或基础输入控件，优先依赖这一层
 - `easy-postman-plugin-runtime`
-  - 负责扫描、读取 descriptor、版本兼容校验、类加载、生命周期调用、扩展点注册
+  - 负责扫描、读取 descriptor、版本兼容校验、类加载、生命周期调用、扩展点注册和 registry
   - 可以把它理解成插件运行时内核
 - `easy-postman-app`
   - 宿主应用本身
   - 从 runtime 和 registry 里消费插件注册出来的能力
 - `easy-postman-plugins`
-  - 官方插件集合
-  - `plugin-manager` 负责安装、catalog 解析、安装来源记录
-  - 其他 `plugin-*` 是具体业务插件
+  - 通常是官方插件 JAR 集合
+  - `plugin-client-cert`、`plugin-capture`、`plugin-redis`、`plugin-kafka`、`plugin-decompiler` 这类 `plugin-*` 是普通运行时插件
+  - `plugin-manager` 是例外：它是宿主 app 直接依赖的宿主侧插件管理辅助模块，负责 catalog 解析、在线/离线安装门面和安装来源记录，不是 runtime 扫描加载的普通插件
 
 ### 1.2 插件是怎么被宿主加载的
 
@@ -83,6 +88,8 @@ easy-postman-parent
 
 - 插件不是直接依赖宿主内部实现，而是通过 `PluginContext` 声明能力
 - 插件之间不共享类加载器，避免依赖冲突污染宿主
+- `easy-postman-plugin-runtime` 负责插件扫描、加载、生命周期和 registry；`plugin-manager` 只负责安装/catalog 侧的宿主辅助能力
+- 普通插件不得依赖 `easy-postman-app`；宿主 app 可以依赖 `easy-postman-plugins/plugin-manager` 这个目录特例
 - 同一 `plugin.id` 存在多个版本时，运行时只会选择最高版本加载
 - 安装阶段就会做兼容性拦截，避免出现“安装成功但运行时跳过”的假成功状态
 
@@ -91,9 +98,9 @@ easy-postman-parent
 当前 `PluginContext` 支持这几类扩展点：
 
 - `registerScriptApi`
-  - 给脚本环境暴露 `pm.xxx`
+  - 给脚本环境暴露 `pm.plugin("xxx")`
 - `registerService`
-  - 给宿主或桥接层按类型取服务
+  - 给宿主侧访问层按类型取服务
 - `registerToolboxContribution`
   - 往 Toolbox 增加面板
 - `registerScriptCompletionContributor`
@@ -103,7 +110,7 @@ easy-postman-parent
 
 以 `plugin-kafka` 为例，`KafkaPlugin` 在 `onLoad` 里一次性注册了：
 
-- `pm.kafka`
+- `pm.plugin("kafka")`
 - Kafka Toolbox 面板
 - Kafka 相关脚本补全
 - Kafka 示例片段
@@ -148,12 +155,13 @@ easy-postman-parent
 
 ### 2.2 什么时候改 platform version
 
-只有插件机制本身发生不兼容变化时，才应该提升 `plugin.platform.version`，例如：
+只有插件装配边界或插件可依赖的公共平台 API 发生不兼容变化时，才应该提升 `plugin.platform.version`，例如：
 
 - `PluginContext` 有不兼容修改
 - `PluginDescriptor` 语义发生破坏性变化
 - runtime 的装配方式变了，老插件会失效
 - 某类扩展点契约被替换
+- 插件以 `provided` 方式依赖的平台模块（例如 `easy-postman-plugin-api`、`easy-postman-foundation`、`easy-postman-ui`）删除或重命名公开类/方法，旧插件会出现 `NoClassDefFoundError`、`NoSuchMethodError` 或其他 linkage 错误
 
 如果只是：
 
@@ -167,7 +175,7 @@ easy-postman-parent
 
 只有插件确实依赖某个宿主能力时，才建议加：
 
-- 宿主新增了一个插件要调用的 bridge/service
+- 宿主新增了一个插件要调用的 API/service
 - 宿主某个 UI 容器、入口或事件只在新版本存在
 - 插件明确不支持某个老宿主版本
 
@@ -202,7 +210,7 @@ workflow 手写字段 -> catalog -> 再反推插件
 
 ### 3.1 新建模块
 
-建议在 `easy-postman-plugins/` 下新建：
+普通官方插件建议在 `easy-postman-plugins/` 下新建：
 
 ```text
 easy-postman-plugins/plugin-xxx
@@ -212,6 +220,8 @@ easy-postman-plugins/plugin-xxx
 ```
 
 然后把模块加入聚合构建。
+
+不要把 `easy-postman-plugins/plugin-manager` 当作普通插件模板。它留在 `easy-postman-plugins` 下是历史路径和发布组织选择；新的宿主侧插件管理库不应默认继续放到 `easy-postman-plugins/*`，后续可迁到更清晰的模块名或目录。
 
 ### 3.2 写插件 `pom.xml`
 
@@ -242,7 +252,7 @@ easy-postman-plugins/plugin-xxx
 
 - `host.version`
   - 编译时依赖哪一版宿主平台包
-  - 官方插件默认跟随 `${revision}`，这样能直接对齐当前 `api / bridge / ui` 的编译输入
+  - 官方插件默认跟随 `${revision}`，这样能直接对齐当前 `api / foundation / ui` 的编译输入
   - 如果只是宿主正常发版，这里跟随即可；它不负责表达运行兼容范围
 - `plugin.id`
   - 插件唯一 ID
@@ -256,7 +266,7 @@ easy-postman-plugins/plugin-xxx
 
 如果你发现“版本不合适”，按下面判断：
 
-- 编译不过，因为插件要依赖新的宿主 `api / bridge / ui`
+- 编译不过，因为插件要依赖新的宿主 `api / foundation / ui`
   - 调整或跟随 `host.version`
 - 运行时老宿主缺少插件依赖的新功能
   - 增加或调整 `plugin.minAppVersion`
@@ -334,7 +344,9 @@ context.registerSnippet(...);
 
 优先规则：
 
-- 只依赖 `plugin-api` / `plugin-bridge` / `plugin-ui`
+- 插件契约依赖 `easy-postman-plugin-api`
+- 共享非 UI 基础类型和工具依赖 `easy-postman-foundation`
+- 共享 Swing 组件、字体、图标、颜色和通知 UI 依赖 `easy-postman-ui`
 - 不要直接反向依赖 `easy-postman-app` 内部类
 - 第三方库如果插件自身需要，跟随插件一起打进插件 JAR
 - 宿主已经提供、且插件只需要编译期引用的依赖，优先用 `provided`
@@ -389,7 +401,7 @@ context.registerSnippet(...);
 2. 在 descriptor 模板里同步加上 `plugin.minAppVersion`
 3. 本地验证老版本宿主确实不再适配
 
-如果是插件平台 SPI 变了：
+如果是插件平台边界变了（SPI、runtime 装配方式，或插件可依赖平台模块的公开 API 被破坏）：
 
 1. 先提升根 `pom.xml` 里的 `plugin.platform.version`
 2. 再更新受影响插件的 `plugin.min/maxPlatformVersion`

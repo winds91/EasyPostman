@@ -1,17 +1,16 @@
 package com.laker.postman.plugin.runtime;
 
 import com.laker.postman.util.AppRuntimeLayout;
+import lombok.experimental.UtilityClass;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-final class PluginRuntimePaths {
+@UtilityClass
+class PluginRuntimePaths {
 
     private static String cachedDataPath;
-
-    private PluginRuntimePaths() {
-    }
 
     static Path managedPluginDir() {
         Path pluginDir = isPortableMode()
@@ -37,8 +36,28 @@ final class PluginRuntimePaths {
         return pluginDir;
     }
 
-    static Path userSettingsFile() {
+    static Path pluginPlatformSettingsFile() {
+        Path settingsFile = dataRoot().resolve("plugins").resolve("settings.json");
+        try {
+            Files.createDirectories(settingsFile.getParent());
+        } catch (Exception ignored) {
+            // callers will surface actual failures
+        }
+        return settingsFile;
+    }
+
+    static Path legacyUserPreferencesFile() {
         return dataRoot().resolve("user_settings.json");
+    }
+
+    static Path pluginDataDir(String pluginId) {
+        Path pluginDataDir = dataRoot().resolve("plugins").resolve("data").resolve(sanitizePluginId(pluginId));
+        try {
+            Files.createDirectories(pluginDataDir);
+        } catch (Exception ignored) {
+            // callers will surface actual failures
+        }
+        return pluginDataDir;
     }
 
     static void resetForTests() {
@@ -73,5 +92,12 @@ final class PluginRuntimePaths {
 
     private static boolean isPortableMode() {
         return AppRuntimeLayout.isPortableMode(PluginRuntimePaths.class);
+    }
+
+    private static String sanitizePluginId(String pluginId) {
+        if (pluginId == null || pluginId.isBlank()) {
+            return "unknown";
+        }
+        return pluginId.trim().replaceAll("[^A-Za-z0-9._-]", "_");
     }
 }

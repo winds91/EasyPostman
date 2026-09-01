@@ -3,6 +3,10 @@ package com.laker.postman.panel.sidebar.global;
 import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.json.JSONUtil;
 import com.laker.postman.common.component.SearchTextField;
+import com.laker.postman.common.component.ToolWindowActionToolbar;
+import com.laker.postman.common.component.ToolWindowSidebarToolbar;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.button.ModernButtonFactory;
 import com.laker.postman.common.component.button.EditButton;
 import com.laker.postman.common.component.button.SaveButton;
 import com.laker.postman.common.component.table.EasyVariableTablePanel;
@@ -13,7 +17,7 @@ import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.MessageKeys;
-import com.laker.postman.util.NotificationUtil;
+import com.laker.postman.common.component.notification.NotificationCenter;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
@@ -32,6 +36,8 @@ import java.util.List;
  */
 @Slf4j
 public class GlobalVariablesPanel extends JPanel {
+    private static final int HEADER_ICON_SIZE = 20;
+    private static final int SEARCH_WIDTH = 320;
 
     private final EasyVariableTablePanel variablesTablePanel = new EasyVariableTablePanel();
     private final SearchTextField tableSearchField = new SearchTextField();
@@ -71,24 +77,21 @@ public class GlobalVariablesPanel extends JPanel {
 
     private void initUI() {
         setLayout(new BorderLayout(0, 0));
-        setBackground(ModernColors.getBackgroundColor());
+        ToolWindowSurfaceStyle.applyDialogSurface(this);
         add(createTopPanel(), BorderLayout.NORTH);
 
         JPanel tableContainer = new JPanel(new BorderLayout());
         tableContainer.setOpaque(false);
-        tableContainer.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        tableContainer.setBorder(BorderFactory.createEmptyBorder(6, 12, 10, 12));
+        variablesTablePanel.setBorder(BorderFactory.createEmptyBorder());
         tableContainer.add(variablesTablePanel, BorderLayout.CENTER);
         add(tableContainer, BorderLayout.CENTER);
         add(createFooterPanel(), BorderLayout.SOUTH);
     }
 
     private JPanel createTopPanel() {
-        JPanel topPanel = new JPanel(new BorderLayout(12, 0));
-        topPanel.setOpaque(false);
-        topPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, ModernColors.getDividerBorderColor()),
-                BorderFactory.createEmptyBorder(12, 14, 10, 14)
-        ));
+        JPanel topPanel = new JPanel(new BorderLayout(10, 0));
+        ToolWindowSurfaceStyle.applyDialogHeader(topPanel, 8, 12, 7, 12);
 
         topPanel.add(createHeaderPanel(), BorderLayout.WEST);
         topPanel.add(createToolbar(), BorderLayout.EAST);
@@ -96,11 +99,10 @@ public class GlobalVariablesPanel extends JPanel {
     }
 
     private JPanel createHeaderPanel() {
-        JPanel headerPanel = new JPanel(new BorderLayout(10, 0));
+        JPanel headerPanel = new JPanel(new BorderLayout(7, 0));
         headerPanel.setOpaque(false);
 
-        JLabel iconLabel = new JLabel(IconUtil.createThemed("icons/global-variables.svg", 22, 22));
-        iconLabel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+        JLabel iconLabel = new JLabel(IconUtil.createThemed("icons/global-variables.svg", HEADER_ICON_SIZE, HEADER_ICON_SIZE));
         headerPanel.add(iconLabel, BorderLayout.WEST);
 
         JPanel textPanel = new JPanel();
@@ -108,41 +110,27 @@ public class GlobalVariablesPanel extends JPanel {
         textPanel.setOpaque(false);
 
         JLabel titleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_TITLE));
-        titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, 2));
+        titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, 1));
         titleLabel.setForeground(ModernColors.getTextPrimary());
 
-        JLabel subtitleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_SUBTITLE));
-        subtitleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-        subtitleLabel.setForeground(ModernColors.getTextSecondary());
-
         textPanel.add(titleLabel);
-        textPanel.add(Box.createVerticalStrut(3));
-        textPanel.add(subtitleLabel);
         headerPanel.add(textPanel, BorderLayout.CENTER);
         return headerPanel;
     }
 
     private JPanel createToolbar() {
-        JPanel toolbarPanel = new JPanel();
-        toolbarPanel.setOpaque(false);
-        toolbarPanel.setLayout(new BoxLayout(toolbarPanel, BoxLayout.X_AXIS));
-
         EditButton bulkEditButton = new EditButton();
         bulkEditButton.setToolTipText(I18nUtil.getMessage(MessageKeys.ENV_BULK_EDIT));
-        bulkEditButton.setPreferredSize(new Dimension(bulkEditButton.getPreferredSize().width, 32));
-        bulkEditButton.setMaximumSize(new Dimension(bulkEditButton.getMaximumSize().width, 32));
         bulkEditButton.addActionListener(e -> showBulkEditDialog());
 
         SaveButton saveButton = new SaveButton();
         saveButton.setToolTipText(I18nUtil.getMessage(MessageKeys.BUTTON_SAVE));
-        saveButton.setPreferredSize(new Dimension(saveButton.getPreferredSize().width, 32));
-        saveButton.setMaximumSize(new Dimension(saveButton.getMaximumSize().width, 32));
         saveButton.addActionListener(e -> saveVariablesManually());
 
         tableSearchField.setPlaceholderText(I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_SEARCH_PLACEHOLDER));
-        tableSearchField.setPreferredSize(new Dimension(280, 34));
-        tableSearchField.setMinimumSize(new Dimension(220, 34));
-        tableSearchField.setMaximumSize(new Dimension(320, 34));
+        tableSearchField.setPreferredSize(new Dimension(SEARCH_WIDTH, ToolWindowSidebarToolbar.SEARCH_HEIGHT));
+        tableSearchField.setMinimumSize(new Dimension(220, ToolWindowSidebarToolbar.SEARCH_HEIGHT));
+        tableSearchField.setMaximumSize(new Dimension(SEARCH_WIDTH, ToolWindowSidebarToolbar.SEARCH_HEIGHT));
         tableSearchField.addActionListener(e -> filterTableRows());
         tableSearchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -171,22 +159,12 @@ public class GlobalVariablesPanel extends JPanel {
             }
         });
 
-        toolbarPanel.add(tableSearchField);
-        toolbarPanel.add(Box.createHorizontalStrut(6));
-        toolbarPanel.add(bulkEditButton);
-        toolbarPanel.add(Box.createHorizontalStrut(4));
-        toolbarPanel.add(saveButton);
-
-        return toolbarPanel;
+        return ToolWindowActionToolbar.inlineRight(tableSearchField, bulkEditButton, saveButton);
     }
 
     private JPanel createFooterPanel() {
         JPanel footerPanel = new JPanel(new BorderLayout());
-        footerPanel.setOpaque(false);
-        footerPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, ModernColors.getDividerBorderColor()),
-                BorderFactory.createEmptyBorder(7, 14, 8, 14)
-        ));
+        ToolWindowSurfaceStyle.applyDialogFooter(footerPanel);
 
         shortcutHintLabel.setText(I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_SHORTCUT_HINT));
         shortcutHintLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
@@ -247,7 +225,7 @@ public class GlobalVariablesPanel extends JPanel {
     private void saveVariablesManually() {
         try {
             persistVariables(true);
-            NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_SAVE_SUCCESS));
+            NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_SAVE_SUCCESS));
         } catch (Exception ex) {
             log.error("Failed to save global variables manually", ex);
         }
@@ -425,12 +403,13 @@ public class GlobalVariablesPanel extends JPanel {
         JTextArea textArea = new JTextArea(text.toString());
         textArea.setLineWrap(false);
         textArea.setTabSize(4);
-        textArea.setBackground(ModernColors.getInputBackgroundColor());
-        textArea.setForeground(ModernColors.getTextPrimary());
-        textArea.setCaretColor(ModernColors.PRIMARY);
+        ToolWindowSurfaceStyle.applyTextComponentInput(textArea);
+        textArea.setCaretColor(ModernColors.getPrimary());
         textArea.setCaretPosition(textArea.getDocument().getLength());
 
         JScrollPane scrollPane = new JScrollPane(textArea);
+        ToolWindowSurfaceStyle.applyDialogScrollPane(scrollPane);
+        ToolWindowSurfaceStyle.applyDialogInputBorder(scrollPane, false);
         scrollPane.setPreferredSize(new Dimension(600, 400));
 
         JPanel hintPanel = new JPanel();
@@ -452,19 +431,22 @@ public class GlobalVariablesPanel extends JPanel {
         hintPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
         JPanel contentPanel = new JPanel(new BorderLayout(0, 5));
+        ToolWindowSurfaceStyle.applyDialogSurface(contentPanel);
         contentPanel.add(hintPanel, BorderLayout.NORTH);
         contentPanel.add(scrollPane, BorderLayout.CENTER);
-        contentPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
 
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        JButton okButton = new JButton(I18nUtil.getMessage(MessageKeys.GENERAL_OK));
-        JButton cancelButton = new JButton(I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL));
-        buttonPanel.add(okButton);
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        ToolWindowSurfaceStyle.applyDialogFooter(buttonPanel);
+        JButton cancelButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL), false);
+        JButton okButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.GENERAL_OK), true);
         buttonPanel.add(cancelButton);
+        buttonPanel.add(okButton);
 
         Window window = SwingUtilities.getWindowAncestor(this);
         JDialog dialog = new JDialog(window, I18nUtil.getMessage(MessageKeys.GLOBAL_VARIABLES_BULK_EDIT_TITLE),
                 Dialog.ModalityType.APPLICATION_MODAL);
+        ToolWindowSurfaceStyle.applyDialogWindowChrome(dialog);
         dialog.setLayout(new BorderLayout());
         dialog.add(contentPanel, BorderLayout.CENTER);
         dialog.add(buttonPanel, BorderLayout.SOUTH);

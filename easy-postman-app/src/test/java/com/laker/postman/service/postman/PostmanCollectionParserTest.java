@@ -1,9 +1,15 @@
 package com.laker.postman.service.postman;
 
-import com.laker.postman.service.common.CollectionParseResult;
+import com.laker.postman.collection.importer.postman.PostmanCollectionParser;
+import com.laker.postman.collection.model.CollectionParseResult;
+import com.laker.postman.request.model.AuthApiKeyPlacement;
+import com.laker.postman.request.model.AuthType;
+import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.RequestBodyTypes;
 import org.testng.annotations.Test;
 
-
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_DATA;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_RAW;
 import static org.testng.Assert.*;
 
 /**
@@ -88,6 +94,80 @@ public class PostmanCollectionParserTest {
         assertTrue(folderNode.isGroup());
         assertEquals(folderNode.asGroup().getName(), "User API");
         assertEquals(folderNode.getChildren().size(), 2);
+    }
+
+    @Test
+    public void testParsePostmanCollection_WithDigestAuth() {
+        String json = """
+                {
+                    "info": {
+                        "name": "Digest Collection"
+                    },
+                    "item": [
+                        {
+                            "name": "Digest Request",
+                            "request": {
+                                "method": "GET",
+                                "url": "https://api.example.com/digest",
+                                "auth": {
+                                    "type": "digest",
+                                    "digest": [
+                                        {"key": "username", "value": "digest-user"},
+                                        {"key": "password", "value": "digest-pass"}
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                }
+                """;
+
+        CollectionParseResult result = PostmanCollectionParser.parsePostmanCollection(json);
+
+        assertNotNull(result);
+        assertEquals(result.getChildren().size(), 1);
+        var request = result.getChildren().get(0).asRequest();
+        assertEquals(request.getAuthType(), AuthType.DIGEST.getConstant());
+        assertEquals(request.getAuthUsername(), "digest-user");
+        assertEquals(request.getAuthPassword(), "digest-pass");
+    }
+
+    @Test
+    public void testParsePostmanCollection_WithApiKeyAuth() {
+        String json = """
+                {
+                    "info": {
+                        "name": "API Key Collection"
+                    },
+                    "item": [
+                        {
+                            "name": "API Key Request",
+                            "request": {
+                                "method": "GET",
+                                "url": "https://api.example.com/keyed",
+                                "auth": {
+                                    "type": "apikey",
+                                    "apikey": [
+                                        {"key": "key", "value": "X-API-Key"},
+                                        {"key": "value", "value": "secret"},
+                                        {"key": "in", "value": "header"}
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                }
+                """;
+
+        CollectionParseResult result = PostmanCollectionParser.parsePostmanCollection(json);
+
+        assertNotNull(result);
+        assertEquals(result.getChildren().size(), 1);
+        var request = result.getChildren().get(0).asRequest();
+        assertEquals(request.getAuthType(), AuthType.API_KEY.getConstant());
+        assertEquals(request.getAuthApiKeyName(), "X-API-Key");
+        assertEquals(request.getAuthApiKeyValue(), "secret");
+        assertEquals(request.getAuthApiKeyPlacement(), AuthApiKeyPlacement.HEADER.getConstant());
     }
 
     @Test
@@ -190,6 +270,45 @@ public class PostmanCollectionParserTest {
         assertEquals(req.getUrl(), "https://api.example.com/search?q=test&limit=10");
         assertNotNull(req.getParamsList());
         assertEquals(req.getParamsList().size(), 2);
+    }
+
+    @Test
+    public void testParsePostmanCollection_WithPathVariables() {
+        String json = """
+                {
+                    "info": {
+                        "name": "Path Variable Test"
+                    },
+                    "item": [
+                        {
+                            "name": "Get User",
+                            "request": {
+                                "method": "GET",
+                                "url": {
+                                    "raw": "https://api.example.com/users/:userId/orders/:orderId",
+                                    "host": ["api", "example", "com"],
+                                    "path": ["users", ":userId", "orders", ":orderId"],
+                                    "variable": [
+                                        {"key": "userId", "value": "42", "description": "User id"},
+                                        {"key": "orderId", "value": "A-100"}
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                }
+                """;
+
+        CollectionParseResult result = PostmanCollectionParser.parsePostmanCollection(json);
+
+        assertNotNull(result);
+        HttpRequestItem req = result.getChildren().get(0).asRequest();
+        assertEquals(req.getUrl(), "https://api.example.com/users/:userId/orders/:orderId");
+        assertEquals(req.getPathVariablesList().size(), 2);
+        assertEquals(req.getPathVariablesList().get(0).getKey(), "userId");
+        assertEquals(req.getPathVariablesList().get(0).getValue(), "42");
+        assertEquals(req.getPathVariablesList().get(0).getDescription(), "User id");
+        assertEquals(req.getPathVariablesList().get(1).getKey(), "orderId");
     }
 
     @Test
@@ -381,5 +500,145 @@ public class PostmanCollectionParserTest {
         assertNotNull(result);
         assertEquals(result.getGroup().getName(), "Postman");
     }
-}
 
+    @Test
+    public void testParsePostmanCollection_RequestStringAndFolderVariables() {
+        String json = """
+                {
+                  "info": {
+                    "name": "String Request Collection",
+                    "schema": "https://schema.getpostman.com/collection/v2.1.0/collection.json"
+                  },
+                  "item": [
+                    {
+                      "name": "Folder A",
+                      "variable": [
+                        {"key": "baseUrl", "value": "https://api.example.com"}
+                      ],
+                      "item": [
+                        {
+                          "name": "Ping",
+                          "request": "https://api.example.com/ping"
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        CollectionParseResult result = PostmanCollectionParser.parsePostmanCollection(json);
+        assertNotNull(result);
+        assertEquals(result.getChildren().size(), 1);
+
+        var folder = result.getChildren().get(0);
+        assertTrue(folder.isGroup());
+        assertEquals(folder.asGroup().getVariables().size(), 1);
+        assertEquals(folder.asGroup().getVariables().get(0).getKey(), "baseUrl");
+        assertEquals(folder.getChildren().get(0).asRequest().getUrl(), "https://api.example.com/ping");
+    }
+
+    @Test
+    public void testParsePostmanCollection_ScriptStringAndHeaderString() {
+        String json = """
+                {
+                  "info": {
+                    "name": "Header String Collection",
+                    "schema": "https://schema.getpostman.com/collection/v2.1.0/collection.json"
+                  },
+                  "item": [
+                    {
+                      "name": "Create User",
+                      "event": [
+                        {
+                          "listen": "prerequest",
+                          "script": {
+                            "exec": "console.log('single line');"
+                          }
+                        }
+                      ],
+                      "request": {
+                        "method": "POST",
+                        "header": "Content-Type: application/json\\nX-Trace: abc",
+                        "url": {
+                          "protocol": "https",
+                          "host": ["api", "example", "com"],
+                          "path": ["users"]
+                        },
+                        "body": {
+                          "mode": "raw",
+                          "raw": "{\\"name\\":\\"Alice\\"}"
+                        }
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        CollectionParseResult result = PostmanCollectionParser.parsePostmanCollection(json);
+        assertNotNull(result);
+
+        var request = result.getChildren().get(0).asRequest();
+        assertEquals(request.getUrl(), "https://api.example.com/users");
+        assertEquals(request.getBodyType(), BODY_TYPE_RAW);
+        assertEquals(request.getPrescript(), "console.log('single line');\n");
+        assertTrue(request.getHeadersList().stream().anyMatch(h -> "Content-Type".equals(h.getKey())));
+        assertTrue(request.getHeadersList().stream().anyMatch(h -> "X-Trace".equals(h.getKey()) && "abc".equals(h.getValue())));
+    }
+
+    @Test
+    public void testParsePostmanCollection_FormDataFileArrayAndGraphql() {
+        String json = """
+                {
+                  "info": {
+                    "name": "Advanced Body Collection",
+                    "schema": "https://schema.getpostman.com/collection/v2.1.0/collection.json"
+                  },
+                  "item": [
+                    {
+                      "name": "Upload Avatar",
+                      "request": {
+                        "method": "POST",
+                        "url": "https://api.example.com/upload",
+                        "body": {
+                          "mode": "formdata",
+                          "formdata": [
+                            {"key": "avatar", "type": "file", "src": ["./front.png", "./back.png"]}
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "name": "GraphQL Query",
+                      "request": {
+                        "method": "POST",
+                        "url": "https://api.example.com/graphql",
+                        "body": {
+                          "mode": "graphql",
+                          "graphql": {
+                            "query": "query Ping { ping }",
+                            "variables": "{\\"id\\":1}"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        CollectionParseResult result = PostmanCollectionParser.parsePostmanCollection(json);
+        assertNotNull(result);
+        assertEquals(result.getChildren().size(), 2);
+
+        var upload = result.getChildren().get(0).asRequest();
+        assertEquals(upload.getBodyType(), BODY_TYPE_FORM_DATA);
+        assertEquals(upload.getFormDataList().size(), 2);
+        assertEquals(upload.getFormDataList().get(0).getKey(), "avatar");
+        assertEquals(upload.getFormDataList().get(0).getValue(), "./front.png");
+        assertEquals(upload.getFormDataList().get(1).getKey(), "avatar");
+        assertEquals(upload.getFormDataList().get(1).getValue(), "./back.png");
+
+        var graphql = result.getChildren().get(1).asRequest();
+        assertEquals(graphql.getBodyType(), BODY_TYPE_RAW);
+        assertTrue(graphql.getBody().contains("query Ping"));
+    }
+}

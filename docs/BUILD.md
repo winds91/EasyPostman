@@ -58,7 +58,7 @@ This will generate:
 java -jar target/easy-postman-*.jar
 
 # Or with custom JVM options
-java -Xms512m -Xmx2g -jar target/easy-postman-*.jar
+java -Xms256m -Xmx2g -jar target/easy-postman-*.jar
 ```
 
 ---
@@ -177,7 +177,7 @@ chmod +x build/linux-deb.sh
 ./build/linux-deb.sh
 ```
 
-**Output**: `target/easypostman_{version}_amd64.deb`
+**Output**: a DEB file under `dist/` for the current build machine architecture, for example `dist/*.deb`
 
 #### Manual Build
 
@@ -198,7 +198,7 @@ jpackage \
 #### Install DEB Package
 
 ```bash
-sudo dpkg -i target/easypostman_{version}_amd64.deb
+sudo dpkg -i dist/<generated-package>.deb
 
 # If dependencies missing
 sudo apt-get install -f
@@ -223,7 +223,7 @@ chmod +x build/linux-rpm.sh
 ./build/linux-rpm.sh
 ```
 
-**Output**: `target/easypostman-{version}-1.x86_64.rpm`
+**Output**: an RPM file under `dist/` for the current build machine architecture, for example `dist/*.rpm`
 
 ---
 
@@ -235,7 +235,7 @@ Edit the launcher scripts or use jpackage `--java-options`:
 
 ```bash
 jpackage \
-  --java-options "-Xms512m" \
+  --java-options "-Xms256m" \
   --java-options "-Xmx2g" \
   --java-options "-Dfile.encoding=UTF-8" \
   # ... other options
@@ -251,7 +251,7 @@ jdeps --print-module-deps target/easy-postman-{version}.jar
 
 # Create custom runtime
 jlink \
-  --add-modules java.base,java.desktop,java.logging,java.naming,java.net.http,java.sql,java.xml \
+  --add-modules java.base,java.desktop,java.logging,java.naming,java.net.http,jdk.httpserver,java.sql,java.xml \
   --output target/custom-runtime \
   --strip-debug \
   --compress 2 \

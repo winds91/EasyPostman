@@ -1,15 +1,20 @@
 package com.laker.postman.panel.topmenu.setting;
 
+import com.formdev.flatlaf.util.SystemFileChooser;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.setting.SettingsHintLabel;
+import com.laker.postman.common.component.setting.SettingsSectionPanel;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.model.ClientCertificate;
 import com.laker.postman.panel.topmenu.plugin.PluginManagerDialog;
-import com.laker.postman.plugin.bridge.ClientCertificatePluginService;
-import com.laker.postman.plugin.bridge.ClientCertificatePluginServices;
+import com.laker.postman.plugin.api.service.ClientCertificatePluginService;
+import com.laker.postman.plugin.host.ClientCertificatePluginAccess;
 import com.laker.postman.util.FontsUtil;
+import com.laker.postman.util.FileChooserUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.MessageKeys;
-import com.laker.postman.util.NotificationUtil;
+import com.laker.postman.common.component.notification.NotificationCenter;
 import lombok.Getter;
 
 import javax.swing.*;
@@ -44,7 +49,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
 
     @Override
     protected void buildContent(JPanel contentPanel) {
-        pluginInstalled = ClientCertificatePluginServices.isClientCertificatePluginInstalled();
+        pluginInstalled = ClientCertificatePluginAccess.isServiceAvailable();
 
         // 说明区域
         JPanel descSection = createDescriptionSection();
@@ -123,21 +128,21 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
     private JPanel createDescriptionSection() {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBackground(getCardBackgroundColor());
+        panel.setOpaque(false);
+        panel.setBackground(getBackgroundColor());
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         JLabel titleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.CERT_TITLE));
         titleLabel.setFont(FontsUtil.getDefaultFont(Font.BOLD));
         titleLabel.setForeground(getTextPrimaryColor());
         titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel descLabel = new JLabel("<html>" +
-                I18nUtil.getMessage(MessageKeys.CERT_DESCRIPTION) +
-                "</html>");
-        descLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
-        descLabel.setForeground(getTextSecondaryColor());
+        SettingsHintLabel descLabel = new SettingsHintLabel(
+                I18nUtil.getMessage(MessageKeys.CERT_DESCRIPTION),
+                SettingsSectionPanel.DEFAULT_DESCRIPTION_WIDTH
+        );
         descLabel.setBorder(new EmptyBorder(6, 0, 0, 0));
-        descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         panel.add(titleLabel);
         panel.add(descLabel);
@@ -166,7 +171,8 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
     private JPanel createActionBar() {
         JPanel actionBar = new JPanel();
         actionBar.setLayout(new BoxLayout(actionBar, BoxLayout.X_AXIS));
-        actionBar.setBackground(getCardBackgroundColor());
+        actionBar.setOpaque(false);
+        actionBar.setBackground(getBackgroundColor());
         actionBar.setAlignmentX(Component.LEFT_ALIGNMENT);
         actionBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
 
@@ -205,6 +211,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         certificateTable.getTableHeader().setReorderingAllowed(false);
         certificateTable.getTableHeader().setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, -2));
         certificateTable.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
+        ToolWindowSurfaceStyle.applyTableCard(certificateTable);
 
         // 使用后续列调整模式，让表格填充满可用空间
         certificateTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
@@ -257,7 +264,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         });
 
         JScrollPane scrollPane = new JScrollPane(certificateTable);
-        scrollPane.setBorder(BorderFactory.createLineBorder(ModernColors.getBorderLightColor(), 1));
+        ToolWindowSurfaceStyle.applyTableScrollPaneCard(scrollPane, certificateTable);
         scrollPane.setPreferredSize(new Dimension(450, 280));
         scrollPane.setMaximumSize(new Dimension(600, 350));
         scrollPane.setMinimumSize(new Dimension(350, 200));
@@ -279,7 +286,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
     }
 
     private ClientCertificatePluginService getCertificateService() {
-        return ClientCertificatePluginServices.requireClientCertificateService();
+        return ClientCertificatePluginAccess.requireService();
     }
 
     private void openPluginManager() {
@@ -296,7 +303,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         if (dialog.isConfirmed()) {
             getCertificateService().addCertificate(cert);
             loadCertificates();
-            NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_ADD_SUCCESS));
+            NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_ADD_SUCCESS));
         }
     }
 
@@ -312,7 +319,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         if (dialog.isConfirmed()) {
             getCertificateService().updateCertificate(cert);
             loadCertificates();
-            NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_EDIT_SUCCESS));
+            NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_EDIT_SUCCESS));
         }
     }
 
@@ -339,7 +346,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
             getCertificateService().deleteCertificate(cert.getId());
             loadCertificates();
             updateButtonStates();
-            NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_DELETE_SUCCESS));
+            NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_DELETE_SUCCESS));
         }
     }
 
@@ -350,11 +357,11 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         textArea.setLineWrap(true);
         textArea.setWrapStyleWord(true);
         textArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -2));
-        textArea.setBackground(getBackgroundColor());
-        textArea.setForeground(getTextPrimaryColor());
+        ToolWindowSurfaceStyle.applyTextComponentCard(textArea);
         textArea.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         JScrollPane scrollPane = new JScrollPane(textArea);
+        ToolWindowSurfaceStyle.applyScrollPaneCard(scrollPane);
         scrollPane.setPreferredSize(new Dimension(600, 350));
 
         JOptionPane.showMessageDialog(
@@ -378,7 +385,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         private List<ClientCertificate> certificates = new java.util.ArrayList<>();
 
         public void loadCertificates() {
-            certificates = ClientCertificatePluginServices.requireClientCertificateService().getAllCertificates();
+            certificates = ClientCertificatePluginAccess.requireService().getAllCertificates();
             fireTableDataChanged();
         }
 
@@ -432,9 +439,9 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
             if (columnIndex == 0) {
                 ClientCertificate cert = certificates.get(rowIndex);
                 cert.setEnabled((Boolean) aValue);
-                ClientCertificatePluginServices.requireClientCertificateService().updateCertificate(cert);
+                ClientCertificatePluginAccess.requireService().updateCertificate(cert);
                 fireTableCellUpdated(rowIndex, columnIndex);
-                NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_STATUS_UPDATED));
+                NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.CERT_STATUS_UPDATED));
             }
         }
     }
@@ -468,7 +475,9 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         }
 
         private void initUI() {
+            ToolWindowSurfaceStyle.applyDialogWindowChrome(this);
             setLayout(new BorderLayout(10, 10));
+            ToolWindowSurfaceStyle.applyDialogSurface((JPanel) getContentPane());
             ((JPanel) getContentPane()).setBorder(new EmptyBorder(20, 20, 20, 20));
 
             // 表单面板
@@ -530,7 +539,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
             gbc.weightx = 0;
             gbc.gridwidth = 1;
             JLabel certPathLabel = new JLabel(I18nUtil.getMessage(MessageKeys.CERT_CERT_PATH) + ":");
-            certPathLabel.setForeground(Color.RED);
+            certPathLabel.setForeground(ModernColors.getError());
             formPanel.add(certPathLabel, gbc);
 
             gbc.gridx = 1;
@@ -603,7 +612,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
             gbc.gridwidth = 1;
             JLabel jLabel = new JLabel(label);
             if (required) {
-                jLabel.setForeground(Color.RED);
+                jLabel.setForeground(ModernColors.getError());
             }
             panel.add(jLabel, gbc);
 
@@ -665,9 +674,9 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
         }
 
         private void selectFile(JTextField targetField) {
-            JFileChooser fileChooser = new JFileChooser();
-            fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-            fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.CERT_SELECT_FILE));
+            SystemFileChooser fileChooser = FileChooserUtil.createOpenFileChooser(
+                    "settings.clientCertificate.file",
+                    I18nUtil.getMessage(MessageKeys.CERT_SELECT_FILE));
 
             // 设置初始目录为当前文本框的文件路径（如果有）
             String currentPath = targetField.getText();
@@ -678,7 +687,7 @@ public class ClientCertificateSettingsPanelModern extends ModernSettingsPanel {
                 }
             }
 
-            if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            if (fileChooser.showOpenDialog(this) == SystemFileChooser.APPROVE_OPTION) {
                 File file = fileChooser.getSelectedFile();
                 targetField.setText(file.getAbsolutePath());
             }

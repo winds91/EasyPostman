@@ -1,14 +1,16 @@
 package com.laker.postman.panel.sidebar;
 
-import com.laker.postman.common.SingletonBasePanel;
-import com.laker.postman.common.SingletonFactory;
+import com.formdev.flatlaf.FlatClientProperties;
+import com.laker.postman.common.UiSingletonPanel;
+import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.SearchTextField;
+import com.laker.postman.common.component.ToolWindowActionToolbar;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.AutoScrollToggleButton;
 import com.laker.postman.common.component.button.ClearButton;
-import com.laker.postman.common.component.button.CloseButton;
 import com.laker.postman.common.component.button.NextButton;
 import com.laker.postman.common.component.button.PreviousButton;
-import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.util.IconUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
@@ -22,11 +24,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
-public class ConsolePanel extends SingletonBasePanel {
+public class ConsolePanel extends UiSingletonPanel {
     private JTextPane consoleLogArea;
     private transient StyledDocument consoleDoc;
     private SearchTextField searchField;
-    private CloseButton closeBtn;
+    private JButton hideButton;
     private PreviousButton prevBtn;
     private NextButton nextBtn;
     private JLabel matchCountLabel;
@@ -43,6 +45,11 @@ public class ConsolePanel extends SingletonBasePanel {
     private final transient List<LogEntry> allLogs = new ArrayList<>();
     private static final int MAX_LOG_ENTRIES = 10000; // 最多保存10000条日志，防止内存溢出
     private static final int MAX_DISPLAY_LINES = 5000; // 最多显示5000行，超过则删除旧行，优化显示性能
+    private static final int FILTER_WIDTH = 90;
+    private static final int SEARCH_WIDTH = 260;
+    private static final int TOOLBAR_CONTROL_HEIGHT = ToolWindowActionToolbar.ACTION_SIZE;
+    private static final String TOOL_WINDOW_HIDE_ICON = "icons/tool-window-hide.svg";
+    private static final String HIDE_CONSOLE_TOOLTIP = "Hide console";
 
     // 日志类型
     public enum LogType {
@@ -63,6 +70,7 @@ public class ConsolePanel extends SingletonBasePanel {
     @Override
     protected void initUI() {
         setLayout(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(this);
         createConsolePanel();
     }
 
@@ -76,6 +84,9 @@ public class ConsolePanel extends SingletonBasePanel {
      * 更新控制台颜色以适配当前主题
      */
     private void updateConsoleColors() {
+        if (matchCountLabel != null) {
+            matchCountLabel.setForeground(ConsoleTheme.matchCountForeground());
+        }
         // 刷新显示的日志以应用新的颜色方案
         if (consoleLogArea != null && !allLogs.isEmpty()) {
             refreshDisplayedLogs();
@@ -255,10 +266,7 @@ public class ConsolePanel extends SingletonBasePanel {
      */
     private void highlightAllMatches(int length) {
         try {
-            // 使用柔和的黄色高亮所有匹配项 - 主题自适应
-            Color highlightColor = ModernColors.isDarkTheme()
-                    ? new Color(100, 100, 50, 100)  // 暗色主题：深黄色
-                    : new Color(254, 249, 195);      // 亮色主题：浅黄色
+            Color highlightColor = ConsoleTheme.searchHighlightBackground();
             DefaultHighlighter.DefaultHighlightPainter painter =
                     new DefaultHighlighter.DefaultHighlightPainter(highlightColor);
 
@@ -283,10 +291,7 @@ public class ConsolePanel extends SingletonBasePanel {
             consoleLogArea.getHighlighter().removeAllHighlights();
             highlightAllMatches(length);
 
-            // 当前匹配项使用明亮橙色高亮 - 主题自适应
-            Color currentHighlightColor = ModernColors.isDarkTheme()
-                    ? new Color(150, 100, 50, 120)  // 暗色主题：深橙色
-                    : new Color(254, 215, 170);      // 亮色主题：浅橙色
+            Color currentHighlightColor = ConsoleTheme.searchCurrentHighlightBackground();
             DefaultHighlighter.DefaultHighlightPainter currentPainter =
                     new DefaultHighlighter.DefaultHighlightPainter(currentHighlightColor);
             consoleLogArea.getHighlighter().addHighlight(pos, pos + length, currentPainter);
@@ -314,27 +319,30 @@ public class ConsolePanel extends SingletonBasePanel {
         consoleLogArea.setEditable(false);
         consoleLogArea.setFocusable(true);
         consoleLogArea.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
+        ToolWindowSurfaceStyle.applyTextComponentCard(consoleLogArea);
         consoleDoc = consoleLogArea.getStyledDocument();
         JScrollPane logScroll = new JScrollPane(consoleLogArea);
-        logScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        logScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         logScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        ToolWindowSurfaceStyle.applyScrollPaneCard(logScroll);
 
         // 顶部工具栏
-        JPanel topPanel = new JPanel(new BorderLayout(5, 0));
-        topPanel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-        topPanel.setOpaque(true);
-
-        // 中间：搜索栏
-        JPanel centerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
-        centerPanel.setOpaque(false);
+        JPanel topPanel = new JPanel(new BorderLayout(5, 0)) {
+            @Override
+            public void updateUI() {
+                super.updateUI();
+                applyConsoleToolbarStyle(this);
+            }
+        };
+        applyConsoleToolbarStyle(topPanel);
 
         logLevelFilter = new JComboBox<>(new String[]{"All", "INFO", "ERROR", "WARN", "DEBUG"});
-        logLevelFilter.setPreferredSize(new Dimension(90, 28));
+        lockToolbarControlSize(logLevelFilter, FILTER_WIDTH);
         logLevelFilter.setFocusable(false);
         logLevelFilter.setToolTipText("Filter logs by level");
 
         searchField = new SearchTextField();
-        searchField.setPreferredSize(new Dimension(200, 28));
+        lockToolbarControlSize(searchField, SEARCH_WIDTH);
 
         prevBtn = new PreviousButton();
         prevBtn.setToolTipText("Previous match (Shift+Enter)");
@@ -345,38 +353,53 @@ public class ConsolePanel extends SingletonBasePanel {
         nextBtn.setPreferredSize(new Dimension(28, 28));
 
         matchCountLabel = new JLabel("");
-        matchCountLabel.setForeground(ModernColors.getTextSecondary());
+        matchCountLabel.setForeground(ConsoleTheme.matchCountForeground());
         matchCountLabel.setPreferredSize(new Dimension(50, 28));
         matchCountLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
-        centerPanel.add(logLevelFilter);
-        centerPanel.add(searchField);
-        centerPanel.add(prevBtn);
-        centerPanel.add(nextBtn);
-        centerPanel.add(matchCountLabel);
+        JPanel centerPanel = ToolWindowActionToolbar.inlineLeft(
+                logLevelFilter,
+                searchField,
+                prevBtn,
+                nextBtn,
+                matchCountLabel
+        );
 
         // 右侧：工具按钮
-        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 1, 0));
-        rightPanel.setOpaque(false);
-
         autoScrollBtn = new AutoScrollToggleButton();
 
-        ClearButton clearBtn = new ClearButton();
+        ClearButton clearBtn = new ClearButton(IconUtil.SIZE_SMALL);
         clearBtn.addActionListener(e -> clearConsole());
 
-        closeBtn = new CloseButton();
-        closeBtn.setToolTipText("Hide console");
-        rightPanel.add(autoScrollBtn);
-        rightPanel.add(clearBtn);
-        rightPanel.add(closeBtn);
+        hideButton = createToolWindowToolbarButton(TOOL_WINDOW_HIDE_ICON, HIDE_CONSOLE_TOOLTIP);
+        JPanel rightPanel = ToolWindowActionToolbar.inlineRight(autoScrollBtn, clearBtn, hideButton);
 
-        topPanel.add(centerPanel, BorderLayout.CENTER);
+        topPanel.add(centerPanel, BorderLayout.WEST);
         topPanel.add(rightPanel, BorderLayout.EAST);
 
         add(topPanel, BorderLayout.NORTH);
         add(logScroll, BorderLayout.CENTER);
     }
 
+    private static void applyConsoleToolbarStyle(JComponent component) {
+        ToolWindowSurfaceStyle.applyToolWindowToolbarSeparator(component, 4, 6, 4, 6);
+    }
+
+    private static void lockToolbarControlSize(JComponent component, int width) {
+        Dimension size = new Dimension(width, TOOLBAR_CONTROL_HEIGHT);
+        component.setMinimumSize(size);
+        component.setPreferredSize(size);
+        component.setMaximumSize(size);
+    }
+
+    private static JButton createToolWindowToolbarButton(String iconPath, String toolTipText) {
+        JButton button = new JButton(IconUtil.createThemed(iconPath, IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
+        button.setToolTipText(toolTipText);
+        button.setFocusable(false);
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        return button;
+    }
 
     /**
      * 清空控制台
@@ -514,61 +537,48 @@ public class ConsolePanel extends SingletonBasePanel {
     }
 
     /**
-     * 应用日志样式 - 使用 ModernColors 统一配色
+     * 应用日志样式 - 使用统一主题配色
      */
     private void applyLogStyle(Style style, LogType type) {
         // 为所有日志类型设置更大的行间距，提升可读性
         StyleConstants.setLineSpacing(style, 0.2f);
+        StyleConstants.setForeground(style, ConsoleTheme.logForeground(type));
 
         switch (type) {
             case ERROR:
-                // 使用 ModernColors 定义的错误色（主题适配）
-                StyleConstants.setForeground(style, ModernColors.getConsoleError());
                 StyleConstants.setBold(style, true);
                 break;
             case SUCCESS:
-                // 使用 ModernColors 定义的调试色（绿色，主题适配）
-                StyleConstants.setForeground(style, ModernColors.getConsoleDebug());
                 StyleConstants.setBold(style, true);
                 break;
             case WARN:
-                // 使用 ModernColors 定义的警告色（主题适配）
-                StyleConstants.setForeground(style, ModernColors.getConsoleWarn());
                 StyleConstants.setBold(style, true);
                 break;
             case DEBUG:
-                // 使用 ModernColors 定义的 INFO 色（蓝色，主题适配）
-                StyleConstants.setForeground(style, ModernColors.getConsoleInfo());
                 StyleConstants.setBold(style, false);
                 break;
             case TRACE:
-                // 使用 ModernColors 定义的类名色（紫色，主题适配）
-                StyleConstants.setForeground(style, ModernColors.getConsoleClassName());
                 StyleConstants.setBold(style, false);
                 break;
             case CUSTOM:
-                // 使用 ModernColors 定义的方法名色（青色，主题适配）
-                StyleConstants.setForeground(style, ModernColors.getConsoleMethodName());
                 StyleConstants.setBold(style, false);
                 break;
             case INFO:
             default:
-                // 使用 ModernColors 定义的普通文本色（主题适配）
-                StyleConstants.setForeground(style, ModernColors.getConsoleText());
                 StyleConstants.setBold(style, false);
         }
     }
 
     // 静态代理方法，便于外部调用
     public static void appendLog(String msg) {
-        SingletonFactory.getInstance(ConsolePanel.class).appendConsoleLog(msg);
+        UiSingletonFactory.getInstance(ConsolePanel.class).appendConsoleLog(msg);
     }
 
     public static void appendLog(String msg, LogType type) {
-        SingletonFactory.getInstance(ConsolePanel.class).appendConsoleLog(msg, type);
+        UiSingletonFactory.getInstance(ConsolePanel.class).appendConsoleLog(msg, type);
     }
 
-    public void setCloseAction(ActionListener listener) {
-        closeBtn.addActionListener(listener);
+    public void setHideAction(ActionListener listener) {
+        hideButton.addActionListener(listener);
     }
 }

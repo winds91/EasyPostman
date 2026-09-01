@@ -1,28 +1,37 @@
 package com.laker.postman.panel.env;
 
+import com.laker.postman.common.component.notification.NotificationCenter;
+
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.json.JSONUtil;
-import com.laker.postman.common.SingletonBasePanel;
-import com.laker.postman.common.SingletonFactory;
+import com.formdev.flatlaf.util.SystemFileChooser;
+import com.laker.postman.common.UiSingletonPanel;
+import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.SearchTextField;
+import com.laker.postman.common.component.ToolWindowActionToolbar;
+import com.laker.postman.common.component.AppToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSidebarToolbar;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.EditButton;
+import com.laker.postman.common.component.button.ModernButtonFactory;
 import com.laker.postman.common.component.button.PlusButton;
 import com.laker.postman.common.component.button.SaveButton;
 import com.laker.postman.common.component.combobox.EnvironmentComboBox;
+import com.laker.postman.common.component.dialog.TextInputDialog;
 import com.laker.postman.common.component.list.EnvironmentListCellRenderer;
 import com.laker.postman.common.component.table.EasyVariableTablePanel;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.model.Environment;
-import com.laker.postman.model.EnvironmentItem;
+import com.laker.postman.environment.EnvironmentItem;
 import com.laker.postman.model.Variable;
 import com.laker.postman.model.Workspace;
 import com.laker.postman.panel.topmenu.TopMenuBar;
 import com.laker.postman.service.EnvironmentService;
 import com.laker.postman.service.ideahttp.IntelliJHttpEnvParser;
 import com.laker.postman.service.postman.PostmanEnvironmentParser;
-import com.laker.postman.service.workspace.WorkspaceTransferHelper;
+import com.laker.postman.panel.workspace.WorkspaceTransferCoordinator;
 import com.laker.postman.util.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -49,7 +58,7 @@ import java.util.List;
  * 环境变量管理面板
  */
 @Slf4j
-public class EnvironmentPanel extends SingletonBasePanel {
+public class EnvironmentPanel extends UiSingletonPanel {
     public static final String EXPORT_FILE_NAME = "EasyPostman-Environments.json";
     private EasyVariableTablePanel variablesTablePanel;
     private transient Environment currentEnvironment;
@@ -65,11 +74,14 @@ public class EnvironmentPanel extends SingletonBasePanel {
     @Override
     protected void initUI() {
         setLayout(new BorderLayout());
+        ToolWindowSurfaceStyle.applyBackground(this);
         setPreferredSize(new Dimension(700, 400));
 
         // 左侧环境列表面板
         JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.setPreferredSize(new Dimension(250, 200));
+        ToolWindowSurfaceStyle.applyCard(leftPanel);
+        leftPanel.setPreferredSize(new Dimension(AppToolWindowChrome.DEFAULT_SIDE_WIDTH, 200));
+        leftPanel.setMinimumSize(new Dimension(220, 160));
         // 顶部搜索和导入导出按钮
         leftPanel.add(getSearchAndImportPanel(), BorderLayout.NORTH);
 
@@ -83,10 +95,12 @@ public class EnvironmentPanel extends SingletonBasePanel {
         environmentList.setVisibleRowCount(-1); // 让JList显示所有行
         JScrollPane envListScroll = new JScrollPane(environmentList);
         envListScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER); // 禁用横向滚动条
+        ToolWindowSurfaceStyle.applyListScrollPaneCard(envListScroll, environmentList);
         leftPanel.add(envListScroll, BorderLayout.CENTER);
 
         // 右侧 导入 导出 变量表格及操作
         JPanel rightPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(rightPanel);
         rightPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
         // 顶部工具栏：保存按钮和搜索框
@@ -95,16 +109,20 @@ public class EnvironmentPanel extends SingletonBasePanel {
 
         // 变量表格容器，添加边距
         JPanel tableContainer = new JPanel(new BorderLayout());
-        tableContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        ToolWindowSurfaceStyle.applyCard(tableContainer);
+        tableContainer.setBorder(BorderFactory.createEmptyBorder(6, 8, 8, 8));
         variablesTablePanel = new EasyVariableTablePanel();
+        ToolWindowSurfaceStyle.applyCard(variablesTablePanel);
         tableContainer.add(variablesTablePanel, BorderLayout.CENTER);
         rightPanel.add(tableContainer, BorderLayout.CENTER);
 
 
         // 使用 JSplitPane 将左右两个面板组合，支持拖动调整大小
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, rightPanel);
-        splitPane.setDividerLocation(250); // 设置分隔条初始位置
-        splitPane.setContinuousLayout(true); // 拖动时实时更新布局
+        JSplitPane splitPane = AppToolWindowChrome.createHorizontalCardSplitPane(
+                leftPanel,
+                rightPanel,
+                AppToolWindowChrome.DEFAULT_SIDE_WIDTH
+        );
         splitPane.setResizeWeight(0.3); // 设置左侧面板调整权重（30%）
 
         add(splitPane, BorderLayout.CENTER);
@@ -118,38 +136,20 @@ public class EnvironmentPanel extends SingletonBasePanel {
      */
     private JPanel createTableToolbar() {
         SaveButton saveButton;
-        toolbarPanel = new JPanel();
-        toolbarPanel.setLayout(new BoxLayout(toolbarPanel, BoxLayout.X_AXIS));
-        // 加大边距，底部添加分隔线
-        toolbarPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, ModernColors.getDividerBorderColor()),
-                BorderFactory.createEmptyBorder(3, 10, 3, 10)
-        ));
-
-        // 左侧弹性空间，将所有控件推到右边
-        toolbarPanel.add(Box.createHorizontalGlue());
 
         // 批量编辑按钮
         EditButton bulkEditButton = new EditButton(IconUtil.SIZE_MEDIUM);
         bulkEditButton.setToolTipText(I18nUtil.getMessage(MessageKeys.ENV_BULK_EDIT));
-        bulkEditButton.setPreferredSize(new Dimension(bulkEditButton.getPreferredSize().width, 32));
-        bulkEditButton.setMaximumSize(new Dimension(bulkEditButton.getMaximumSize().width, 32));
         bulkEditButton.addActionListener(e -> showBulkEditDialog());
-        toolbarPanel.add(bulkEditButton);
-        toolbarPanel.add(Box.createHorizontalStrut(4)); // 按钮间距
 
         // 保存按钮
         saveButton = new SaveButton();
-        saveButton.setPreferredSize(new Dimension(saveButton.getPreferredSize().width, 32));
-        saveButton.setMaximumSize(new Dimension(saveButton.getMaximumSize().width, 32));
         saveButton.addActionListener(e -> saveVariablesManually());
-        toolbarPanel.add(saveButton);
-        toolbarPanel.add(Box.createHorizontalStrut(4)); // 按钮和搜索框之间的间距
 
         // 表格搜索框
         tableSearchField = new SearchTextField();
-        tableSearchField.setPreferredSize(new Dimension(200, 32));
-        tableSearchField.setMaximumSize(new Dimension(200, 32));
+        tableSearchField.setPreferredSize(new Dimension(200, ToolWindowSidebarToolbar.SEARCH_HEIGHT));
+        tableSearchField.setMaximumSize(new Dimension(200, ToolWindowSidebarToolbar.SEARCH_HEIGHT));
         tableSearchField.addActionListener(e -> filterTableRows());
 
         // 监听搜索选项变化，触发重新过滤
@@ -164,7 +164,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
             }
         });
 
-        toolbarPanel.add(tableSearchField);
+        toolbarPanel = ToolWindowActionToolbar.right(bulkEditButton, saveButton, tableSearchField);
 
         return toolbarPanel;
     }
@@ -218,28 +218,22 @@ public class EnvironmentPanel extends SingletonBasePanel {
     }
 
     private JPanel getSearchAndImportPanel() {
-        JPanel topPanel = new JPanel();
-        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.X_AXIS));
-        topPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
         plusBtn = new PlusButton();
         plusBtn.setToolTipText("New / Import");
         plusBtn.addActionListener(e -> showPlusMenu());
 
         searchField = new SearchTextField();
 
-        topPanel.add(plusBtn);
-        topPanel.add(Box.createHorizontalStrut(4));
-        topPanel.add(searchField);
-        return topPanel;
+        return new ToolWindowSidebarToolbar(plusBtn, searchField);
     }
 
     private void showPlusMenu() {
         JPopupMenu menu = new JPopupMenu();
+        ToolWindowSurfaceStyle.applyPopupMenuCard(menu);
 
         // ── 新建环境
         JMenuItem newEnvItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.ENV_BUTTON_ADD),
-                IconUtil.create("icons/plus.svg", IconUtil.SIZE_MEDIUM, IconUtil.SIZE_MEDIUM));
+                IconUtil.createThemed("icons/plus.svg", IconUtil.SIZE_MEDIUM, IconUtil.SIZE_MEDIUM));
         newEnvItem.addActionListener(e -> addEnvironment());
         menu.add(newEnvItem);
 
@@ -267,7 +261,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
     @Override
     protected void registerListeners() {
         // 联动菜单栏右上角下拉框
-        EnvironmentComboBox topComboBox = SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
+        EnvironmentComboBox topComboBox = UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
         if (topComboBox != null) {
             topComboBox.setOnEnvironmentChange(env -> {
                 environmentListModel.clear();
@@ -333,18 +327,6 @@ public class EnvironmentPanel extends SingletonBasePanel {
 
     }
 
-    @Override
-    public void updateUI() {
-        super.updateUI();
-        // 更新工具栏边框颜色
-        if (toolbarPanel != null) {
-            toolbarPanel.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(0, 0, 1, 0, ModernColors.getDividerBorderColor()),
-                    BorderFactory.createEmptyBorder(3, 10, 3, 10)
-            ));
-        }
-    }
-
     /**
      * 添加手动保存快捷键（Cmd+S / Ctrl+S）
      * 虽然已有自动保存，但保留手动保存快捷键让用户有主动掌控感
@@ -370,6 +352,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
 
     private void addRightMenuList() {
         JPopupMenu envListMenu = new JPopupMenu();
+        ToolWindowSurfaceStyle.applyPopupMenuCard(envListMenu);
         JMenuItem addItem = new JMenuItem(I18nUtil.getMessage(MessageKeys.ENV_BUTTON_ADD),
                 IconUtil.createThemed("icons/environments.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
         addItem.addActionListener(e -> addEnvironment());
@@ -482,7 +465,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
                             // 激活环境
                             EnvironmentService.setActiveEnvironment(env.getId());
                             // 联动顶部下拉框
-                            EnvironmentComboBox comboBox = SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
+                            EnvironmentComboBox comboBox = UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
                             if (comboBox != null) {
                                 comboBox.setSelectedEnvironment(env);
                             }
@@ -599,23 +582,24 @@ public class EnvironmentPanel extends SingletonBasePanel {
         saveVariables();
 
         // 显示保存成功通知（只有手动保存才显示，自动保存不打扰用户）
-        NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_SAVE_SUCCESS));
+        NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_SAVE_SUCCESS));
     }
 
     /**
      * 导出所有环境变量为JSON文件
      */
     public void exportEnvironments() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_TITLE));
+        SystemFileChooser fileChooser = FileChooserUtil.createSaveFileChooser(
+                "environments.export",
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_TITLE));
         fileChooser.setSelectedFile(new File(EXPORT_FILE_NAME));
         int userSelection = fileChooser.showSaveDialog(this);
-        if (userSelection == JFileChooser.APPROVE_OPTION) {
+        if (userSelection == SystemFileChooser.APPROVE_OPTION) {
             File fileToSave = fileChooser.getSelectedFile();
             try (Writer writer = new OutputStreamWriter(new FileOutputStream(fileToSave), StandardCharsets.UTF_8)) {
                 java.util.List<Environment> envs = EnvironmentService.getAllEnvironments();
                 writer.write(JSONUtil.toJsonPrettyStr(envs));
-                NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_SUCCESS));
+                NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_SUCCESS));
             } catch (Exception ex) {
                 log.error("Export Error", ex);
                 JOptionPane.showMessageDialog(this,
@@ -629,10 +613,11 @@ public class EnvironmentPanel extends SingletonBasePanel {
      * 导入环境变量JSON文件
      */
     private void importEnvironments() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_EASY_TITLE));
+        SystemFileChooser fileChooser = FileChooserUtil.createOpenFileChooser(
+                "environments.import.easyPostman",
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_EASY_TITLE));
         int userSelection = fileChooser.showOpenDialog(this);
-        if (userSelection == JFileChooser.APPROVE_OPTION) {
+        if (userSelection == SystemFileChooser.APPROVE_OPTION) {
             File fileToOpen = fileChooser.getSelectedFile();
             try {
                 java.util.List<Environment> envs = JSONUtil.toList(JSONUtil.readJSONArray(fileToOpen, StandardCharsets.UTF_8), Environment.class);
@@ -648,23 +633,24 @@ public class EnvironmentPanel extends SingletonBasePanel {
     }
 
     private void refreshListAndComboFromAdd(List<Environment> envs) {
-        EnvironmentComboBox environmentComboBox = SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
+        EnvironmentComboBox environmentComboBox = UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
         for (Environment env : envs) {
             EnvironmentService.saveEnvironment(env);
             environmentComboBox.addItem(new EnvironmentItem(env)); // 添加到下拉框
             environmentListModel.addElement(new EnvironmentItem(env)); // 添加到列表
         }
-        NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_EASY_SUCCESS));
+        NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_EASY_SUCCESS));
     }
 
     /**
      * 导入Postman环境变量JSON文件
      */
     private void importPostmanEnvironments() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_POSTMAN_TITLE));
+        SystemFileChooser fileChooser = FileChooserUtil.createOpenFileChooser(
+                "environments.import.postman",
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_POSTMAN_TITLE));
         int userSelection = fileChooser.showOpenDialog(this);
-        if (userSelection == JFileChooser.APPROVE_OPTION) {
+        if (userSelection == SystemFileChooser.APPROVE_OPTION) {
             java.io.File fileToOpen = fileChooser.getSelectedFile();
             try {
                 String json = FileUtil.readString(fileToOpen, StandardCharsets.UTF_8);
@@ -690,10 +676,11 @@ public class EnvironmentPanel extends SingletonBasePanel {
      * 导入IntelliJ IDEA HTTP Client环境变量JSON文件
      */
     private void importIntelliJEnvironments() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_INTELLIJ_TITLE));
+        SystemFileChooser fileChooser = FileChooserUtil.createOpenFileChooser(
+                "environments.import.intellijHttp",
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_IMPORT_INTELLIJ_TITLE));
         int userSelection = fileChooser.showOpenDialog(this);
-        if (userSelection == JFileChooser.APPROVE_OPTION) {
+        if (userSelection == SystemFileChooser.APPROVE_OPTION) {
             File fileToOpen = fileChooser.getSelectedFile();
             try {
                 String json = FileUtil.readString(fileToOpen, StandardCharsets.UTF_8);
@@ -717,20 +704,21 @@ public class EnvironmentPanel extends SingletonBasePanel {
 
     // 新增环境
     private void addEnvironment() {
-        String name = JOptionPane.showInputDialog(this,
-                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_ADD_PROMPT),
-                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_ADD_TITLE), JOptionPane.PLAIN_MESSAGE);
-        if (name != null && !name.trim().isEmpty()) {
-            Environment env = new Environment(name.trim());
+        TextInputDialog.showRequiredName(this,
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_ADD_TITLE),
+                "",
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_NAME_EMPTY)
+        ).ifPresent(name -> {
+            Environment env = new Environment(name);
             env.setId("env-" + IdUtil.simpleUUID());
             EnvironmentService.saveEnvironment(env);
             environmentListModel.addElement(new EnvironmentItem(env));
             environmentList.setSelectedValue(new EnvironmentItem(env), true);
-            EnvironmentComboBox environmentComboBox = SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
+            EnvironmentComboBox environmentComboBox = UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
             if (environmentComboBox != null) {
                 environmentComboBox.addItem(new EnvironmentItem(env));
             }
-        }
+        });
     }
 
     private void reloadEnvironmentList(String filter) {
@@ -757,24 +745,20 @@ public class EnvironmentPanel extends SingletonBasePanel {
         EnvironmentItem item = environmentList.getSelectedValue();
         if (item == null) return;
         Environment env = item.getEnvironment();
-        Object result = JOptionPane.showInputDialog(this,
-                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_RENAME_PROMPT),
+        TextInputDialog.showRequiredName(this,
                 I18nUtil.getMessage(MessageKeys.ENV_DIALOG_RENAME_TITLE),
-                JOptionPane.PLAIN_MESSAGE, null, null, env.getName());
-        if (result != null) {
-            String newName = result.toString().trim();
-            if (!newName.isEmpty() && !newName.equals(env.getName())) {
-                env.setName(newName);
-                EnvironmentService.saveEnvironment(env);
-                environmentListModel.setElementAt(new EnvironmentItem(env), environmentList.getSelectedIndex());
-                // 同步刷新顶部环境下拉框
-                SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
-            } else {
-                JOptionPane.showMessageDialog(this,
-                        I18nUtil.getMessage(MessageKeys.ENV_DIALOG_RENAME_FAIL),
-                        I18nUtil.getMessage(MessageKeys.ENV_DIALOG_SAVE_CHANGES_TITLE), JOptionPane.WARNING_MESSAGE);
+                env.getName(),
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_NAME_EMPTY)
+        ).ifPresent(newName -> {
+            if (newName.equals(env.getName())) {
+                return;
             }
-        }
+            env.setName(newName);
+            EnvironmentService.saveEnvironment(env);
+            environmentListModel.setElementAt(new EnvironmentItem(env), environmentList.getSelectedIndex());
+            // 同步刷新顶部环境下拉框
+            UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
+        });
     }
 
     /**
@@ -821,14 +805,14 @@ public class EnvironmentPanel extends SingletonBasePanel {
             }
 
             // 刷新顶部下拉框
-            SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
+            UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
 
             // 设置当前的变量表格为激活环境
             loadActiveEnvironmentVariables();
 
             // 显示删除成功消息
             if (deletedCount > 0) {
-                NotificationUtil.showSuccess(
+                NotificationCenter.showSuccess(
                         I18nUtil.getMessage(MessageKeys.ENV_DIALOG_DELETE_SUCCESS, deletedCount)
                 );
             }
@@ -851,7 +835,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
             EnvironmentService.saveEnvironment(copy);
             EnvironmentItem copyItem = new EnvironmentItem(copy);
             environmentListModel.addElement(copyItem);
-            EnvironmentComboBox environmentComboBox = SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
+            EnvironmentComboBox environmentComboBox = UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
             if (environmentComboBox != null) {
                 environmentComboBox.addItem(copyItem);
             }
@@ -915,17 +899,18 @@ public class EnvironmentPanel extends SingletonBasePanel {
         EnvironmentItem item = environmentList.getSelectedValue();
         if (item == null) return;
         Environment env = item.getEnvironment();
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_POSTMAN_TITLE));
+        SystemFileChooser fileChooser = FileChooserUtil.createSaveFileChooser(
+                "environments.export.postman",
+                I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_POSTMAN_TITLE));
         fileChooser.setSelectedFile(new File(env.getName() + "-postman-env.json"));
         int userSelection = fileChooser.showSaveDialog(this);
-        if (userSelection == JFileChooser.APPROVE_OPTION) {
+        if (userSelection == SystemFileChooser.APPROVE_OPTION) {
             File fileToSave = fileChooser.getSelectedFile();
             try {
                 // 只导出当前环境为Postman格式
                 String postmanEnvJson = PostmanEnvironmentParser.toPostmanEnvironmentJson(env);
                 FileUtil.writeUtf8String(postmanEnvJson, fileToSave);
-                NotificationUtil.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_POSTMAN_SUCCESS));
+                NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.ENV_DIALOG_EXPORT_POSTMAN_SUCCESS));
             } catch (Exception ex) {
                 log.error("导出Postman环境失败", ex);
                 JOptionPane.showMessageDialog(this,
@@ -950,7 +935,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
      * 拖拽后同步顶部下拉框顺序
      */
     private void syncComboBoxOrder() {
-        EnvironmentComboBox comboBox = SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
+        EnvironmentComboBox comboBox = UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox();
         if (comboBox != null) {
             List<EnvironmentItem> items = new ArrayList<>();
             for (int i = 0; i < environmentListModel.size(); i++) {
@@ -967,7 +952,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
         EnvironmentService.setDataFilePath(envFilePath);
         this.refreshUI();
         // 同步刷新顶部环境下拉框
-        SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
+        UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
     }
 
     /**
@@ -982,7 +967,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
         Environment environment = selectedItem.getEnvironment();
 
         // 使用工作区转移辅助类（显示成功消息）
-        WorkspaceTransferHelper.transferToWorkspace(
+        WorkspaceTransferCoordinator.transferToWorkspace(
                 environment.getName(),
                 (targetWorkspace, itemName) -> performEnvironmentMove(environment, targetWorkspace)
         );
@@ -1021,7 +1006,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
             refreshUI();
 
             // 7. 刷新顶部环境下拉框
-            SingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
+            UiSingletonFactory.getInstance(TopMenuBar.class).getEnvironmentComboBox().reload();
 
             log.info("Successfully moved environment '{}' to workspace '{}'",
                     environment.getName(), targetWorkspace.getName());
@@ -1126,7 +1111,7 @@ public class EnvironmentPanel extends SingletonBasePanel {
      */
     private void showBulkEditDialog() {
         if (currentEnvironment == null) {
-            NotificationUtil.showWarning("Please select an environment first");
+            NotificationCenter.showWarning("Please select an environment first");
             return;
         }
 
@@ -1143,15 +1128,15 @@ public class EnvironmentPanel extends SingletonBasePanel {
         JTextArea textArea = new JTextArea(text.toString());
         textArea.setLineWrap(false);
         textArea.setTabSize(4);
-        // 设置背景色，使其看起来像可编辑区域
-        textArea.setBackground(ModernColors.getInputBackgroundColor());
-        textArea.setForeground(ModernColors.getTextPrimary());
-        textArea.setCaretColor(ModernColors.PRIMARY);
+        ToolWindowSurfaceStyle.applyTextComponentInput(textArea);
+        textArea.setCaretColor(ModernColors.getPrimary());
 
         // 将光标定位到文本末尾
         textArea.setCaretPosition(textArea.getDocument().getLength());
 
         JScrollPane scrollPane = new JScrollPane(textArea);
+        ToolWindowSurfaceStyle.applyDialogScrollPane(scrollPane);
+        ToolWindowSurfaceStyle.applyDialogInputBorder(scrollPane, false);
         scrollPane.setPreferredSize(new Dimension(600, 400));
 
         // 3. 创建提示标签 - 使用国际化，垂直排列
@@ -1177,21 +1162,24 @@ public class EnvironmentPanel extends SingletonBasePanel {
 
         // 4. 组装内容面板
         JPanel contentPanel = new JPanel(new BorderLayout(0, 5));
+        ToolWindowSurfaceStyle.applyDialogSurface(contentPanel);
         contentPanel.add(hintPanel, BorderLayout.NORTH);
         contentPanel.add(scrollPane, BorderLayout.CENTER);
-        contentPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
 
         // 5. 创建按钮面板
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        JButton okButton = new JButton(I18nUtil.getMessage(MessageKeys.GENERAL_OK));
-        JButton cancelButton = new JButton(I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL));
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        ToolWindowSurfaceStyle.applyDialogFooter(buttonPanel);
+        JButton cancelButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL), false);
+        JButton okButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.GENERAL_OK), true);
 
-        buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
+        buttonPanel.add(okButton);
 
         // 6. 创建自定义对话框
         Window window = SwingUtilities.getWindowAncestor(this);
         JDialog dialog = new JDialog(window, I18nUtil.getMessage(MessageKeys.ENV_BULK_EDIT_VARIABLES), Dialog.ModalityType.APPLICATION_MODAL);
+        ToolWindowSurfaceStyle.applyDialogWindowChrome(dialog);
         dialog.setLayout(new BorderLayout());
         dialog.add(contentPanel, BorderLayout.CENTER);
         dialog.add(buttonPanel, BorderLayout.SOUTH);

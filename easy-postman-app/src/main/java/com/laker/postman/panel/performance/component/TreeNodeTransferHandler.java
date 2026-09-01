@@ -1,7 +1,10 @@
 package com.laker.postman.panel.performance.component;
 
-import com.laker.postman.panel.performance.model.JMeterTreeNode;
-import com.laker.postman.panel.performance.model.NodeType;
+import com.laker.postman.performance.core.model.NodeType;
+
+
+import com.laker.postman.panel.performance.PerformanceTreeRules;
+import com.laker.postman.performance.model.PerformanceTreeNode;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
@@ -19,11 +22,11 @@ public class TreeNodeTransferHandler extends TransferHandler {
     private final DataFlavor[] flavors;
     private DefaultMutableTreeNode nodeToRemove;
 
-    private final JTree jmeterTree;
+    private final JTree performanceTree;
     private final DefaultTreeModel treeModel;
 
-    public TreeNodeTransferHandler(JTree jmeterTree, DefaultTreeModel treeModel) {
-        this.jmeterTree = jmeterTree;
+    public TreeNodeTransferHandler(JTree performanceTree, DefaultTreeModel treeModel) {
+        this.performanceTree = performanceTree;
         this.treeModel = treeModel;
         try {
             nodeFlavor = new DataFlavor(DataFlavor.javaJVMLocalObjectMimeType + ";class=javax.swing.tree.DefaultMutableTreeNode");
@@ -39,11 +42,8 @@ public class TreeNodeTransferHandler extends TransferHandler {
         if (path != null) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
             Object userObj = node.getUserObject();
-            if (userObj instanceof JMeterTreeNode jtNode) {
-                if (jtNode.type == NodeType.ROOT
-                        || jtNode.type == NodeType.SSE_CONNECT
-                        || jtNode.type == NodeType.SSE_AWAIT
-                        || jtNode.type == NodeType.WS_CONNECT) {
+            if (userObj instanceof PerformanceTreeNode nodeData) {
+                if (nodeData.type == NodeType.ROOT) {
                     return NONE;
                 }
             }
@@ -79,45 +79,8 @@ public class TreeNodeTransferHandler extends TransferHandler {
         if (nodeToRemove == null) {
             return false;
         }
-        Object dragObj = nodeToRemove.getUserObject();
-        Object userObj = targetNode.getUserObject();
-        if (!(dragObj instanceof JMeterTreeNode dragJtNode)) {
+        if (!(nodeToRemove.getUserObject() instanceof PerformanceTreeNode)) {
             return false;
-        }
-        if (!(userObj instanceof JMeterTreeNode jtNode)) {
-            return false;
-        }
-        if (dragJtNode.type == NodeType.THREAD_GROUP) {
-            if (jtNode.type != NodeType.ROOT) {
-                return false;
-            }
-        }
-        if (dragJtNode.type == NodeType.REQUEST) {
-            if (jtNode.type != NodeType.THREAD_GROUP) {
-                return false;
-            }
-        }
-        // 断言、定时器只能在请求下
-        if (dragJtNode.type == NodeType.ASSERTION) {
-            if (jtNode.type != NodeType.REQUEST
-                    && jtNode.type != NodeType.SSE_AWAIT
-                    && jtNode.type != NodeType.WS_AWAIT) {
-                return false;
-            }
-        }
-        if (dragJtNode.type == NodeType.TIMER) {
-            if (jtNode.type != NodeType.REQUEST) {
-                return false;
-            }
-        }
-        if (dragJtNode.type == NodeType.WS_SEND
-                || dragJtNode.type == NodeType.WS_AWAIT
-                || dragJtNode.type == NodeType.WS_CLOSE) {
-            if (jtNode.type != NodeType.REQUEST) {
-                return false;
-            }
-            return jtNode.httpRequestItem != null && jtNode.httpRequestItem.getProtocol() != null
-                    && jtNode.httpRequestItem.getProtocol().isWebSocketProtocol();
         }
         // 不允许拖到自己或子孙节点
         if (nodeToRemove == targetNode) {
@@ -126,10 +89,7 @@ public class TreeNodeTransferHandler extends TransferHandler {
         if (isNodeDescendant(nodeToRemove, targetNode)) {
             return false;
         }
-        return dragJtNode.type != NodeType.ROOT
-                && dragJtNode.type != NodeType.SSE_CONNECT
-                && dragJtNode.type != NodeType.SSE_AWAIT
-                && dragJtNode.type != NodeType.WS_CONNECT;
+        return PerformanceTreeRules.canAcceptChild(targetNode, nodeToRemove);
     }
 
     @Override
@@ -156,8 +116,8 @@ public class TreeNodeTransferHandler extends TransferHandler {
                 insertIndex--;
             }
             treeModel.insertNodeInto(node, parent, insertIndex);
-            jmeterTree.expandPath(new TreePath(parent.getPath()));
-            jmeterTree.updateUI(); // 强制刷新
+            performanceTree.expandPath(new TreePath(parent.getPath()));
+            performanceTree.updateUI(); // 强制刷新
             return true;
         } catch (UnsupportedFlavorException | IOException ex) {
             log.error(ex.getMessage(), ex);

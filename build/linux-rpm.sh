@@ -74,7 +74,7 @@ cp "${APP_TARGET_DIR}/$JAR_NAME_WITH_VERSION" "${APP_TARGET_DIR}/$JAR_NAME"
 echo "⚙️ 使用 jlink 创建最小化运行时..."
 rm -rf target/runtime
 jlink \
-    --add-modules java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki \
+    --add-modules java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,jdk.httpserver,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki \
     --strip-debug \
     --no-header-files \
     --no-man-pages \
@@ -113,7 +113,7 @@ jpackage \
     --linux-menu-group "Development" \
     --linux-app-category "Development" \
     --linux-rpm-license-type "MIT" \
-    --java-options "-Xms512m" \
+    --java-options "-Xms256m" \
     --java-options "-Xmx1g" \
     --java-options "-XX:MaxMetaspaceSize=256m" \
     --java-options "-XX:MetaspaceSize=128m" \
@@ -136,8 +136,17 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# 自动识别 jpackage 产出的 RPM 文件名，避免架构提示写死为 x86_64
+RPM_FILE=$(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name "*.rpm" | sort | tail -n 1)
+
 # 完成提示
 echo "🎉 RPM 包打包完成！输出路径：$(pwd)/${OUTPUT_DIR}"
-echo "📝 安装命令: sudo rpm -ivh ${OUTPUT_DIR}/EasyPostman-${VERSION}-1.x86_64.rpm"
-echo "📝 或使用: sudo yum install ${OUTPUT_DIR}/EasyPostman-${VERSION}-1.x86_64.rpm"
+if [ -n "${RPM_FILE}" ]; then
+    RPM_BASENAME=$(basename "${RPM_FILE}")
+    echo "📝 安装命令: sudo rpm -ivh ${OUTPUT_DIR}/${RPM_BASENAME}"
+    echo "📝 或使用: sudo yum install ${OUTPUT_DIR}/${RPM_BASENAME}"
+else
+    echo "📝 安装命令: sudo rpm -ivh ${OUTPUT_DIR}/<generated-package>.rpm"
+    echo "📝 或使用: sudo yum install ${OUTPUT_DIR}/<generated-package>.rpm"
+fi
 echo "📝 卸载命令: sudo rpm -e EasyPostman"

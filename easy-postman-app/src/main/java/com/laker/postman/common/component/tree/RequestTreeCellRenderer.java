@@ -1,13 +1,16 @@
 package com.laker.postman.common.component.tree;
 
-import com.formdev.flatlaf.FlatLaf;
+import com.laker.postman.collection.model.RequestGroup;
+import com.laker.postman.request.model.RequestItemProtocolEnum;
+import com.laker.postman.request.model.SavedResponse;
+import com.laker.postman.request.model.HttpRequestItem;
+
+
 import com.formdev.flatlaf.extras.FlatSVGIcon;
-import com.laker.postman.model.HttpRequestItem;
-import com.laker.postman.model.RequestGroup;
-import com.laker.postman.model.RequestItemProtocolEnum;
-import com.laker.postman.model.SavedResponse;
-import com.laker.postman.panel.collections.left.RequestCollectionsLeftPanel;
-import com.laker.postman.service.http.HttpUtil;
+import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.panel.collections.tree.CollectionTreePanel;
+import com.laker.postman.service.collections.CollectionTreeNodes;
+import com.laker.postman.common.component.HttpRequestDisplayMetadata;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.IconUtil;
 
@@ -90,16 +93,13 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
         showMoreButton = false;
 
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) value;
-        Object userObject = node.getUserObject();
-        if (userObject instanceof Object[] obj) {
-            if (RequestCollectionsLeftPanel.GROUP.equals(obj[0])) {
-                renderGroupNode(node, obj, row);
-            } else if (RequestCollectionsLeftPanel.REQUEST.equals(obj[0])) {
-                applyRequestRendering((HttpRequestItem) obj[1]);
-            } else if (RequestCollectionsLeftPanel.SAVED_RESPONSE.equals(obj[0])) {
-                applySavedResponseRendering((SavedResponse) obj[1]);
-            }
-        }
+        CollectionTreeNodes.group(node).ifPresentOrElse(
+                group -> renderGroupNode(node, group, row),
+                () -> CollectionTreeNodes.request(node).ifPresentOrElse(
+                        this::applyRequestRendering,
+                        () -> CollectionTreeNodes.savedResponse(node).ifPresent(this::applySavedResponseRendering)
+                )
+        );
 
         return this;
     }
@@ -109,11 +109,10 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
      */
     private static final int BUTTONS_RESERVED_WIDTH = ADD_BUTTON_WIDTH + MORE_BUTTON_WIDTH + 4;
 
-    private void renderGroupNode(DefaultMutableTreeNode node, Object[] obj, int row) {
-        Object groupData = obj[1];
-        String groupName = groupData instanceof RequestGroup rg ? rg.getName() : String.valueOf(groupData);
+    private void renderGroupNode(DefaultMutableTreeNode node, RequestGroup group, int row) {
+        String groupName = group.getName();
         boolean isRootLevel = node.getParent() instanceof DefaultMutableTreeNode p &&
-                RequestCollectionsLeftPanel.ROOT.equals(String.valueOf(p.getUserObject()));
+                CollectionTreePanel.ROOT.equals(String.valueOf(p.getUserObject()));
         boolean isHover = (row == hoveredRow);
 
         if (isRootLevel) {
@@ -127,8 +126,8 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
             // hover 时用纯文本，JLabel 能自动省略超长文字
             setText(groupName);
         } else {
-            String nameColor = FlatLaf.isLafDark() ? "#e2e8f0" : "#1e293b";
-            setText("<html><nobr><span color:" + nameColor + "'>"
+            String nameColor = toHex(ModernColors.getTextPrimary());
+            setText("<html><nobr><span style='color:" + nameColor + "'>"
                     + escapeHtml(groupName) + "</span></nobr></html>");
         }
 
@@ -174,29 +173,18 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
         String method = item.getMethod();
         String name = item.getName();
         RequestItemProtocolEnum protocol = item.getProtocol();
-        String methodColor = HttpUtil.getMethodColor(method);
+        String methodColor = HttpRequestDisplayMetadata.methodColorHex(method);
 
         if (protocol.isWebSocketProtocol()) {
             method = "WS";
-            methodColor = "#29cea5";
+            methodColor = HttpRequestDisplayMetadata.protocolColorHex(method);
         } else if (protocol.isSseProtocol()) {
             method = "SSE";
-            methodColor = "#7fbee3";
+            methodColor = HttpRequestDisplayMetadata.protocolColorHex(method);
         } else {
-            method = abbreviateMethod(method);
+            method = HttpRequestDisplayMetadata.methodLabel(method);
         }
         setText(buildStyledText(method, methodColor, name));
-    }
-
-    private String abbreviateMethod(String method) {
-        if (method == null) return "";
-        return switch (method.toUpperCase()) {
-            case "DELETE" -> "DEL";
-            case "OPTIONS" -> "OPT";
-            case "PATCH" -> "PAT";
-            case "TRACE" -> "TRC";
-            default -> method;
-        };
     }
 
     private void applySavedResponseRendering(SavedResponse savedResponse) {
@@ -210,11 +198,15 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
     }
 
     private static String getStatusColor(int code) {
-        if (code >= 200 && code < 300) return "#28a745";
-        else if (code >= 300 && code < 400) return "#17a2b8";
-        else if (code >= 400 && code < 500) return "#ffc107";
-        else if (code >= 500) return "#dc3545";
-        return "#6c757d";
+        if (code >= 200 && code < 300) return ModernColors.toHtmlColor(ModernColors.getSuccess());
+        else if (code >= 300 && code < 400) return ModernColors.toHtmlColor(ModernColors.getInfo());
+        else if (code >= 400 && code < 500) return ModernColors.toHtmlColor(ModernColors.getWarning());
+        else if (code >= 500) return ModernColors.toHtmlColor(ModernColors.getError());
+        return ModernColors.toHtmlColor(ModernColors.getNeutral());
+    }
+
+    private static String toHex(Color color) {
+        return ModernColors.toHtmlColor(color);
     }
 
     private static String buildSavedResponseText(String name, int code, String timeStr, String statusColor) {
@@ -226,14 +218,15 @@ public class RequestTreeCellRenderer extends DefaultTreeCellRenderer {
         return "<html><nobr>"
                 + "<span style='font-size:" + nameFontSize + "px'>" + safeName + "</span> "
                 + "<span style='color:" + statusColor + ";font-size:" + statusFontSize + "px'>" + code + "</span> "
-                + "<span style='color:#999999;font-size:" + timeFontSize + "px'>" + timeStr + "</span>"
+                + "<span style='color:" + ModernColors.toHtmlColor(ModernColors.getTextHint()) + ";font-size:"
+                + timeFontSize + "px'>" + timeStr + "</span>"
                 + "</nobr></html>";
     }
 
     private static String buildStyledText(String method, String methodColor, String name) {
         String safeMethod = method == null ? "" : escapeHtml(method);
         String safeName = name == null ? "" : escapeHtml(name);
-        String color = methodColor == null ? "#000" : methodColor;
+        String color = methodColor == null ? ModernColors.toHtmlColor(ModernColors.getTextPrimary()) : methodColor;
         int baseFontSize = SettingManager.getUiFontSize();
         int methodFontSize = Math.max(7, baseFontSize - 5);
         int nameFontSize = Math.max(8, baseFontSize - 4);

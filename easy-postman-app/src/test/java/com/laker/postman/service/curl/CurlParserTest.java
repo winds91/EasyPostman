@@ -1,6 +1,19 @@
 package com.laker.postman.service.curl;
 
-import com.laker.postman.model.*;
+import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.http.runtime.model.HttpEventInfo;
+import com.laker.postman.http.request.PreparedRequestFactory;
+import com.laker.postman.request.model.AuthType;
+import com.laker.postman.request.model.HttpHeader;
+import com.laker.postman.request.model.HttpParam;
+import com.laker.postman.request.model.HttpFormData;
+import com.laker.postman.request.model.HttpFormUrlencoded;
+import com.laker.postman.request.model.HttpRequestItem;
+import com.laker.postman.request.model.RequestBodyTypes;
+import com.laker.postman.request.model.RequestItemProtocolEnum;
+import com.laker.postman.request.model.TransportAuth;
+import com.laker.postman.request.util.HttpUrlUtil;
+
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -106,14 +119,13 @@ public class CurlParserTest {
 
     @Test(description = "解析带转义字符的数据")
     public void testParseDataWithEscapeCharacters() {
-        // 使用双引号来支持转义字符处理
         String curl = "curl -X POST https://api.example.com/data " +
                 "-d \"{\\\"message\\\":\\\"Hello\\nWorld\\t!\\\",\\\"path\\\":\\\"/usr/local\\\"}\"";
         CurlRequest result = CurlParser.parse(curl);
 
         assertEquals(result.method, "POST");
-        // 在JSON字符串中，\n和\t会被处理为实际的换行和制表符
-        assertTrue(result.body.contains("Hello\nWorld\t!"));
+        assertTrue(result.body.contains("Hello\\nWorld\\t!"));
+        assertFalse(result.body.contains("Hello\nWorld\t!"));
         assertTrue(result.body.contains("/usr/local"));
     }
 
@@ -133,6 +145,67 @@ public class CurlParserTest {
         assertEquals(result.body, "{\"name\":\"John\"}");
     }
 
+    @Test(description = "批量 cURL 文本应拆分并逐条解析")
+    public void testParseMultipleCurlCommands() {
+        String curls = """
+                curl 'https://api.example.com/orders/123' \\
+                  -H 'Accept: application/json' \\
+                  -H 'Cookie: session=abc; lang=zh-CN' \\
+                  --insecure ;
+                curl 'https://api.example.com/orders/search' \\
+                  -H 'Content-Type: application/json' \\
+                  --data-raw '{"orderNo":"","pageNum":1,"pageSize":20}' \\
+                  --insecure ;
+                curl 'https://api.example.com/orders/stats?date=&status=' \\
+                  -H 'Accept: application/json' \\
+                  --insecure
+                """;
+
+        java.util.List<CurlRequest> results = CurlParser.parseMany(curls);
+
+        assertEquals(results.size(), 3);
+        assertEquals(results.get(0).url, "https://api.example.com/orders/123");
+        assertEquals(results.get(0).method, "GET");
+        assertEquals(findHeaderValue(results.get(0).headersList, "Cookie"), "session=abc; lang=zh-CN");
+        assertNull(results.get(0).body);
+
+        assertEquals(results.get(1).url, "https://api.example.com/orders/search");
+        assertEquals(results.get(1).method, "POST");
+        assertEquals(findHeaderValue(results.get(1).headersList, "Content-Type"), "application/json");
+        assertEquals(results.get(1).body, "{\"orderNo\":\"\",\"pageNum\":1,\"pageSize\":20}");
+
+        assertEquals(results.get(2).url, "https://api.example.com/orders/stats?date=&status=");
+        assertEquals(results.get(2).method, "GET");
+    }
+
+    @Test(description = "单条解析入口遇到批量 cURL 文本时只解析第一条")
+    public void testParseSingleCommandFromMultipleCurlText() {
+        String curls = """
+                curl 'https://api.example.com/first' -H 'X-First: true' ;
+                curl 'https://api.example.com/second' -H 'X-Second: true'
+                """;
+
+        CurlRequest result = CurlParser.parse(curls);
+
+        assertEquals(result.url, "https://api.example.com/first");
+        assertEquals(findHeaderValue(result.headersList, "X-First"), "true");
+        assertNull(findHeaderValue(result.headersList, "X-Second"));
+    }
+
+    @Test(description = "批量 cURL 拆分不能被引号中的分号干扰")
+    public void testSplitMultipleCurlCommandsIgnoresQuotedSemicolon() {
+        String curls = """
+                curl 'https://api.example.com/a' -H 'Cookie: a=1; b=2'
+                curl 'https://api.example.com/b' --data-raw '{"note":"a;b"}'
+                """;
+
+        java.util.List<String> commands = CurlParser.splitCommands(curls);
+
+        assertEquals(commands.size(), 2);
+        assertTrue(commands.get(0).contains("Cookie: a=1; b=2"));
+        assertTrue(commands.get(1).contains("{\"note\":\"a;b\"}"));
+    }
+
     @Test(description = "解析带URL参数的请求")
     public void testParseRequestWithUrlParameter() {
         String curl = "curl --url https://api.example.com/users -X GET";
@@ -140,6 +213,45 @@ public class CurlParserTest {
 
         assertEquals(result.url, "https://api.example.com/users");
         assertEquals(result.method, "GET");
+    }
+
+    @Test(description = "长选项应支持 --opt=value 形式")
+    public void testParseLongOptionsWithInlineValue() {
+        String curl = "curl --url=https://api.example.com/users " +
+                "--request=POST " +
+                "--header='Accept: application/json' " +
+                "--data-raw='{\"ok\":true}'";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.url, "https://api.example.com/users");
+        assertEquals(result.method, "POST");
+        assertEquals(findHeaderValue(result.headersList, "Accept"), "application/json");
+        assertEquals(result.body, "{\"ok\":true}");
+    }
+
+    @Test(description = "元数据表应消费不支持选项的参数，避免把代理地址误当请求 URL")
+    public void testOptionMetadataConsumesIgnoredOptionValues() {
+        String curl = "curl https://api.example.com/users " +
+                "--proxy http://proxy.example.com:8080 " +
+                "--connect-timeout 10 " +
+                "--resolve api.example.com:443:127.0.0.1";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.url, "https://api.example.com/users");
+        assertEquals(result.method, "GET");
+    }
+
+    @Test(description = "短选项聚合应按 curl 语义展开")
+    public void testParseShortOptionCluster() {
+        String curl = "curl -LkXPOST https://api.example.com/users";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertTrue(result.followRedirects);
+        assertEquals(result.method, "POST");
+        assertEquals(result.url, "https://api.example.com/users");
     }
 
     @Test(description = "解析不同的数据参数格式")
@@ -234,9 +346,9 @@ public class CurlParserTest {
 
         assertTrue(curlCommand.startsWith("curl"));
         assertTrue(curlCommand.contains("-X POST"));
-        assertTrue(curlCommand.contains("\"https://api.example.com/users\""));
-        assertTrue(curlCommand.contains("-H \"Content-Type: application/json\""));
-        assertTrue(curlCommand.contains("-H \"Authorization: Bearer token\""));
+        assertTrue(curlCommand.contains("'https://api.example.com/users'"));
+        assertTrue(curlCommand.contains("-H 'Content-Type: application/json'"));
+        assertTrue(curlCommand.contains("-H 'Authorization: Bearer token'"));
         assertTrue(curlCommand.contains("--data"));
         assertTrue(curlCommand.contains("'{\"name\":\"John\"}'"));
     }
@@ -258,6 +370,35 @@ public class CurlParserTest {
         assertTrue(curlCommand.contains("-F 'file=@/path/to/file.txt'"));
     }
 
+    @Test(description = "测试PreparedRequest转cURL - Digest认证")
+    public void testToCurlWithDigestAuth() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "GET";
+        preparedRequest.url = "https://api.example.com/digest";
+        preparedRequest.transportAuth = new TransportAuth(AuthType.DIGEST.getConstant(), "digest-user", "digest pass");
+
+        String curlCommand = CurlParser.toCurl(preparedRequest);
+
+        assertTrue(curlCommand.contains(" --digest"));
+        assertTrue(curlCommand.contains(" --user 'digest-user:digest pass'"));
+    }
+
+    @Test(description = "测试Digest认证cURL导出后可重新导入")
+    public void testDigestCurlRoundTripImport() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "GET";
+        preparedRequest.url = "https://api.example.com/digest";
+        preparedRequest.transportAuth = new TransportAuth(AuthType.DIGEST.getConstant(), "digest-user", "digest pass");
+
+        String curlCommand = CurlParser.toCurl(preparedRequest);
+        HttpRequestItem item = CurlImportUtil.fromCurl(curlCommand);
+
+        assertNotNull(item);
+        assertEquals(item.getAuthType(), AuthType.DIGEST.getConstant());
+        assertEquals(item.getAuthUsername(), "digest-user");
+        assertEquals(item.getAuthPassword(), "digest pass");
+    }
+
     @Test(description = "测试PreparedRequest转cURL - GET请求")
     public void testToCurlGetRequest() {
         PreparedRequest preparedRequest = new PreparedRequest();
@@ -270,8 +411,8 @@ public class CurlParserTest {
 
         assertTrue(curlCommand.startsWith("curl"));
         assertFalse(curlCommand.contains("-X GET")); // GET方法不应该显式指定
-        assertTrue(curlCommand.contains("\"https://api.example.com/users\""));
-        assertTrue(curlCommand.contains("-H \"Accept: application/json\""));
+        assertTrue(curlCommand.contains("'https://api.example.com/users'"));
+        assertTrue(curlCommand.contains("-H 'Accept: application/json'"));
     }
 
     @Test(description = "测试Bash Shell参数转义")
@@ -283,8 +424,185 @@ public class CurlParserTest {
 
         String curlCommand = CurlParser.toCurl(preparedRequest);
 
-        // 应该正确转义引号
-        assertTrue(curlCommand.contains("\"data with 'single quotes' and \\\"double quotes\\\"\""));
+        assertFalse(curlCommand.contains("--data \""));
+        assertTrue(curlCommand.contains("'\\''single quotes'\\''"));
+
+        CurlRequest parsed = CurlParser.parse(curlCommand);
+        assertEquals(parsed.body, preparedRequest.body);
+    }
+
+    @Test(description = "导出 cURL 时 URL 和请求头应使用 shell 安全引用")
+    public void testToCurlShellQuotesUrlAndHeaders() {
+        String userAgentClientHint = "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\"";
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "GET";
+        preparedRequest.url = "https://example.com/search?q=\"quoted\"&lang=zh-CN";
+        preparedRequest.headersList = new java.util.ArrayList<>();
+        preparedRequest.headersList.add(new HttpHeader(true, "sec-ch-ua", userAgentClientHint));
+
+        String curlCommand = CurlParser.toCurl(preparedRequest);
+
+        assertTrue(curlCommand.contains("'https://example.com/search?q=\"quoted\"&lang=zh-CN'"));
+        assertTrue(curlCommand.contains("-H 'sec-ch-ua: " + userAgentClientHint + "'"));
+
+        CurlRequest parsed = CurlParser.parse(curlCommand);
+        assertEquals(parsed.url, preparedRequest.url);
+        assertEquals(findHeaderValue(parsed.headersList, "sec-ch-ua"), userAgentClientHint);
+    }
+
+    @Test(description = "导出 cURL 时包含单引号的 body 不应退回到双引号")
+    public void testToCurlEscapesSingleQuotesWithoutDoubleQuoteFallback() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "POST";
+        preparedRequest.url = "https://example.com/api";
+        preparedRequest.body = "prefix 'quoted' $(uname) $HOME `id` \\ tail";
+
+        String curlCommand = CurlParser.toCurl(preparedRequest);
+
+        assertFalse(curlCommand.contains("--data \""));
+        assertTrue(curlCommand.contains("'\\''quoted'\\''"));
+
+        CurlRequest parsed = CurlParser.parse(curlCommand);
+        assertEquals(parsed.body, preparedRequest.body);
+    }
+
+    @Test(description = "复制实际发送 cURL 应使用网络层请求快照")
+    public void testToActualCurlUsesSentSnapshot() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "POST";
+        preparedRequest.url = "https://api.example.com/final";
+        preparedRequest.headersList = new java.util.ArrayList<>();
+        preparedRequest.headersList.add(new HttpHeader(true, "Authorization", "Bearer configured"));
+        preparedRequest.body = "{\"configured\":true}";
+        preparedRequest.sentHeadersList = new java.util.ArrayList<>();
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Host", "api.example.com"));
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Authorization", "Bearer actual"));
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Cookie", "session=jar; theme=dark"));
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Content-Length", "17"));
+        preparedRequest.sentRequestBody = "{\"actual\":true}";
+        preparedRequest.sentRequestBodyReplayable = true;
+
+        String curlCommand = CurlParser.toActualCurl(preparedRequest);
+
+        assertTrue(curlCommand.contains("-H 'Authorization: Bearer actual'"));
+        assertTrue(curlCommand.contains("-H 'Cookie: session=jar; theme=dark'"));
+        assertTrue(curlCommand.contains("-H 'Content-Length: 17'"));
+        assertTrue(curlCommand.contains("'{\"actual\":true}'"));
+        assertFalse(curlCommand.contains("Bearer configured"));
+        assertFalse(curlCommand.contains("{\"configured\":true}"));
+    }
+
+    @Test(description = "复制实际发送 cURL 应保留网络层协议版本")
+    public void testToActualCurlIncludesNegotiatedProtocol() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "GET";
+        preparedRequest.url = "https://api.example.com/h2";
+        preparedRequest.sentHeadersList = new java.util.ArrayList<>();
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Host", "api.example.com"));
+        preparedRequest.exchangeEventInfo = new HttpEventInfo();
+        preparedRequest.exchangeEventInfo.setProtocol("h2");
+
+        String curlCommand = CurlParser.toActualCurl(preparedRequest);
+
+        assertTrue(curlCommand.contains(" --http2 "));
+        assertFalse(curlCommand.contains("-X GET"));
+    }
+
+    @Test(description = "复制实际发送 cURL 应优先使用网络层实际 URL 和方法")
+    public void testToActualCurlUsesSentUrlAndMethod() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "POST";
+        preparedRequest.url = "https://api.example.com/start";
+        preparedRequest.sentMethod = "GET";
+        preparedRequest.sentUrl = "https://api.example.com/target";
+        preparedRequest.sentHeadersList = new java.util.ArrayList<>();
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Host", "api.example.com"));
+
+        String curlCommand = CurlParser.toActualCurl(preparedRequest);
+
+        assertTrue(curlCommand.contains("'https://api.example.com/target'"));
+        assertFalse(curlCommand.contains("https://api.example.com/start"));
+        assertFalse(curlCommand.contains("-X POST"));
+    }
+
+    @Test(description = "复制实际发送 cURL 在 GET 有请求体快照时应显式保留 GET 方法")
+    public void testToActualCurlPreservesGetMethodWhenBodySnapshotExists() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "GET";
+        preparedRequest.url = "https://api.example.com/search";
+        preparedRequest.sentMethod = "GET";
+        preparedRequest.sentUrl = "https://api.example.com/search";
+        preparedRequest.sentHeadersList = new java.util.ArrayList<>();
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Host", "api.example.com"));
+        preparedRequest.sentRequestBody = "{\"query\":\"hello\"}";
+        preparedRequest.sentRequestBodyReplayable = true;
+
+        String curlCommand = CurlParser.toActualCurl(preparedRequest);
+
+        assertTrue(curlCommand.contains(" -X GET "));
+        assertTrue(curlCommand.contains("--data-raw '{\"query\":\"hello\"}'"));
+    }
+
+    @Test(description = "复制实际发送 cURL 不应把截断的诊断请求体当作真实 payload")
+    public void testToActualCurlOmitsTruncatedBodyPreview() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "POST";
+        preparedRequest.url = "https://api.example.com/upload";
+        preparedRequest.sentMethod = "POST";
+        preparedRequest.sentUrl = "https://api.example.com/upload";
+        preparedRequest.sentHeadersList = new java.util.ArrayList<>();
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Content-Type", "application/json"));
+        preparedRequest.sentRequestBody = "{\"partial\":true}\n\n[Truncated request body: 1048576 bytes, showing first 64KB]";
+        preparedRequest.sentRequestBodyReplayable = false;
+
+        String curlCommand = CurlParser.toActualCurl(preparedRequest);
+
+        assertFalse(curlCommand.contains("--data-raw"));
+        assertFalse(curlCommand.contains("Truncated request body"));
+        assertTrue(curlCommand.startsWith("# Request body omitted:"));
+        assertTrue(curlCommand.contains("-X POST"));
+    }
+
+    @Test(description = "复制实际发送 cURL 在省略不可复现请求体时不应保留请求体 framing 头")
+    public void testToActualCurlOmitsBodyFramingHeadersWhenBodyIsNotReplayable() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "POST";
+        preparedRequest.url = "https://api.example.com/upload";
+        preparedRequest.sentMethod = "POST";
+        preparedRequest.sentUrl = "https://api.example.com/upload";
+        preparedRequest.sentHeadersList = new java.util.ArrayList<>();
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Content-Type", "application/octet-stream"));
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Content-Length", "1048576"));
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Transfer-Encoding", "chunked"));
+        preparedRequest.sentRequestBody = "[binary/octet-stream]";
+        preparedRequest.sentRequestBodyReplayable = false;
+
+        String curlCommand = CurlParser.toActualCurl(preparedRequest);
+
+        assertFalse(curlCommand.contains("--data-raw"));
+        assertFalse(curlCommand.contains("Content-Length"));
+        assertFalse(curlCommand.contains("Transfer-Encoding"));
+        assertTrue(curlCommand.contains("-H 'Content-Type: application/octet-stream'"));
+        assertTrue(curlCommand.startsWith("# Request body omitted:"));
+    }
+
+    @Test(description = "复制实际发送 cURL 不应把 multipart 占位文本当作真实 payload")
+    public void testToActualCurlOmitsMultipartPlaceholderBodyPreview() {
+        PreparedRequest preparedRequest = new PreparedRequest();
+        preparedRequest.method = "POST";
+        preparedRequest.url = "https://api.example.com/form";
+        preparedRequest.sentMethod = "POST";
+        preparedRequest.sentUrl = "https://api.example.com/form";
+        preparedRequest.sentHeadersList = new java.util.ArrayList<>();
+        preparedRequest.sentHeadersList.add(new HttpHeader(true, "Content-Type", "multipart/form-data; boundary=abc"));
+        preparedRequest.sentRequestBody = "[multipart/form-data] (see form files)";
+        preparedRequest.sentRequestBodyReplayable = false;
+
+        String curlCommand = CurlParser.toActualCurl(preparedRequest);
+
+        assertFalse(curlCommand.contains("--data-raw"));
+        assertFalse(curlCommand.contains("[multipart/form-data]"));
+        assertTrue(curlCommand.startsWith("# Request body omitted:"));
     }
 
     @DataProvider(name = "getRequestFormats")
@@ -384,6 +702,37 @@ public class CurlParserTest {
         assertEquals(findHeaderValue(result2.headersList, "Content-Type"), "application/json");
     }
 
+    @Test(description = "测试 -H 分号格式导入空值头")
+    public void testHeaderSemicolonImportsEmptyHeaderValue() {
+        String curl = "curl -H 'X-Empty;' https://api.example.com";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(findHeaderValue(result.headersList, "X-Empty"), "");
+    }
+
+    @Test(description = "测试 -A/--user-agent 导入为 User-Agent 头")
+    public void testParseUserAgentOptionAsHeader() {
+        String curl = "curl -A 'Agent/1.0' --user-agent 'Agent/2.0' https://api.example.com";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(findHeaderValue(result.headersList, "User-Agent"), "Agent/2.0");
+    }
+
+    @Test(description = "测试 Windows CMD caret 转义的 URL 和请求头")
+    public void testParseWindowsCmdCaretEscapedUrlAndHeader() {
+        String curl = "curl \"https://example.com/api?first=1^&second=2\" " +
+                "-H \"X-Token: a^&b\"";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.url, "https://example.com/api?first=1&second=2");
+        assertEquals(findParamValue(result.paramsList, "first"), "1");
+        assertEquals(findParamValue(result.paramsList, "second"), "2");
+        assertEquals(findHeaderValue(result.headersList, "X-Token"), "a&b");
+    }
+
     @Test(description = "测试HTTP方法大小写转换")
     public void testHttpMethodCaseConversion() {
         String curl = "curl -X post https://api.example.com";
@@ -412,7 +761,7 @@ public class CurlParserTest {
         // 测试部分null
         preparedRequest.url = "https://api.example.com";
         curlCommand = CurlParser.toCurl(preparedRequest);
-        assertTrue(curlCommand.contains("\"https://api.example.com\""));
+        assertTrue(curlCommand.contains("'https://api.example.com'"));
     }
 
     @Test(description = "测试复合场景 - 完整的Bash cURL命令")
@@ -637,6 +986,18 @@ public class CurlParserTest {
         assertEquals(result.body, "{\"messages\":[{\"content\":\"{\\\"text\\\":\\\"1\\\"}\",\"content_type\":2001}],\"conversation_id\":\"24642138855619074\"}");
     }
 
+    @Test(description = "导入 cURL 时不压缩引号内 raw body 空白")
+    public void testParsePreservesQuotedRawBodyWhitespace() {
+        String body = "line  one\nline\tthree";
+        String curl = "curl -X POST 'https://example.com/text' " +
+                "-H 'Content-Type: text/plain' " +
+                "--data-raw '" + body + "'";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.body, body);
+    }
+
 
     @Test(description = "测试 -G 选项：GET 请求与 data-urlencode")
     public void testForceGetWithDataUrlencode() {
@@ -672,6 +1033,39 @@ public class CurlParserTest {
                 "使用 data-urlencode 时，数据应该解析到 urlencoded list 中");
         // body 应该为 null，因为数据在 urlencoded list 中
         assertNull(result.body, "当使用 urlencoded 时，body 应该为 null");
+    }
+
+    @Test(description = "测试 data-urlencode 单个参数中的 & 是 value 内容")
+    public void testDataUrlencodeTreatsAmpersandAsValueContentForPost() {
+        String curl = "curl -XPOST 'https://example.com/search' " +
+                "--data-urlencode 'q=a&b' " +
+                "--data-urlencode 'limit=10'";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.method, "POST");
+        assertEquals(findHeaderValue(result.headersList, "Content-Type"), "application/x-www-form-urlencoded");
+        assertEquals(result.urlencodedList.size(), 2);
+        assertEquals(findUrlencodedValue(result.urlencodedList, "q"), "a&b");
+        assertEquals(findUrlencodedValue(result.urlencodedList, "limit"), "10");
+        assertNull(findUrlencodedValue(result.urlencodedList, "b"));
+        assertNull(result.body);
+    }
+
+    @Test(description = "测试 -G 下普通 -d 按 & 拆，data-urlencode 不按 & 拆")
+    public void testForceGetSplitsDataAmpersandButKeepsDataUrlencodeAmpersand() {
+        String curl = "curl -G 'https://example.com/search' " +
+                "-d 'page=1&size=20' " +
+                "--data-urlencode 'q=a&b'";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.method, "GET");
+        assertEquals(findParamValue(result.paramsList, "page"), "1");
+        assertEquals(findParamValue(result.paramsList, "size"), "20");
+        assertEquals(findParamValue(result.paramsList, "q"), "a&b");
+        assertNull(findParamValue(result.paramsList, "b"));
+        assertNull(result.body);
     }
 
     @Test(description = "测试 POST 与多个 data-urlencode 参数")
@@ -789,6 +1183,23 @@ public class CurlParserTest {
         assertEquals(findHeaderValue(result.headersList, "Custom-Header"), "value");
     }
 
+    @Test(description = "WebSocket 受限头过滤不应依赖 URL 出现顺序")
+    public void testWebSocketRestrictedHeaderFilteringAfterUrlIsKnown() {
+        String curl = "curl -H 'Upgrade: websocket' " +
+                "-H 'Connection: Upgrade' " +
+                "-H 'sec-websocket-key: abc123' " +
+                "-H 'Custom-Header: value' " +
+                "'wss://example.com/socket'";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(result.url, "wss://example.com/socket");
+        assertNull(findHeaderValue(result.headersList, "Upgrade"));
+        assertNull(findHeaderValue(result.headersList, "Connection"));
+        assertNull(findHeaderValue(result.headersList, "sec-websocket-key"));
+        assertEquals(findHeaderValue(result.headersList, "Custom-Header"), "value");
+    }
+
     @Test(description = "测试双引号包含单引号")
     public void testDoubleQuoteWithSingleQuote() {
         String curl = "curl -d \"data with 'single' quotes\" https://example.com";
@@ -878,8 +1289,8 @@ public class CurlParserTest {
         req.method = "POST";
         req.url = "https://example.com/api";
         req.urlencodedList = new java.util.ArrayList<>();
-        req.urlencodedList.add(new com.laker.postman.model.HttpFormUrlencoded(true, "username", "admin"));
-        req.urlencodedList.add(new com.laker.postman.model.HttpFormUrlencoded(true, "password", "secret123"));
+        req.urlencodedList.add(new com.laker.postman.request.model.HttpFormUrlencoded(true, "username", "admin"));
+        req.urlencodedList.add(new com.laker.postman.request.model.HttpFormUrlencoded(true, "password", "secret123"));
 
         String curl = CurlParser.toCurl(req);
 
@@ -904,8 +1315,8 @@ public class CurlParserTest {
         original.method = "POST";
         original.url = "https://example.com/api";
         original.urlencodedList = new java.util.ArrayList<>();
-        original.urlencodedList.add(new com.laker.postman.model.HttpFormUrlencoded(true, "key1", "value1"));
-        original.urlencodedList.add(new com.laker.postman.model.HttpFormUrlencoded(true, "key2", "value2"));
+        original.urlencodedList.add(new com.laker.postman.request.model.HttpFormUrlencoded(true, "key1", "value1"));
+        original.urlencodedList.add(new com.laker.postman.request.model.HttpFormUrlencoded(true, "key2", "value2"));
 
         String curlCommand = CurlParser.toCurl(original);
         CurlRequest parsed = CurlParser.parse(curlCommand);
@@ -935,7 +1346,7 @@ public class CurlParserTest {
         CurlRequest result = CurlParser.parse(curl);
 
         assertEquals(result.url, "https://example.com/api?name=John%20Doe&age=30&tags=a,b,c");
-        assertEquals(findParamValue(result.paramsList, "name"), "John%20Doe");
+        assertEquals(findParamValue(result.paramsList, "name"), "John Doe");
         assertEquals(findParamValue(result.paramsList, "age"), "30");
         assertEquals(findParamValue(result.paramsList, "tags"), "a,b,c");
     }
@@ -976,6 +1387,19 @@ public class CurlParserTest {
         assertEquals(findParamValue(result.paramsList, "limit"), "10");
     }
 
+    @Test(description = "解析 cURL URL 中用于关闭 glob 的方括号转义")
+    public void testParseUrlWithCurlEscapedGlobBrackets() {
+        String curl = "curl 'https://www.google.com/httpservice/web/AimThreadsService/ListThreads?aep=48&reqpld=\\[null,null,1\\]&msc=gwsclient'";
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(
+                result.url,
+                "https://www.google.com/httpservice/web/AimThreadsService/ListThreads?aep=48&reqpld=[null,null,1]&msc=gwsclient"
+        );
+        assertEquals(findParamValue(result.paramsList, "reqpld"), "[null,null,1]");
+    }
+
     @Test(description = "测试同时使用 body 和 urlencoded（body 优先）")
     public void testBodyAndUrlencodedConflict() {
         PreparedRequest req = new PreparedRequest();
@@ -983,7 +1407,7 @@ public class CurlParserTest {
         req.url = "https://example.com/api";
         req.body = "{\"raw\":\"json\"}";
         req.urlencodedList = new java.util.ArrayList<>();
-        req.urlencodedList.add(new com.laker.postman.model.HttpFormUrlencoded(true, "key", "value"));
+        req.urlencodedList.add(new com.laker.postman.request.model.HttpFormUrlencoded(true, "key", "value"));
 
         String curl = CurlParser.toCurl(req);
 
@@ -1049,9 +1473,9 @@ public class CurlParserTest {
     /**
      * 从 urlencodedList 中查找指定 key 的 value
      */
-    private String findUrlencodedValue(java.util.List<com.laker.postman.model.HttpFormUrlencoded> list, String key) {
+    private String findUrlencodedValue(java.util.List<com.laker.postman.request.model.HttpFormUrlencoded> list, String key) {
         if (list == null) return null;
-        for (com.laker.postman.model.HttpFormUrlencoded item : list) {
+        for (com.laker.postman.request.model.HttpFormUrlencoded item : list) {
             if (item.getKey() != null && item.getKey().equals(key)) {
                 return item.getValue();
             }
@@ -1139,10 +1563,145 @@ public class CurlParserTest {
         assertNotNull(result.urlencodedList);
         assertEquals(result.urlencodedList.size(), 3);
 
-        assertEquals(findUrlencodedValue(result.urlencodedList, "key1"), "value%20with%20spaces");
-        assertEquals(findUrlencodedValue(result.urlencodedList, "key2"), "value%3Dwith%3Dequals");
+        assertEquals(findUrlencodedValue(result.urlencodedList, "key1"), "value with spaces");
+        assertEquals(findUrlencodedValue(result.urlencodedList, "key2"), "value=with=equals");
         assertEquals(findUrlencodedValue(result.urlencodedList, "key3"), "normal");
 
         assertNull(result.body);
+    }
+
+    @Test(description = "测试 curl 导入时对中文 query 和 urlencoded 参数做解码")
+    public void testDecodeChineseParametersFromCurlImport() {
+        String curl = """
+                curl 'https://example.com/api?name=%E5%BC%A0%E4%B8%89&city=%E5%8C%97%E4%BA%AC' \\
+                  -H 'Content-Type: application/x-www-form-urlencoded' \\
+                  --data-raw 'keyword=%E4%B8%AD%E6%96%87%E5%85%B3%E9%94%AE%E8%AF%8D&note=%E6%B5%8B%E8%AF%95'
+                """;
+
+        CurlRequest result = CurlParser.parse(curl);
+
+        assertEquals(findParamValue(result.paramsList, "name"), "张三");
+        assertEquals(findParamValue(result.paramsList, "city"), "北京");
+        assertEquals(findUrlencodedValue(result.urlencodedList, "keyword"), "中文关键词");
+        assertEquals(findUrlencodedValue(result.urlencodedList, "note"), "测试");
+    }
+
+    @Test(description = "测试导入请求对象时 URL query 以可读文本显示")
+    public void testCurlImportUtilDecodesUrlQueryForDisplay() {
+        String curl = "curl 'https://example.com/api?keyword=%E4%B8%AD%E6%96%87&name=%E5%BC%A0%E4%B8%89'";
+
+        HttpRequestItem item = CurlImportUtil.fromCurl(curl);
+
+        assertNotNull(item);
+        assertEquals(item.getUrl(), "https://example.com/api?keyword=中文&name=张三");
+        assertEquals(item.getParamsList().size(), 2);
+        assertEquals(item.getParamsList().get(0).getValue(), "中文");
+        assertEquals(item.getParamsList().get(1).getValue(), "张三");
+        assertEquals(item.getBody(), "");
+    }
+
+    @Test(description = "导入 cURL 时保留 query value 中嵌套 URL 的 reserved percent-encoding")
+    public void testCurlImportUtilPreservesReservedEncodingInsideQueryValues() {
+        String originalUrl = "https://www.google.com/async/folif?" +
+                "async=_fmt:adl,_snbasecss:https%3A%2F%2Fwww.gstatic.com%2F_%2Fmss%2Fsearch-next%2F_%2Fss%2Fk%3Dsearch-next.aim%2Fam%3DgBA%2Fd%3D1,_xsrf:token%3A123" +
+                "&keyword=%E4%B8%AD%E6%96%87";
+        String curl = "curl '" + originalUrl + "'";
+
+        HttpRequestItem item = CurlImportUtil.fromCurl(curl);
+
+        assertNotNull(item);
+        assertTrue(item.getUrl().contains("keyword=中文"), "普通中文 query 仍应可读显示");
+        assertTrue(item.getUrl().contains("https%3A%2F%2Fwww.gstatic.com%2F_"),
+                "嵌套 URL 的 :// 不应被 display decode 成 raw reserved 字符");
+        assertTrue(item.getUrl().contains("%2Fk%3Dsearch-next.aim%2Fam%3DgBA%2Fd%3D1"),
+                "嵌套路径和值分隔符应保持原始 percent-encoding");
+        assertEquals(HttpUrlUtil.buildEncodedUrl(item.getUrl(), item.getParamsList()), originalUrl);
+    }
+
+    @Test(description = "导入 raw body cURL 时应设置 bodyType")
+    public void testCurlImportUtilSetsRawBodyType() {
+        String curl = "curl -X POST 'https://example.com/text' --data-raw 'plain body'";
+
+        HttpRequestItem item = CurlImportUtil.fromCurl(curl);
+
+        assertNotNull(item);
+        assertEquals(item.getBody(), "plain body");
+        assertEquals(item.getBodyType(), RequestBodyTypes.BODY_TYPE_RAW);
+    }
+
+    @Test(description = "导入 --data-binary @file cURL 时应设置 binary bodyType")
+    public void testCurlImportUtilSetsBinaryBodyTypeForDataBinaryFile() {
+        String curl = "curl -X PUT 'https://example.com/upload' --data-binary '@/tmp/upload.bin'";
+
+        HttpRequestItem item = CurlImportUtil.fromCurl(curl);
+
+        assertNotNull(item);
+        assertEquals(item.getBody(), "/tmp/upload.bin");
+        assertEquals(item.getBodyType(), RequestBodyTypes.BODY_TYPE_BINARY);
+    }
+
+    @Test(description = "导入解析出 form-data 的 multipart cURL 时 bodyType 不应被 raw body 覆盖")
+    public void testCurlImportUtilKeepsFormDataBodyTypeWhenMultipartBodyIsParsed() {
+        String curl = "curl -X POST 'http://example.com/upload' " +
+                "-H 'Content-Type: multipart/form-data; boundary=----WebKitFormBoundary' " +
+                "-d '------WebKitFormBoundary\r\n" +
+                "Content-Disposition: form-data; name=\"field1\"\r\n\r\n" +
+                "value1\r\n" +
+                "------WebKitFormBoundary--'";
+
+        HttpRequestItem item = CurlImportUtil.fromCurl(curl);
+
+        assertNotNull(item);
+        assertEquals(item.getBodyType(), RequestBodyTypes.BODY_TYPE_FORM_DATA);
+        assertEquals(item.getFormDataList().size(), 1);
+    }
+
+    @Test(description = "导入带 -L 的 cURL 时应保留跟随重定向设置")
+    public void testCurlImportUtilPreservesFollowRedirectsFlag() {
+        HttpRequestItem item = CurlImportUtil.fromCurl("curl -L 'https://example.com/redirect'");
+
+        assertNotNull(item);
+        assertEquals(item.getFollowRedirects(), Boolean.TRUE);
+    }
+
+    @Test(description = "测试 curl 导入请求对象时保留 JSON body 原始内容")
+    public void testCurlImportUtilPreservesJsonBodyFromCurl() {
+        String curl = "curl -X POST 'https://example.com/api' " +
+                "-H 'Content-Type: application/json' " +
+                "--data-raw '{\"name\":\"张三\",\"roles\":[\"admin\",\"user\"]}'";
+
+        HttpRequestItem item = CurlImportUtil.fromCurl(curl);
+
+        assertNotNull(item);
+        assertEquals(item.getBody(), "{\"name\":\"张三\",\"roles\":[\"admin\",\"user\"]}");
+    }
+
+    @Test(description = "测试 ChatGPT SSE cURL 导入后保留 cookie、SSE 协议和 raw JSON body")
+    public void testChatGptSseCurlImportPreservesSendShape() {
+        String body = "{\"action\":\"next\",\"messages\":[{\"content\":{\"parts\":[\"1\"]}}]}";
+        String curl = "curl 'https://chatgpt.com/backend-api/f/conversation' " +
+                "-H 'Content-Type: application/json' " +
+                "-H 'accept: text/event-stream' " +
+                "-H 'Authorization: Bearer token' " +
+                "-H 'OpenAI-Sentinel-Chat-Requirements-Token: challenge-token' " +
+                "-b 'cf_clearance=clearance; __Secure-oai-is=ois; __cf_bm=bm' " +
+                "--data-raw '" + body + "'";
+
+        HttpRequestItem item = CurlImportUtil.fromCurl(curl);
+
+        assertNotNull(item);
+        assertEquals(item.getProtocol(), RequestItemProtocolEnum.SSE);
+        assertEquals(item.getMethod(), "POST");
+        assertEquals(item.getBody(), body);
+        assertEquals(findHeaderValue(item.getHeadersList(), "accept"), "text/event-stream");
+        assertEquals(findHeaderValue(item.getHeadersList(), "Cookie"),
+                "cf_clearance=clearance; __Secure-oai-is=ois; __cf_bm=bm");
+
+        PreparedRequest preparedRequest = PreparedRequestFactory.buildWithoutInheritance(item);
+
+        assertEquals(preparedRequest.body, body);
+        assertEquals(findHeaderValue(preparedRequest.headersList, "Content-Type"), "application/json");
+        assertEquals(findHeaderValue(preparedRequest.headersList, "Cookie"),
+                "cf_clearance=clearance; __Secure-oai-is=ois; __cf_bm=bm");
     }
 }

@@ -2,11 +2,15 @@ package com.laker.postman.panel.toolbox;
 
 import com.formdev.flatlaf.FlatClientProperties;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
-import com.laker.postman.common.SingletonBasePanel;
+import com.laker.postman.common.UiSingletonPanel;
 import com.laker.postman.common.component.SearchTextField;
+import com.laker.postman.common.component.AppToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSidebarToolbar;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.plugin.api.ToolboxContribution;
-import com.laker.postman.plugin.bridge.PluginAccess;
+import com.laker.postman.plugin.host.PluginAccess;
+import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.MessageKeys;
@@ -29,11 +33,13 @@ import java.util.function.Supplier;
  * 交互设计：
  * - 左侧导航支持分组展示、搜索过滤（复用 SearchTextField 组件）
  * - 左右宽度可拖动调整
- * - 选中项高亮使用项目主色 ModernColors.PRIMARY
+ * - 选中项高亮使用项目主色 ModernColors.getPrimary()
  * - 图标统一使用 IconUtil 管理
  */
 @Slf4j
-public class ToolboxPanel extends SingletonBasePanel {
+public class ToolboxPanel extends UiSingletonPanel {
+    private static final int COMPACT_NAV_WIDTH = 240;
+    private static final int DEFAULT_NAV_WIDTH = Math.min(COMPACT_NAV_WIDTH, AppToolWindowChrome.DEFAULT_SIDE_WIDTH);
 
     private static final class ToolEntry {
         private final String id;
@@ -92,6 +98,7 @@ public class ToolboxPanel extends SingletonBasePanel {
 
     private static JPanel createLoadFailedPanel(String toolDisplayName, Throwable throwable) {
         JPanel panel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(panel);
         JTextArea errorArea = new JTextArea();
         errorArea.setEditable(false);
         errorArea.setLineWrap(true);
@@ -100,7 +107,10 @@ public class ToolboxPanel extends SingletonBasePanel {
                 + throwable.getMessage());
         errorArea.setCaretPosition(0);
         errorArea.setBorder(new EmptyBorder(12, 12, 12, 12));
-        panel.add(new JScrollPane(errorArea), BorderLayout.CENTER);
+        ToolWindowSurfaceStyle.applyTextComponentCard(errorArea);
+        JScrollPane scrollPane = new JScrollPane(errorArea);
+        ToolWindowSurfaceStyle.applyScrollPaneCard(scrollPane);
+        panel.add(scrollPane, BorderLayout.CENTER);
         return panel;
     }
 
@@ -124,24 +134,24 @@ public class ToolboxPanel extends SingletonBasePanel {
     @Override
     protected void initUI() {
         setLayout(new BorderLayout());
+        ToolWindowSurfaceStyle.applyBackground(this);
         registerAllTools();
 
         // ---- 左侧：搜索框 + 导航列表 ----
         navPanel = new JPanel();
+        ToolWindowSurfaceStyle.applyCard(navPanel);
         navPanel.setLayout(new BoxLayout(navPanel, BoxLayout.Y_AXIS));
 
         JScrollPane navScroll = new JScrollPane(navPanel,
                 ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        navScroll.setBorder(BorderFactory.createEmptyBorder());
+        ToolWindowSurfaceStyle.applyScrollPaneCard(navScroll);
         navScroll.getVerticalScrollBar().setUnitIncrement(16);
 
         // 复用项目 SearchTextField（带搜索图标、清除按钮、无结果红框）
         // 工具箱搜索不需要大小写/整词按钮，移除 trailing 组件使其更简洁
         searchField = new SearchTextField();
         searchField.putClientProperty(FlatClientProperties.TEXT_FIELD_TRAILING_COMPONENT, null);
-        searchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
-        searchField.setPreferredSize(new Dimension(Integer.MAX_VALUE, 28));
         searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
                 applyFilter();
@@ -156,27 +166,25 @@ public class ToolboxPanel extends SingletonBasePanel {
             }
         });
 
-        JPanel searchBox = new JPanel(new BorderLayout());
-        searchBox.setBorder(new EmptyBorder(6, 6, 4, 6));
-        searchBox.add(searchField, BorderLayout.CENTER);
-
         JPanel leftPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(leftPanel);
         leftPanel.setBorder(BorderFactory.createEmptyBorder());
-        leftPanel.setMinimumSize(new Dimension(100, 0));
-        leftPanel.add(searchBox, BorderLayout.NORTH);
+        leftPanel.setMinimumSize(new Dimension(180, 0));
+        leftPanel.add(new ToolWindowSidebarToolbar(null, searchField), BorderLayout.NORTH);
         leftPanel.add(navScroll, BorderLayout.CENTER);
 
         // ---- 右侧：CardLayout 内容区 ----
         cardLayout = new CardLayout();
         contentArea = new JPanel(cardLayout);
+        ToolWindowSurfaceStyle.applyCard(contentArea);
         contentArea.setMinimumSize(new Dimension(200, 0));
 
-        // 可拖动分割线（dividerSize=5，支持拖拽调宽）
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, contentArea);
-        split.setDividerSize(3);
-        split.setDividerLocation(160);
-        split.setContinuousLayout(true);
-        split.setBorder(BorderFactory.createEmptyBorder());
+        // 可拖动分割线，左右两侧使用独立圆角卡片，和主请求区保持一致。
+        JSplitPane split = AppToolWindowChrome.createHorizontalCardSplitPane(
+                leftPanel,
+                contentArea,
+                DEFAULT_NAV_WIDTH
+        );
         add(split, BorderLayout.CENTER);
 
         applyFilter(); // 初始渲染并选中第一个
@@ -290,8 +298,8 @@ public class ToolboxPanel extends SingletonBasePanel {
 
             ToolEntry firstTool = groupTools.get(0);
             JLabel grpLbl = new JLabel(firstTool.groupDisplayName());
-            grpLbl.setFont(grpLbl.getFont().deriveFont(Font.BOLD, 9.5f));
-            grpLbl.setForeground(UIManager.getColor("Label.disabledForeground"));
+            grpLbl.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, -3));
+            grpLbl.setForeground(ModernColors.getTextSecondary());
             grpLbl.setBorder(new EmptyBorder(4, 10, 2, 8));
             grpLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
             navPanel.add(grpLbl);
@@ -313,12 +321,9 @@ public class ToolboxPanel extends SingletonBasePanel {
             @Override
             protected void paintComponent(Graphics g) {
                 if (t.id().equals(selectedId)) {
-                    // 主色调半透明圆角背景（亮暗自适应透明度）
                     Graphics2D g2 = (Graphics2D) g.create();
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    int alpha = ModernColors.isDarkTheme() ? 40 : 25;
-                    g2.setColor(new Color(ModernColors.PRIMARY.getRed(),
-                            ModernColors.PRIMARY.getGreen(), ModernColors.PRIMARY.getBlue(), alpha));
+                    g2.setColor(ToolboxTheme.selectedNavItemBackground());
                     g2.fillRoundRect(4, 1, getWidth() - 8, getHeight() - 2, 8, 8);
                     g2.dispose();
                 }
@@ -338,8 +343,8 @@ public class ToolboxPanel extends SingletonBasePanel {
 
         JLabel lblIcon = new JLabel(icon);
         JLabel lblName = new JLabel(t.displayName());
-        lblName.setFont(lblName.getFont().deriveFont(sel ? Font.BOLD : Font.PLAIN, 12f));
-        if (sel) lblName.setForeground(ModernColors.PRIMARY);
+        lblName.setFont(FontsUtil.getDefaultFontWithOffset(sel ? Font.BOLD : Font.PLAIN, -1));
+        if (sel) lblName.setForeground(ToolboxTheme.selectedNavItemForeground());
 
         item.add(lblIcon, BorderLayout.WEST);
         item.add(lblName, BorderLayout.CENTER);
@@ -348,9 +353,7 @@ public class ToolboxPanel extends SingletonBasePanel {
             @Override
             public void mouseEntered(MouseEvent e) {
                 if (!t.id().equals(selectedId)) {
-                    Color hover = UIManager.getColor("List.hoverBackground");
-                    if (hover == null) hover = UIManager.getColor("Button.hoverBackground");
-                    item.setBackground(hover);
+                    item.setBackground(ModernColors.getHoverBackgroundColor());
                     item.setOpaque(true);
                     item.repaint();
                 }
@@ -372,10 +375,18 @@ public class ToolboxPanel extends SingletonBasePanel {
 
     // ===== 选中工具 =====
     private void selectTool(String id) {
+        showTool(id);
+    }
+
+    public boolean showTool(String id) {
+        if (!toolsById.containsKey(id)) {
+            return false;
+        }
         ensureToolContentLoaded(id);
         selectedId = id;
         cardLayout.show(contentArea, id);
         rebuildNav();
+        return true;
     }
 
     private void ensureToolContentLoaded(String id) {
@@ -384,7 +395,9 @@ public class ToolboxPanel extends SingletonBasePanel {
             return;
         }
         try {
-            contentArea.add(toolEntry.getOrCreatePanel(), toolEntry.id());
+            JPanel toolPanel = toolEntry.getOrCreatePanel();
+            ToolWindowSurfaceStyle.applyPanelTreeCard(toolPanel);
+            contentArea.add(toolPanel, toolEntry.id());
         } catch (Throwable t) {
             log.error("Failed to initialize toolbox panel: {}", id, t);
             contentArea.add(createLoadFailedPanel(toolEntry.displayName(), t), toolEntry.id());

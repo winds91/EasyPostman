@@ -1,11 +1,14 @@
 package com.laker.postman.service.js;
 
+import lombok.Getter;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.PolyglotException;
+import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -20,26 +23,102 @@ import java.util.Map;
 public class JsScriptExecutor {
 
     /**
-     * Context 池 - 默认大小为 CPU 核心数的 4 倍，最少 16 个
+     * 普通 collection/function 脚本共享池。压测使用 PooledScriptExecutor 的运行级独立池。
      */
-    private static final JsContextPool CONTEXT_POOL;
-    private static final int CONTEXT_ACQUIRE_TIMEOUT_MS = 5000; // 获取 Context 超时时间
+    static final int DEFAULT_SHARED_CONTEXT_POOL_SIZE = Math.max(
+            4,
+            Math.min(16, Runtime.getRuntime().availableProcessors())
+    );
+    private static final int DEFAULT_SHARED_CONTEXT_ACQUIRE_TIMEOUT_MS = 1_000;
+    private static volatile JsContextPool contextPool;
+    private static volatile int contextPoolSize;
+    private static volatile int contextAcquireTimeoutMs; // 获取 Context 超时时间
+    private static final Object CONTEXT_POOL_LOCK = new Object();
+    private static final int SCRIPT_SOURCE_CACHE_MAX_SIZE = 512;
+    private static final Map<String, Source> SCRIPT_SOURCE_CACHE = new LinkedHashMap<>(
+            SCRIPT_SOURCE_CACHE_MAX_SIZE,
+            0.75f,
+            true
+    ) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Source> eldest) {
+            return size() > SCRIPT_SOURCE_CACHE_MAX_SIZE;
+        }
+    };
 
     /**
      * ThreadLocal 存储当前正在执行的原始脚本，用于错误报告
      */
     private static final ThreadLocal<String> CURRENT_SCRIPT = new ThreadLocal<>();
 
-    static {
-        int poolSize = Math.max(16, Runtime.getRuntime().availableProcessors() * 4);
-        CONTEXT_POOL = new JsContextPool(poolSize);
-        log.info("Initialized JS Context Pool with size: {}", poolSize);
+    @FunctionalInterface
+    public interface ScriptExecutor {
+        void execute(ScriptExecutionContext context) throws ScriptExecutionException;
+    }
 
+    public static final class PooledScriptExecutor implements ScriptExecutor, AutoCloseable {
+        private final JsContextPool pool;
+        private final int acquireTimeoutMs;
+        private final Map<String, Source> scriptSourceCache = new LinkedHashMap<>(
+                SCRIPT_SOURCE_CACHE_MAX_SIZE,
+                0.75f,
+                true
+        ) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Source> eldest) {
+                return size() > SCRIPT_SOURCE_CACHE_MAX_SIZE;
+            }
+        };
+
+        public PooledScriptExecutor(int poolSize, int acquireTimeoutMs) {
+            this.pool = new JsContextPool(Math.max(1, poolSize));
+            this.acquireTimeoutMs = Math.max(1, acquireTimeoutMs);
+        }
+
+        @Override
+        public void execute(ScriptExecutionContext context) throws ScriptExecutionException {
+            executeScript(context, pool, acquireTimeoutMs, scriptSourceCache);
+        }
+
+        @Override
+        public void close() {
+            pool.shutdown();
+            synchronized (scriptSourceCache) {
+                scriptSourceCache.clear();
+            }
+        }
+    }
+
+    static {
         // 注册 shutdown hook，在应用退出时关闭池
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down JS Context Pool...");
-            CONTEXT_POOL.shutdown();
+            JsContextPool pool = contextPool;
+            if (pool != null) {
+                pool.shutdown();
+            }
         }));
+    }
+
+    public static void reconfigureContextPoolFromSettings() {
+        int resolvedPoolSize = DEFAULT_SHARED_CONTEXT_POOL_SIZE;
+        int resolvedAcquireTimeoutMs = DEFAULT_SHARED_CONTEXT_ACQUIRE_TIMEOUT_MS;
+
+        synchronized (CONTEXT_POOL_LOCK) {
+            contextAcquireTimeoutMs = resolvedAcquireTimeoutMs;
+            if (contextPool == null || contextPoolSize != resolvedPoolSize) {
+                JsContextPool oldPool = contextPool;
+                contextPool = new JsContextPool(resolvedPoolSize);
+                contextPoolSize = resolvedPoolSize;
+                log.info("Initialized shared JS Context Pool with size: {}, acquire timeout: {}ms",
+                        resolvedPoolSize, resolvedAcquireTimeoutMs);
+                if (oldPool != null) {
+                    oldPool.retire();
+                }
+            } else {
+                log.info("Updated shared JS Context Pool acquire timeout: {}ms", resolvedAcquireTimeoutMs);
+            }
+        }
     }
 
     /**
@@ -49,13 +128,27 @@ public class JsScriptExecutor {
      * @throws ScriptExecutionException 脚本执行异常
      */
     public static void executeScript(ScriptExecutionContext context) throws ScriptExecutionException {
+        executeScript(context, null, 0, SCRIPT_SOURCE_CACHE);
+    }
+
+    private static void executeScript(ScriptExecutionContext context,
+                                      JsContextPool pool,
+                                      int acquireTimeoutMs,
+                                      Map<String, Source> scriptSourceCache) throws ScriptExecutionException {
         if (context == null || context.getScript() == null || context.getScript().isBlank()) {
             log.debug("Script is empty, skipping execution");
             return;
         }
 
         try {
-            executeScript(context.getScript(), context.getBindings(), context.getOutputCallback());
+            executeScript(
+                    context.getScript(),
+                    context.getBindings(),
+                    context.getOutputCallback(),
+                    pool,
+                    acquireTimeoutMs,
+                    scriptSourceCache
+            );
             log.debug("Script executed successfully: {}", context.getScriptType().getDisplayName());
         } catch (Exception e) {
             String errorMsg = String.format("%s execution failed: %s",
@@ -74,24 +167,50 @@ public class JsScriptExecutor {
      * </p>
      *
      * @param script         脚本内容
-     * @param bindings       需要注入的变量（变量名->对象），如request/env/postman/responseBody等
+     * @param bindings       需要注入的变量（变量名->对象），如 pm
      * @param outputCallback 输出回调（可为null）
      * @throws ScriptExecutionException 脚本执行异常
      */
     public static void executeScript(String script, Map<String, Object> bindings, OutputCallback outputCallback)
+            throws ScriptExecutionException {
+        executeScript(script, bindings, outputCallback, null, 0, SCRIPT_SOURCE_CACHE);
+    }
+
+    private static void executeScript(String script,
+                                      Map<String, Object> bindings,
+                                      OutputCallback outputCallback,
+                                      JsContextPool pool,
+                                      int acquireTimeoutMs,
+                                      Map<String, Source> scriptSourceCache)
             throws ScriptExecutionException {
         if (script == null || script.isBlank()) {
             return;
         }
 
         JsContextPool.PooledContext pooledContext = null;
+        JsContextPool borrowedPool = null;
 
         try {
             // 保存原始脚本到 ThreadLocal，用于错误报告
             CURRENT_SCRIPT.set(script);
 
             // 从池中获取 Context
-            pooledContext = CONTEXT_POOL.borrowContext(CONTEXT_ACQUIRE_TIMEOUT_MS);
+            while (pooledContext == null) {
+                borrowedPool = pool == null ? sharedContextPool() : pool;
+                if (borrowedPool == null) {
+                    throw new ScriptExecutionException("JS context pool is not initialized", null);
+                }
+                int resolvedAcquireTimeoutMs = pool == null ? contextAcquireTimeoutMs : acquireTimeoutMs;
+                try {
+                    pooledContext = borrowedPool.borrowContext(resolvedAcquireTimeoutMs);
+                } catch (IllegalStateException e) {
+                    if (pool == null && borrowedPool != contextPool && borrowedPool.isRetired()) {
+                        log.debug("Retrying JS context borrow after old pool was retired");
+                        continue;
+                    }
+                    throw e;
+                }
+            }
             Context context = pooledContext.getContext();
 
             // 注入输出回调（如果有）
@@ -102,11 +221,7 @@ public class JsScriptExecutor {
             // 注入变量（polyfill 已在池创建时注入）
             injectBindings(context, bindings);
 
-            // 使用 IIFE 包装脚本，避免 let/const 污染全局作用域
-            String wrappedScript = wrapScriptWithIIFE(script);
-
-            // 执行包装后的脚本
-            context.eval("js", wrappedScript);
+            context.eval(getCachedScriptSource(script, scriptSourceCache));
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -128,9 +243,18 @@ public class JsScriptExecutor {
 
             // 归还 Context 到池中
             if (pooledContext != null) {
-                CONTEXT_POOL.returnContext(pooledContext);
+                borrowedPool.returnContext(pooledContext);
             }
         }
+    }
+
+    private static JsContextPool sharedContextPool() {
+        JsContextPool pool = contextPool;
+        if (pool == null) {
+            reconfigureContextPoolFromSettings();
+            pool = contextPool;
+        }
+        return pool;
     }
 
     /**
@@ -158,6 +282,30 @@ public class JsScriptExecutor {
      */
     private static String wrapScriptWithIIFE(String script) {
         return "(function() {\n" + script + "\n})();";
+    }
+
+    private static Source getCachedScriptSource(String script) {
+        return getCachedScriptSource(script, SCRIPT_SOURCE_CACHE);
+    }
+
+    private static Source getCachedScriptSource(String script, Map<String, Source> scriptSourceCache) {
+        Map<String, Source> resolvedCache = scriptSourceCache == null ? SCRIPT_SOURCE_CACHE : scriptSourceCache;
+        synchronized (resolvedCache) {
+            Source source = resolvedCache.get(script);
+            if (source != null) {
+                return source;
+            }
+
+            Source newSource = Source.newBuilder("js", wrapScriptWithIIFE(script), buildSourceName(script))
+                    .cached(true)
+                    .buildLiteral();
+            resolvedCache.put(script, newSource);
+            return newSource;
+        }
+    }
+
+    private static String buildSourceName(String script) {
+        return "easypostman-user-script-" + Integer.toUnsignedString(script.hashCode(), 16) + ".js";
     }
 
     /**
@@ -279,6 +427,7 @@ public class JsScriptExecutor {
     /**
      * Console 方法类型枚举
      */
+    @Getter
     public enum ConsoleType {
         LOG("log"),
         ERROR("error"),
@@ -292,9 +441,6 @@ public class JsScriptExecutor {
             this.methodName = methodName;
         }
 
-        public String getMethodName() {
-            return methodName;
-        }
     }
 
     /**

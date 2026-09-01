@@ -1,8 +1,10 @@
 package com.laker.postman.common.component;
 
+import com.formdev.flatlaf.util.SystemFileChooser;
 import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.service.render.HttpHtmlRenderer;
 import com.laker.postman.util.EditorThemeUtil;
+import com.laker.postman.util.FileChooserUtil;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
@@ -10,8 +12,6 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.MatteBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.undo.UndoManager;
@@ -47,6 +47,7 @@ public class MarkdownEditorPanel extends JPanel {
 
     private JButton undoButton;
     private JButton redoButton;
+    private boolean editable = true;
 
     public MarkdownEditorPanel() {
         initUI();
@@ -68,6 +69,7 @@ public class MarkdownEditorPanel extends JPanel {
             JPanel statusBar = createStatusBar();
             add(statusBar, BorderLayout.SOUTH);
 
+            setEditable(editable);
             updatePreviewPaneStyles();
 
             revalidate();
@@ -101,8 +103,7 @@ public class MarkdownEditorPanel extends JPanel {
     }
 
     private String getTableHeaderStyle() {
-        boolean isDark = ModernColors.isDarkTheme();
-        String bgColor = isDark ? toHex(new Color(55, 58, 60)) : toHex(ModernColors.getHoverBackgroundColor());
+        String bgColor = toHex(ModernColors.getHoverBackgroundColor());
         return getTableCellStyle() + "font-weight:600;background-color:" + bgColor + ";";
     }
 
@@ -115,9 +116,8 @@ public class MarkdownEditorPanel extends JPanel {
     }
 
     private String getInlineCodeStyle() {
-        boolean isDark = ModernColors.isDarkTheme();
-        String bgColor = isDark ? toHex(new Color(65, 68, 70)) : toHex(ModernColors.getHoverBackgroundColor());
-        String textColor = isDark ? "#8dd6f9" : toHex(ModernColors.ERROR_DARK);
+        String bgColor = toHex(ModernColors.getHoverBackgroundColor());
+        String textColor = toHex(ModernColors.getErrorDark());
         return "background-color:" + bgColor + ";color:" + textColor +
                 ";padding:1px 4px;margin:0 1px;font-size:10px;border-radius:3px;font-family:monospace;";
     }
@@ -139,9 +139,10 @@ public class MarkdownEditorPanel extends JPanel {
     }
 
     private String getBlockquoteStyle() {
-        boolean isDark = ModernColors.isDarkTheme();
-        String borderColor = isDark ? "#4a9eff" : toHex(ModernColors.ACCENT_LIGHT);
-        String bgColor = isDark ? "rgba(74,158,255,0.08)" : "rgba(6,182,212,0.03)";
+        Color accentColor = ModernColors.getAccent();
+        String borderColor = toHex(accentColor);
+        String bgColor = String.format(java.util.Locale.ROOT, "rgba(%d,%d,%d,0.08)",
+                accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue());
         return "padding:6px 10px;color:" + toHex(ModernColors.getTextSecondary()) +
                 ";border-left:3px solid " + borderColor + ";background-color:" + bgColor +
                 ";margin:0 0 8px 0;border-radius:0 3px 3px 0;";
@@ -154,13 +155,13 @@ public class MarkdownEditorPanel extends JPanel {
 
     private void initUI() {
         setLayout(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(this);
 
         editorPanelRef = createEditorPanel();
         previewPanelRef = createPreviewPanel();
 
-        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, editorPanelRef, previewPanelRef);
+        splitPane = AppToolWindowChrome.createHorizontalInnerSplitPane(editorPanelRef, previewPanelRef, 0);
         splitPane.setResizeWeight(0.5);
-        splitPane.setBorder(null);
 
         toolbarPanel = createEnhancedToolbar();
         add(toolbarPanel, BorderLayout.NORTH);
@@ -178,12 +179,7 @@ public class MarkdownEditorPanel extends JPanel {
      */
     private JPanel createEnhancedToolbar() {
         JPanel toolbarContainer = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 2));
-        toolbarContainer.setBorder(BorderFactory.createCompoundBorder(
-                new MatteBorder(0, 0, 1, 0, ModernColors.getDividerBorderColor()),
-                new EmptyBorder(3, 5, 3, 5)
-        ));
-        toolbarContainer.setOpaque(true);
-        toolbarContainer.setBackground(UIManager.getColor("Panel.background"));
+        ToolWindowSurfaceStyle.applySectionHeader(toolbarContainer, 3, 5, 3, 5);
 
         undoButton = createFlatButton("↶", I18nUtil.getMessage(MessageKeys.MARKDOWN_UNDO), e -> undo());
         redoButton = createFlatButton("↷", I18nUtil.getMessage(MessageKeys.MARKDOWN_REDO), e -> redo());
@@ -344,6 +340,7 @@ public class MarkdownEditorPanel extends JPanel {
      */
     private JPopupMenu createMoreMenu() {
         JPopupMenu menu = new JPopupMenu();
+        ToolWindowSurfaceStyle.applyPopupMenuCard(menu);
 
         JMenuItem exportItem = new JMenuItem("💾 " + I18nUtil.getMessage(MessageKeys.MARKDOWN_EXPORT_HTML));
         exportItem.addActionListener(e -> exportToHtml());
@@ -398,7 +395,7 @@ public class MarkdownEditorPanel extends JPanel {
     private Component createVerticalDivider() {
         JSeparator separator = new JSeparator(SwingConstants.VERTICAL);
         separator.setPreferredSize(new Dimension(1, 20));
-        separator.setForeground(new Color(220, 220, 220));
+        separator.setForeground(ModernColors.getDividerBorderColor());
         return separator;
     }
 
@@ -407,16 +404,15 @@ public class MarkdownEditorPanel extends JPanel {
      */
     private JPanel createEditorPanel() {
         JPanel panel = new JPanel(new BorderLayout());
+        panel.setOpaque(false);
 
         // 创建 RSyntaxTextArea 用于 Markdown 编辑
-        editorArea = new RSyntaxTextArea();
+        editorArea = new FallbackAwareRSyntaxTextArea();
         editorArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_MARKDOWN); // 设置为 Markdown 语法高亮
         editorArea.setCodeFoldingEnabled(false); // Markdown 不需要代码折叠
         editorArea.setTabSize(4); // 设置 Tab 宽度为 4 个空格
-        // 加载编辑器主题 - 支持亮色和暗色主题自适应（必须在 setFont 之前，否则主题会覆盖字体）
+        // 统一加载主题、编辑器字体和缺字回退绘制
         EditorThemeUtil.loadTheme(editorArea);
-        // 设置字体（在 loadTheme 之后，确保不被主题覆盖）
-        editorArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, 0));
 
         // 使用 SearchableTextArea 包装器（启用搜索替换功能）
         searchableTextArea = new SearchableTextArea(editorArea, true);
@@ -457,13 +453,15 @@ public class MarkdownEditorPanel extends JPanel {
      */
     private JPanel createPreviewPanel() {
         JPanel panel = new JPanel(new BorderLayout());
+        panel.setOpaque(false);
 
         previewPane = new JTextPane();
         previewPane.setContentType("text/html");
         previewPane.setEditable(false);
-        previewPane.setBorder(new EmptyBorder(3, 3, 3, 3));
+        previewPane.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        ToolWindowSurfaceStyle.applyTextComponentCard(previewPane);
         JScrollPane scrollPane = new JScrollPane(previewPane);
-        scrollPane.setBorder(BorderFactory.createLineBorder(ModernColors.getBorderLightColor()));
+        ToolWindowSurfaceStyle.applyScrollPaneCard(scrollPane);
 
         panel.add(scrollPane, BorderLayout.CENTER);
         return panel;
@@ -474,11 +472,11 @@ public class MarkdownEditorPanel extends JPanel {
      */
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 3));
-        statusBar.setBorder(new MatteBorder(1, 0, 0, 0, ModernColors.getBorderLightColor()));
+        ToolWindowSurfaceStyle.applySectionHeader(statusBar);
 
         JLabel statusLabel = new JLabel(I18nUtil.getMessage(MessageKeys.MARKDOWN_READY));
         statusLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-        statusLabel.setForeground(Color.GRAY);
+        statusLabel.setForeground(ModernColors.getTextSecondary());
         statusBar.add(statusLabel);
 
         // 字数统计
@@ -486,7 +484,7 @@ public class MarkdownEditorPanel extends JPanel {
                 I18nUtil.getMessage(MessageKeys.MARKDOWN_STATUS_WORDS),
                 I18nUtil.getMessage(MessageKeys.MARKDOWN_STATUS_CHARS)));
         wordCountLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-        wordCountLabel.setForeground(Color.GRAY);
+        wordCountLabel.setForeground(ModernColors.getTextSecondary());
         statusBar.add(new JSeparator(SwingConstants.VERTICAL));
         statusBar.add(wordCountLabel);
 
@@ -494,7 +492,7 @@ public class MarkdownEditorPanel extends JPanel {
         JLabel positionLabel = new JLabel(I18nUtil.getMessage(MessageKeys.MARKDOWN_STATUS_LINE) + ": 1, " +
                 I18nUtil.getMessage(MessageKeys.MARKDOWN_STATUS_COLUMN) + ": 1");
         positionLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, -1));
-        positionLabel.setForeground(Color.GRAY);
+        positionLabel.setForeground(ModernColors.getTextSecondary());
         statusBar.add(new JSeparator(SwingConstants.VERTICAL));
         statusBar.add(positionLabel);
 
@@ -806,11 +804,12 @@ public class MarkdownEditorPanel extends JPanel {
      * 导出为 HTML（使用国际化文本）
      */
     private void exportToHtml() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle(I18nUtil.getMessage(MessageKeys.MARKDOWN_EXPORT_HTML));
-        fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("HTML 文件", "html"));
+        SystemFileChooser fileChooser = FileChooserUtil.createSaveFileChooser(
+                "markdown.export.html",
+                I18nUtil.getMessage(MessageKeys.MARKDOWN_EXPORT_HTML));
+        fileChooser.setFileFilter(FileChooserUtil.extensionFilter("HTML 文件", "html"));
 
-        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+        if (fileChooser.showSaveDialog(this) == SystemFileChooser.APPROVE_OPTION) {
             try {
                 String html = convertMarkdownToHtml(editorArea.getText());
                 java.io.File file = fileChooser.getSelectedFile();
@@ -852,7 +851,7 @@ public class MarkdownEditorPanel extends JPanel {
             case MODE_SPLIT:
                 splitPane.setLeftComponent(editorPanelRef);
                 splitPane.setRightComponent(previewPanelRef);
-                splitPane.setDividerSize(5);
+                splitPane.setDividerSize(AppToolWindowChrome.DIVIDER_SIZE);
                 SwingUtilities.invokeLater(() -> splitPane.setDividerLocation(0.5));
                 break;
             case MODE_EDIT_ONLY:
@@ -1221,8 +1220,31 @@ public class MarkdownEditorPanel extends JPanel {
      * 设置编辑器文本
      */
     public void setText(String text) {
-        editorArea.setText(text);
+        editorArea.setText(text == null ? "" : text);
+        editorArea.setCaretPosition(0);
+        // setText 多用于切换请求/分组时加载已有描述，不应成为用户可撤销的一步。
+        // 同时清理 RSTA 内置 undo 和本面板自管 undo，避免 Ctrl+Z 把加载出的内容清空。
+        editorArea.discardAllEdits();
+        undoManager.discardAllEdits();
+        updateUndoRedoButtons();
         updatePreview();
+    }
+
+    public void setEditable(boolean editable) {
+        this.editable = editable;
+        editorArea.setEditable(editable);
+        if (toolbarPanel != null) {
+            setComponentTreeEnabled(toolbarPanel, editable);
+        }
+    }
+
+    private void setComponentTreeEnabled(Component component, boolean enabled) {
+        component.setEnabled(enabled);
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                setComponentTreeEnabled(child, enabled);
+            }
+        }
     }
 
     /**

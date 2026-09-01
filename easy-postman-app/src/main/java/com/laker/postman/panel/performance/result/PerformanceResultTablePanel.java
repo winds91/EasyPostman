@@ -1,10 +1,17 @@
 package com.laker.postman.panel.performance.result;
 
+import com.laker.postman.request.model.HttpHeader;
+
+
+
 import com.laker.postman.common.component.SearchTextField;
-import com.laker.postman.common.constants.ModernColors;
-import com.laker.postman.model.HttpHeader;
-import com.laker.postman.panel.performance.model.ResultNodeInfo;
+import com.laker.postman.common.component.AppToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.performance.model.PerformanceInternalHeaders;
+import com.laker.postman.performance.model.PerformanceProtocolLabels;
+import com.laker.postman.performance.model.ResultNodeInfo;
 import com.laker.postman.service.render.HttpHtmlRenderer;
+import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +29,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 性能测试结果表
@@ -38,7 +46,10 @@ public class PerformanceResultTablePanel extends JPanel {
 
     private SearchTextField searchField;
 
-    private final Queue<ResultNodeInfo> pendingQueue = new ConcurrentLinkedQueue<>();
+    static final int COMPACT_RESULT_ROW_LIMIT = 1_000;
+
+    private final Queue<PendingResult> pendingQueue = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger pendingResultCount = new AtomicInteger(0);
 
     private static final int BATCH_SIZE = 2000;
 
@@ -60,11 +71,12 @@ public class PerformanceResultTablePanel extends JPanel {
 
     // 批量刷新队列数据到 TableModel
     private void flushQueueOnEDT() {
-        List<ResultNodeInfo> batch = new ArrayList<>(1024);
-        ResultNodeInfo info;
+        List<PendingResult> batch = new ArrayList<>(1024);
+        PendingResult pending;
 
-        while ((info = pendingQueue.poll()) != null) {
-            batch.add(info);
+        while ((pending = pendingQueue.poll()) != null) {
+            pendingResultCount.decrementAndGet();
+            batch.add(pending);
             if (batch.size() >= BATCH_SIZE) break;
         }
 
@@ -83,12 +95,13 @@ public class PerformanceResultTablePanel extends JPanel {
             return;
         }
 
-        List<ResultNodeInfo> batch = new ArrayList<>();
-        ResultNodeInfo info;
+        List<PendingResult> batch = new ArrayList<>();
+        PendingResult pending;
 
         // 一次性刷新所有待处理的结果
-        while ((info = pendingQueue.poll()) != null) {
-            batch.add(info);
+        while ((pending = pendingQueue.poll()) != null) {
+            pendingResultCount.decrementAndGet();
+            batch.add(pending);
         }
 
         if (!batch.isEmpty()) {
@@ -99,6 +112,7 @@ public class PerformanceResultTablePanel extends JPanel {
 
     private void initUI() {
         setLayout(new BorderLayout(5, 5));
+        ToolWindowSurfaceStyle.applyCard(this);
         // 设置边距
         setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
@@ -106,6 +120,7 @@ public class PerformanceResultTablePanel extends JPanel {
         searchField.setPlaceholderText(I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_SEARCH_PLACEHOLDER));
 
         JPanel searchPanel = new JPanel(new BorderLayout(6, 0));
+        searchPanel.setOpaque(false);
         searchPanel.add(searchField, BorderLayout.CENTER);
 
         tableModel = new ResultTableModel();
@@ -113,7 +128,9 @@ public class PerformanceResultTablePanel extends JPanel {
         table.setRowHeight(24);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(false);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
         table.setFocusable(false);
+        table.setGridColor(PerformanceTheme.resultGridColor());
         // 设置自定义渲染器
         table.setDefaultRenderer(Object.class, new ResultRowRenderer());
 
@@ -126,27 +143,40 @@ public class PerformanceResultTablePanel extends JPanel {
         configureColumnWidths();
 
         JScrollPane tableScroll = new JScrollPane(table);
+        ToolWindowSurfaceStyle.applyTableScrollPaneCard(tableScroll, table);
 
         JPanel leftPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(leftPanel);
         // 设置左侧面板边距
         leftPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5));
         leftPanel.add(searchPanel, BorderLayout.NORTH);
         leftPanel.add(tableScroll, BorderLayout.CENTER);
 
         detailTabs = new JTabbedPane();
+        ToolWindowSurfaceStyle.applyTabbedPaneCard(detailTabs);
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, detailTabs);
-        split.setDividerLocation(400);
+        JSplitPane split = AppToolWindowChrome.createHorizontalInnerSplitPane(
+                leftPanel,
+                detailTabs,
+                620
+        );
+        leftPanel.setMinimumSize(new Dimension(560, 150));
+        leftPanel.setPreferredSize(new Dimension(620, 300));
+        split.setDividerLocation(620);
+        split.setResizeWeight(0.34);
         add(split, BorderLayout.CENTER);
     }
 
     // 配置排序比较器
     private void configureSorterComparators() {
-        // 列 0: Name - 字符串排序
+        // 列 0: Protocol - 字符串排序
         rowSorter.setComparator(0, Comparator.comparing(String::toString, String.CASE_INSENSITIVE_ORDER));
 
-        // 列 1: Status - 数值排序（状态码）
-        rowSorter.setComparator(1, Comparator.comparing((Object o) -> {
+        // 列 1: Name - 字符串排序
+        rowSorter.setComparator(1, Comparator.comparing(String::toString, String.CASE_INSENSITIVE_ORDER));
+
+        // 列 2: Status - 数值排序（状态码）
+        rowSorter.setComparator(2, Comparator.comparing((Object o) -> {
             String s = o.toString();
             if ("-".equals(s)) return 0;
             try {
@@ -156,33 +186,38 @@ public class PerformanceResultTablePanel extends JPanel {
             }
         }));
 
-        // 列 2: Cost (ms) - 数值排序
-        rowSorter.setComparator(2, Comparator.comparingInt(Integer.class::cast));
+        // 列 3: Duration (ms) - 数值排序
+        rowSorter.setComparator(3, Comparator.comparingInt(Integer.class::cast));
 
-        // 列 3: Assertion - 按成功/失败排序
-        rowSorter.setComparator(3, Comparator.comparing(String::toString));
+        // 列 4: Assertion - 按成功/失败排序
+        rowSorter.setComparator(4, Comparator.comparing(String::toString));
     }
 
     // 配置列宽度
     private void configureColumnWidths() {
+        // Protocol 列
+        table.getColumnModel().getColumn(0).setMinWidth(70);
+        table.getColumnModel().getColumn(0).setPreferredWidth(78);
+        table.getColumnModel().getColumn(0).setMaxWidth(95);
+
         // Name 列 - 接口名称，允许较宽显示
-        table.getColumnModel().getColumn(0).setMinWidth(150);
-        table.getColumnModel().getColumn(0).setPreferredWidth(300);
+        table.getColumnModel().getColumn(1).setMinWidth(150);
+        table.getColumnModel().getColumn(1).setPreferredWidth(240);
 
         // Status 列 - 显示 "Status"（6个字符）+ 状态码（3位数）
-        table.getColumnModel().getColumn(1).setMinWidth(70);
-        table.getColumnModel().getColumn(1).setPreferredWidth(80);
-        table.getColumnModel().getColumn(1).setMaxWidth(100);
+        table.getColumnModel().getColumn(2).setMinWidth(64);
+        table.getColumnModel().getColumn(2).setPreferredWidth(72);
+        table.getColumnModel().getColumn(2).setMaxWidth(90);
 
-        // Cost (ms) 列 - 显示 "Cost (ms)"（9个字符）+ 时间值
-        table.getColumnModel().getColumn(2).setMinWidth(95);
-        table.getColumnModel().getColumn(2).setPreferredWidth(105);
-        table.getColumnModel().getColumn(2).setMaxWidth(130);
+        // Duration (ms) 列 - 显示耗时值
+        table.getColumnModel().getColumn(3).setMinWidth(105);
+        table.getColumnModel().getColumn(3).setPreferredWidth(112);
+        table.getColumnModel().getColumn(3).setMaxWidth(130);
 
-        // Assertion 列 - 显示 "Assertion"（9个字符）+ emoji
-        table.getColumnModel().getColumn(3).setMinWidth(90);
-        table.getColumnModel().getColumn(3).setPreferredWidth(100);
-        table.getColumnModel().getColumn(3).setMaxWidth(120);
+        // Assertion 列 - 显示 "Assertion"（9个字符）+ 状态符号
+        table.getColumnModel().getColumn(4).setMinWidth(72);
+        table.getColumnModel().getColumn(4).setPreferredWidth(82);
+        table.getColumnModel().getColumn(4).setMaxWidth(100);
     }
 
     private void registerListeners() {
@@ -254,17 +289,39 @@ public class PerformanceResultTablePanel extends JPanel {
     }
 
     public void addResult(ResultNodeInfo info) {
+        addResult(info, false);
+    }
+
+    public void addResult(ResultNodeInfo info, boolean compactRetention) {
         if (info == null) {
             return;
         }
-        pendingQueue.offer(info);
+        int rowLimit = compactRetention
+                ? COMPACT_RESULT_ROW_LIMIT
+                : SettingManager.getPerformanceResultRowLimit();
+        pendingQueue.offer(new PendingResult(info, rowLimit));
+        pendingResultCount.incrementAndGet();
+        trimPendingQueueForRetention(rowLimit);
     }
 
     public void clearResults() {
         pendingQueue.clear();
+        pendingResultCount.set(0);
         table.clearSelection();
         tableModel.clear();
         clearDetailTabs();
+    }
+
+    private void trimPendingQueueForRetention(int rowLimit) {
+        int effectiveLimit = Math.max(1, rowLimit);
+        while (pendingResultCount.get() > effectiveLimit) {
+            PendingResult removed = pendingQueue.poll();
+            if (removed == null) {
+                pendingResultCount.set(0);
+                return;
+            }
+            pendingResultCount.decrementAndGet();
+        }
     }
 
     private void renderDetail(ResultNodeInfo info) {
@@ -324,7 +381,10 @@ public class PerformanceResultTablePanel extends JPanel {
         pane.setEditable(false);
         pane.setText(html);
         pane.setCaretPosition(0);
-        detailTabs.addTab(title, new JScrollPane(pane));
+        ToolWindowSurfaceStyle.applyTextComponentCard(pane);
+        JScrollPane scrollPane = new JScrollPane(pane);
+        ToolWindowSurfaceStyle.applyScrollPaneCard(scrollPane);
+        detailTabs.addTab(title, scrollPane);
     }
 
     private void clearDetailTabs() {
@@ -360,12 +420,17 @@ public class PerformanceResultTablePanel extends JPanel {
                 return true;
             }
 
-            // 2. 检查请求内容（URL、Headers、Body）
+            // 2. 检查用户可见错误
+            if (info.errorMsg != null && info.errorMsg.toLowerCase().contains(keyword)) {
+                return true;
+            }
+
+            // 3. 检查请求内容（URL、Headers、Body）
             if (matchesRequest(info)) {
                 return true;
             }
 
-            // 3. 检查响应内容（Headers、Body）
+            // 4. 检查响应内容（Headers、Body）
             return matchesResponse(info);
         }
 
@@ -401,6 +466,9 @@ public class PerformanceResultTablePanel extends JPanel {
             if (info.resp.headers != null) {
                 for (var entry : info.resp.headers.entrySet()) {
                     String key = entry.getKey();
+                    if (PerformanceInternalHeaders.isInternalHeader(key)) {
+                        continue;
+                    }
                     List<String> values = entry.getValue();
                     String headerStr = (key + ": " + String.join(", ", values)).toLowerCase();
                     if (headerStr.contains(keyword)) {
@@ -416,15 +484,20 @@ public class PerformanceResultTablePanel extends JPanel {
     }
 
     // TableModel - 增量刷新优化
+    private record PendingResult(ResultNodeInfo info, int rowLimit) {
+    }
+
     static class ResultTableModel extends AbstractTableModel {
 
-        private static final int COL_NAME = 0;
-        private static final int COL_STATUS = 1;
-        private static final int COL_COST = 2;
-        private static final int COL_ASSERTION = 3;
+        private static final int COL_PROTOCOL = 0;
+        private static final int COL_NAME = 1;
+        private static final int COL_STATUS = 2;
+        private static final int COL_COST = 3;
+        private static final int COL_ASSERTION = 4;
 
         private final List<ResultNodeInfo> dataList = new ArrayList<>(1024);
         private boolean dirty = false;
+        private boolean fullRefreshRequired = false;
 
         // 追踪新增行的起始位置，用于增量刷新
         private int firstNewRow = -1;
@@ -436,12 +509,13 @@ public class PerformanceResultTablePanel extends JPanel {
 
         @Override
         public int getColumnCount() {
-            return 4;
+            return 5;
         }
 
         @Override
         public String getColumnName(int col) {
             return switch (col) {
+                case COL_PROTOCOL -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_PROTOCOL);
                 case COL_NAME -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_NAME);
                 case COL_STATUS -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_STATUS);
                 case COL_COST -> I18nUtil.getMessage(MessageKeys.PERFORMANCE_RESULT_TREE_COLUMN_COST);
@@ -454,6 +528,7 @@ public class PerformanceResultTablePanel extends JPanel {
         public Object getValueAt(int row, int col) {
             ResultNodeInfo r = dataList.get(row);
             return switch (col) {
+                case COL_PROTOCOL -> PerformanceProtocolLabels.displayName(r.protocol);
                 case COL_NAME -> r.name;
                 case COL_STATUS -> r.responseCode > 0 ? String.valueOf(r.responseCode) : "-";
                 case COL_COST -> r.costMs;
@@ -462,24 +537,25 @@ public class PerformanceResultTablePanel extends JPanel {
             };
         }
 
-        // 格式化断言列：✅ 通过、❌ 失败、💨 无测试
+        // Keep assertion symbols themeable; color comes from ResultRowRenderer.
         private String formatAssertion(ResultNodeInfo r) {
             // 1. 如果有断言结果
             if (r.testResults != null && !r.testResults.isEmpty()) {
-                return r.hasAssertionFailed() ? "❌" : "✅";
+                return r.hasAssertionFailed() ? "×" : "✓";
             }
 
             // 2. 无断言测试
             if (!r.isActuallySuccessful()) {
-                return "❌";
+                return "×";
             }
 
-            return "💨";
+            return "—";
         }
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
             return switch (columnIndex) {
+                case COL_PROTOCOL -> String.class;
                 case COL_NAME -> String.class;
                 case COL_STATUS -> String.class;
                 case COL_COST -> Integer.class;
@@ -496,7 +572,7 @@ public class PerformanceResultTablePanel extends JPanel {
         }
 
 
-        void append(List<ResultNodeInfo> batch) {
+        void append(List<PendingResult> batch) {
             if (batch.isEmpty()) return;
 
             // 记录新增行的起始位置
@@ -504,13 +580,23 @@ public class PerformanceResultTablePanel extends JPanel {
                 firstNewRow = dataList.size();
             }
 
-            dataList.addAll(batch);
+            for (PendingResult pending : batch) {
+                dataList.add(pending.info());
+                trimRowsForRetention(pending.rowLimit());
+            }
             dirty = true;
         }
 
         void flushIfDirty() {
             if (!dirty) return;
             dirty = false;
+
+            if (fullRefreshRequired) {
+                fullRefreshRequired = false;
+                firstNewRow = -1;
+                fireTableDataChanged();
+                return;
+            }
 
             // 增量刷新：仅通知新增的行
             if (firstNewRow != -1 && firstNewRow < dataList.size()) {
@@ -523,8 +609,19 @@ public class PerformanceResultTablePanel extends JPanel {
         void clear() {
             dataList.clear();
             dirty = false;
+            fullRefreshRequired = false;
             firstNewRow = -1; // 重置
             fireTableDataChanged();
+        }
+
+        private void trimRowsForRetention(int rowLimit) {
+            int effectiveLimit = Math.max(1, rowLimit);
+            int overflow = dataList.size() - effectiveLimit;
+            if (overflow > 0) {
+                dataList.subList(0, overflow).clear();
+                fullRefreshRequired = true;
+                firstNewRow = -1;
+            }
         }
     }
 
@@ -552,24 +649,30 @@ public class PerformanceResultTablePanel extends JPanel {
 
             // 设置对齐方式和颜色
             switch (modelColumn) {
-                case 0: // 接口名称 - 左对齐
+                case 0: // 协议 - 居中
+                    setHorizontalAlignment(SwingConstants.CENTER);
+                    break;
+                case 1: // 接口名称 - 左对齐
                     setHorizontalAlignment(SwingConstants.LEFT);
                     if (!isSelected && info != null && !info.isActuallySuccessful()) {
-                        setForeground(ModernColors.ERROR_DARK);
+                        setForeground(PerformanceTheme.resultFailureForeground());
                         setFont(table.getFont().deriveFont(Font.BOLD));
                     }
                     break;
-                case 1: // 状态码 - 居中对齐，带颜色
+                case 2: // 状态码 - 居中对齐，带颜色
                     setHorizontalAlignment(SwingConstants.CENTER);
                     if (!isSelected && value != null && !"-".equals(value)) {
                         applyStatusColors(this, value.toString());
                     }
                     break;
-                case 2: // 耗时 - 右对齐
+                case 3: // 耗时 - 右对齐
                     setHorizontalAlignment(SwingConstants.RIGHT);
                     break;
-                case 3: // 断言 - 居中
+                case 4: // 断言 - 居中
                     setHorizontalAlignment(SwingConstants.CENTER);
+                    if (!isSelected && info != null) {
+                        applyAssertionColors(this, info);
+                    }
                     break;
                 default: // 其他列 - 左对齐
                     setHorizontalAlignment(SwingConstants.LEFT);
@@ -591,10 +694,12 @@ public class PerformanceResultTablePanel extends JPanel {
         }
 
         private javax.swing.border.Border createCellBorder(int modelColumn, ResultNodeInfo info, boolean isSelected) {
-            int leftInset = modelColumn == 0 ? 8 : 6;
+            int leftInset = modelColumn == 1 ? 8 : 6;
 
-            if (modelColumn == 0 && info != null && !isSelected) {
-                Color stripeColor = info.isActuallySuccessful() ? ModernColors.SUCCESS_DARK : ModernColors.ERROR_DARK;
+            if (modelColumn == 1 && info != null && !isSelected) {
+                Color stripeColor = info.isActuallySuccessful()
+                        ? PerformanceTheme.resultSuccessStripe()
+                        : PerformanceTheme.resultFailureStripe();
                 return BorderFactory.createCompoundBorder(
                         BorderFactory.createMatteBorder(0, 4, 0, 0, stripeColor),
                         BorderFactory.createEmptyBorder(0, leftInset, 0, 6)
@@ -608,27 +713,39 @@ public class PerformanceResultTablePanel extends JPanel {
          * 根据状态码应用颜色 - 参考 FunctionalRunnerTableModel
          */
         private void applyStatusColors(Component c, String status) {
-            Color foreground = ModernColors.getTextPrimary();
+            Color foreground = PerformanceTheme.tableForeground();
 
             try {
                 int code = Integer.parseInt(status);
                 if (code >= 200 && code < 300) {
                     // 成功：使用绿色
-                    foreground = ModernColors.SUCCESS_DARK;
+                    foreground = PerformanceTheme.resultSuccessForeground();
                 } else if (code >= 400 && code < 500) {
                     // 客户端错误：使用警告色
-                    foreground = ModernColors.WARNING_DARKER;
+                    foreground = PerformanceTheme.resultWarningForeground();
                 } else if (code >= 500) {
                     // 服务器错误：使用错误色
-                    foreground = ModernColors.ERROR_DARKER;
+                    foreground = PerformanceTheme.resultFailureForeground();
                 }
             } catch (NumberFormatException e) {
                 // 非数字状态（如错误消息）
-                foreground = ModernColors.ERROR_DARK;
+                foreground = PerformanceTheme.resultFailureForeground();
             }
 
             // 只设置文字颜色
             c.setForeground(foreground);
+        }
+
+        private void applyAssertionColors(Component c, ResultNodeInfo info) {
+            if (info.testResults == null || info.testResults.isEmpty()) {
+                c.setForeground(info.isActuallySuccessful()
+                        ? PerformanceTheme.resultMutedForeground()
+                        : PerformanceTheme.resultFailureForeground());
+                return;
+            }
+            c.setForeground(info.hasAssertionFailed()
+                    ? PerformanceTheme.resultFailureForeground()
+                    : PerformanceTheme.resultSuccessForeground());
         }
     }
 }

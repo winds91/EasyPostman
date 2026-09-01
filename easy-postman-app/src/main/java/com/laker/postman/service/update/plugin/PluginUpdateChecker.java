@@ -1,10 +1,11 @@
 package com.laker.postman.service.update.plugin;
 
+import com.laker.postman.ioc.Component;
 import com.laker.postman.plugin.manager.PluginManagementService;
 import com.laker.postman.plugin.manager.market.PluginCatalogEntry;
 import com.laker.postman.plugin.runtime.PluginCompatibility;
 import com.laker.postman.plugin.runtime.PluginFileInfo;
-import com.laker.postman.service.update.version.VersionComparator;
+import com.laker.postman.platform.update.version.VersionComparator;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,15 +16,16 @@ import java.util.Map;
 /**
  * 插件更新检查器。
  */
-public class PluginUpdateChecker {
-
-    public PluginUpdateChecker() {
-    }
+@Component
+public final class PluginUpdateChecker {
 
     public List<PluginUpdateCandidate> checkForUpdates() throws Exception {
         String catalogUrl = resolveCatalogUrl();
         List<PluginCatalogEntry> catalogEntries = loadCatalogWithFallback(catalogUrl);
-        return findUpdateCandidates(PluginManagementService.getInstalledPlugins(), catalogEntries);
+        return findUpdateCandidates(
+                PluginManagementService.getInstalledPlugins(),
+                PluginUpdateMetadataResolver.mergeWithContributedMetadata(catalogEntries)
+        );
     }
 
     String resolveCatalogUrl() {
@@ -48,9 +50,11 @@ public class PluginUpdateChecker {
             return List.of();
         }
 
+        List<PluginCatalogEntry> selectedCatalogEntries =
+                PluginManagementService.selectCatalogEntriesForCurrentHost(catalogEntries);
         Map<String, PluginFileInfo> installedMap = buildInstalledPluginMap(installedPlugins);
         List<PluginUpdateCandidate> candidates = new ArrayList<>();
-        for (PluginCatalogEntry entry : catalogEntries) {
+        for (PluginCatalogEntry entry : selectedCatalogEntries) {
             PluginFileInfo installed = installedMap.get(entry.id());
             if (installed == null || PluginManagementService.isPluginPendingUninstall(installed.descriptor().id())) {
                 continue;

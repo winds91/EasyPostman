@@ -1,6 +1,7 @@
 package com.laker.postman.common.component.table;
 
 import com.laker.postman.common.component.EasyTextField;
+import com.laker.postman.common.constants.ModernColors;
 
 import javax.swing.*;
 import javax.swing.table.TableCellRenderer;
@@ -13,15 +14,14 @@ public class EasyTextFieldCellRenderer extends EasyTextField implements TableCel
 
     public EasyTextFieldCellRenderer() {
         super(1);
-        setBorder(null);
+        setBorder(TableUIConstants.createLabelBorder());
         setOpaque(true);
     }
 
     @Override
     public void updateUI() {
         super.updateUI();
-        // 主题切换后重新设置边框为null，避免显示边框
-        setBorder(null);
+        setBorder(TableUIConstants.createLabelBorder());
     }
 
     @Override
@@ -45,33 +45,16 @@ public class EasyTextFieldCellRenderer extends EasyTextField implements TableCel
         // Tooltip：截断时显示完整文本，方便查看
         setToolTipText(truncated ? text : null);
 
-        // 背景色决策（优先级：选中 > 悬停 > 斑马纹）
-        if (isSelected) {
-            setBackground(table.getSelectionBackground());
-            setForeground(table.getSelectionForeground());
-        } else {
-            // 悬停行高亮
-            int hoveredRow = getHoveredRow(table);
-
-            Color base = table.getBackground();
-            if (row == hoveredRow) {
-                // 悬停：叠加一层略深的高亮
-                setBackground(blendColor(base, table.getSelectionBackground(), 0.12f));
-            } else if (row % 2 == 1) {
-                // 奇数行斑马纹
-                setBackground(blendColor(base, Color.BLACK, STRIPE_ALPHA));
-            } else {
-                setBackground(base);
-            }
-            setForeground(table.getForeground());
-        }
+        int hoveredRow = getHoveredRow(table);
+        setBackground(TableUIConstants.getCellBackground(isSelected, row == hoveredRow, false, table, row));
+        setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
 
         return this;
     }
 
     /**
      * 从 JTable 向上遍历父容器层级，找到 AbstractTablePanel 并返回 hoveredRow。
-     * 使用循环遍历而非固定深度，兼容不同的容器嵌套结构。
+     * 使用循环遍历而非固定深度，适配不同的容器嵌套结构。
      */
     private static int getHoveredRow(JTable table) {
         java.awt.Container parent = table.getParent();
@@ -96,6 +79,10 @@ public class EasyTextFieldCellRenderer extends EasyTextField implements TableCel
         int g = Math.min(255, Math.max(0, Math.round(base.getGreen() * (1 - alpha) + blend.getGreen() * alpha)));
         int b = Math.min(255, Math.max(0, Math.round(base.getBlue()  * (1 - alpha) + blend.getBlue()  * alpha)));
         return new Color(r, g, b);
+    }
+
+    static Color stripeBackground(Color base) {
+        return blendColor(base, ModernColors.getTextPrimary(), STRIPE_ALPHA);
     }
 
     /**
@@ -124,7 +111,7 @@ public class EasyTextFieldCellRenderer extends EasyTextField implements TableCel
 
         // 预留空间：左右边距 + "..." 的宽度
         int ellipsisWidth = fm.stringWidth("...");
-        int availableWidth = columnWidth - 10 - ellipsisWidth; // 10px 为边距预留
+        int availableWidth = columnWidth - TableUIConstants.PADDING_LEFT - TableUIConstants.PADDING_RIGHT - ellipsisWidth;
 
         if (availableWidth <= 0) {
             return 0;

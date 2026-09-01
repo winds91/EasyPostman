@@ -186,11 +186,7 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                                                        boolean isSelected, boolean hasFocus, int row, int column) {
-            if (isSelected) {
-                setBackground(table.getSelectionBackground());
-            } else {
-                setBackground(table.getBackground());
-            }
+            setBackground(TableUIConstants.getCellBackground(isSelected, row == hoveredRow, false, table, row));
 
             // Set checkbox state
             checkBox.setSelected(value instanceof Boolean && (Boolean) value);
@@ -279,32 +275,27 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
         table.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (!editable || !SwingUtilities.isLeftMouseButton(e)) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
 
                 int column = table.columnAtPoint(e.getPoint());
                 int row = table.rowAtPoint(e.getPoint());
 
-                if (column == COL_DELETE && row >= 0) {
-                    int modelRow = row;
-                    if (table.getRowSorter() != null) {
-                        modelRow = table.getRowSorter().convertRowIndexToModel(row);
-                    }
-
-                    if (modelRow < 0 || modelRow >= tableModel.getRowCount()) {
-                        return;
-                    }
-
-                    int rowCount = tableModel.getRowCount();
-                    if (modelRow == rowCount - 1 && rowCount == 1) {
-                        return;
-                    }
-
-                    stopCellEditing();
-                    tableModel.removeRow(modelRow);
-                    ensureEmptyLastRow();
+                if (!isDeleteActionAvailableAtViewPosition(row, column)) {
+                    return;
                 }
+
+                int modelRow = table.getRowSorter() != null
+                        ? table.getRowSorter().convertRowIndexToModel(row) : row;
+
+                stopCellEditing();
+                tableModel.removeRow(modelRow);
+                ensureEmptyLastRow();
+                hoveredRow = -1;
+                hoveredColumn = -1;
+                table.setCursor(Cursor.getDefaultCursor());
+                table.repaint();
             }
         });
     }
@@ -320,17 +311,8 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
                 int column = table.columnAtPoint(e.getPoint());
                 int row = table.rowAtPoint(e.getPoint());
 
-                // 在第一列显示手型光标
-                if (column == COL_DRAG_ENABLE && row >= 0) {
-                    Rectangle cellRect = table.getCellRect(row, column, false);
-                    int relativeX = e.getX() - cellRect.x;
-
-                    // 左侧拖拽区域显示小手指光标，提示用户可以拖拽
-                    if (relativeX < 25) {
-                        table.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                    } else {
-                        table.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                    }
+                if ((column == COL_DRAG_ENABLE && row >= 0) || isDeleteActionAvailableAtViewPosition(row, column)) {
+                    table.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                 } else {
                     table.setCursor(Cursor.getDefaultCursor());
                 }
@@ -390,24 +372,12 @@ public class EasyVariableTablePanel extends AbstractTablePanel<Variable> {
     public void addRow(Object... values) {
         if (values == null || values.length == 0) {
             tableModel.addRow(new Object[]{true, "", "", ""});
-        } else if (values.length == 2) {
-            // Legacy support: if 2 values provided, treat as Key, Value
-            tableModel.addRow(new Object[]{true, values[0], values[1], ""});
-        } else if (values.length == 3) {
-            // New format: enabled, key, value
-            tableModel.addRow(new Object[]{values[0], values[1], values[2], ""});
-        } else {
-            Object[] row = new Object[4];
-            row[0] = true; // enabled
-            for (int i = 0; i < Math.min(values.length, 2); i++) {
-                row[i + 1] = values[i];
-            }
-            for (int i = values.length; i < 2; i++) {
-                row[i + 1] = "";
-            }
-            row[3] = ""; // delete
-            tableModel.addRow(row);
+            return;
         }
+        if (values.length != 4) {
+            throw new IllegalArgumentException("Variable table rows must use [enabled, key, value, action]");
+        }
+        tableModel.addRow(new Object[]{values[0], values[1], values[2], values[3]});
     }
 
     /**

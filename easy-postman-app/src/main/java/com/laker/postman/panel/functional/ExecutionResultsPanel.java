@@ -1,12 +1,15 @@
 package com.laker.postman.panel.functional;
 
 import com.formdev.flatlaf.extras.FlatSVGIcon;
+import com.laker.postman.common.component.ToolWindowActionToolbar;
+import com.laker.postman.common.component.AppToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.constants.ModernColors;
-import com.laker.postman.model.AssertionResult;
-import com.laker.postman.model.BatchExecutionHistory;
-import com.laker.postman.model.IterationResult;
-import com.laker.postman.model.RequestResult;
-import com.laker.postman.service.http.HttpUtil;
+import com.laker.postman.functional.model.AssertionResult;
+import com.laker.postman.functional.model.BatchExecutionHistory;
+import com.laker.postman.functional.model.IterationResult;
+import com.laker.postman.functional.model.RequestResult;
+import com.laker.postman.common.component.HttpRequestDisplayMetadata;
 import com.laker.postman.service.render.HttpHtmlRenderer;
 import com.laker.postman.util.*;
 
@@ -53,25 +56,18 @@ public class ExecutionResultsPanel extends JPanel {
 
     private void initUI() {
         setLayout(new BorderLayout());
-        // 添加复合边框：内部间距 + 外部边框
-        setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createEmptyBorder(8, 8, 8, 8), // 内边距
-                BorderFactory.createMatteBorder(1, 1, 1, 1, ModernColors.getDividerBorderColor()) // 外边框
-        ));
+        ToolWindowSurfaceStyle.applyCard(this);
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         // 创建分割面板
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setDividerLocation(350);
-        splitPane.setResizeWeight(0.35);
-        splitPane.setBorder(null);
-
-        // 左侧：结果树
         createResultsTree();
-        splitPane.setLeftComponent(createTreePanel());
-
-        // 右侧：详情面板
         createDetailPanel();
-        splitPane.setRightComponent(detailPanel);
+        JSplitPane splitPane = AppToolWindowChrome.createHorizontalInnerSplitPane(
+                createTreePanel(),
+                detailPanel,
+                AppToolWindowChrome.DEFAULT_SIDE_WIDTH
+        );
+        splitPane.setResizeWeight(0.35);
 
         add(splitPane, BorderLayout.CENTER);
     }
@@ -93,15 +89,17 @@ public class ExecutionResultsPanel extends JPanel {
 
     private JPanel createTreePanel() {
         JPanel treePanel = new JPanel(new BorderLayout());
-        treePanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        ToolWindowSurfaceStyle.applyCard(treePanel);
+        treePanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
         // 添加标题栏（包含标题和工具按钮）
         JPanel headerPanel = createTreeHeaderPanel();
         treePanel.add(headerPanel, BorderLayout.NORTH);
 
         JScrollPane treeScrollPane = new JScrollPane(resultsTree);
+        treeScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         treeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        treeScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        ToolWindowSurfaceStyle.applyTreeScrollPaneCard(treeScrollPane, resultsTree);
         treePanel.add(treeScrollPane, BorderLayout.CENTER);
 
         return treePanel;
@@ -109,6 +107,7 @@ public class ExecutionResultsPanel extends JPanel {
 
     private JPanel createTreeHeaderPanel() {
         JPanel headerPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(headerPanel);
         headerPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
 
         // 左侧标题
@@ -124,9 +123,6 @@ public class ExecutionResultsPanel extends JPanel {
     }
 
     private JPanel createToolBar() {
-        JPanel toolBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
-        toolBar.setOpaque(false);
-
         // 只使用图标按钮，更简洁
         JButton expandAllBtn = createIconButton("icons/expand.svg",
                 I18nUtil.getMessage(MessageKeys.FUNCTIONAL_TOOLTIP_EXPAND_ALL));
@@ -140,11 +136,7 @@ public class ExecutionResultsPanel extends JPanel {
                 I18nUtil.getMessage(MessageKeys.FUNCTIONAL_TOOLTIP_REFRESH));
         refreshBtn.addActionListener(e -> refreshData());
 
-        toolBar.add(expandAllBtn);
-        toolBar.add(collapseAllBtn);
-        toolBar.add(refreshBtn);
-
-        return toolBar;
+        return ToolWindowActionToolbar.inlineRight(expandAllBtn, collapseAllBtn, refreshBtn);
     }
 
     private JButton createIconButton(String iconPath, String tooltip) {
@@ -160,10 +152,12 @@ public class ExecutionResultsPanel extends JPanel {
 
     private void createDetailPanel() {
         detailPanel = new JPanel(new BorderLayout());
-        detailPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
+        ToolWindowSurfaceStyle.applyCard(detailPanel);
+        detailPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
 
         // 创建详情选项卡
         detailTabs = new JTabbedPane();
+        ToolWindowSurfaceStyle.applyTabbedPaneCard(detailTabs);
         detailTabs.setFont(FontsUtil.getDefaultFont(Font.PLAIN));
         detailTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
@@ -373,7 +367,7 @@ public class ExecutionResultsPanel extends JPanel {
         detailTabs.removeAll();
         JPanel welcomePanel = createWelcomePanel();
         detailTabs.addTab(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_TAB_OVERVIEW),
-                new FlatSVGIcon("icons/info.svg", 16, 16), welcomePanel);
+                IconUtil.createThemed("icons/info.svg", 16, 16), welcomePanel);
         detailTabs.revalidate();
         detailTabs.repaint();
     }
@@ -402,6 +396,7 @@ public class ExecutionResultsPanel extends JPanel {
         }
 
         JPanel overviewPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(overviewPanel);
         overviewPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         // 创建统计信息
@@ -412,6 +407,7 @@ public class ExecutionResultsPanel extends JPanel {
         JTable summaryTable = createSummaryTable();
         JScrollPane scrollPane = new JScrollPane(summaryTable);
         scrollPane.setPreferredSize(new Dimension(0, 200));
+        ToolWindowSurfaceStyle.applyTableScrollPaneCard(scrollPane, summaryTable);
         overviewPanel.add(scrollPane, BorderLayout.CENTER);
 
         detailTabs.addTab(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_DETAIL_OVERVIEW), overviewPanel);
@@ -421,14 +417,13 @@ public class ExecutionResultsPanel extends JPanel {
         IterationResult iteration = iterationData.iteration;
 
         JPanel iterationPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(iterationPanel);
         iterationPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         // 迭代信息 - 改用 GridBagLayout 精确控制 key/value 对齐
         JPanel infoPanel = new JPanel(new GridBagLayout());
-        infoPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_DETAIL_ITERATION_INFO)),
-                BorderFactory.createEmptyBorder(4, 8, 8, 8)
-        ));
+        infoPanel.setOpaque(false);
+        infoPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 12, 8));
 
         String[][] rows = {
                 {I18nUtil.getMessage(MessageKeys.FUNCTIONAL_ITERATION_ROUND),
@@ -488,7 +483,7 @@ public class ExecutionResultsPanel extends JPanel {
         reqPane.setEditable(false);
         reqPane.setText(HttpHtmlRenderer.renderRequest(request.getReq()));
         reqPane.setCaretPosition(0);
-        detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_REQUEST), new JScrollPane(reqPane));
+        detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_REQUEST), createHtmlDetailScrollPane(reqPane));
 
         // 响应信息
         JEditorPane respPane = new JEditorPane();
@@ -496,7 +491,7 @@ public class ExecutionResultsPanel extends JPanel {
         respPane.setEditable(false);
         respPane.setText(HttpHtmlRenderer.renderResponseWithError(request));
         respPane.setCaretPosition(0);
-        detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_RESPONSE), new JScrollPane(respPane));
+        detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_RESPONSE), createHtmlDetailScrollPane(respPane));
 
         // Timing & Event Info
         if (request.getResponse() != null && request.getResponse().httpEventInfo != null) {
@@ -505,14 +500,14 @@ public class ExecutionResultsPanel extends JPanel {
             timingPane.setEditable(false);
             timingPane.setText(HttpHtmlRenderer.renderTimingInfo(request.getResponse()));
             timingPane.setCaretPosition(0);
-            detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_TIMING), new JScrollPane(timingPane));
+            detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_TIMING), createHtmlDetailScrollPane(timingPane));
 
             JEditorPane eventInfoPane = new JEditorPane();
             eventInfoPane.setContentType(TEXT_HTML);
             eventInfoPane.setEditable(false);
             eventInfoPane.setText(HttpHtmlRenderer.renderEventInfo(request.getResponse()));
             eventInfoPane.setCaretPosition(0);
-            detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_EVENTS), new JScrollPane(eventInfoPane));
+            detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_EVENTS), createHtmlDetailScrollPane(eventInfoPane));
         }
 
         // Tests
@@ -522,7 +517,7 @@ public class ExecutionResultsPanel extends JPanel {
             testsPane.setEditable(false);
             testsPane.setText(HttpHtmlRenderer.renderTestResults(request.getTestResults()));
             testsPane.setCaretPosition(0);
-            detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_TESTS), new JScrollPane(testsPane));
+            detailTabs.addTab(I18nUtil.getMessage(MessageKeys.TAB_TESTS), createHtmlDetailScrollPane(testsPane));
         }
 
         // 恢复上次选中的 tab
@@ -614,13 +609,13 @@ public class ExecutionResultsPanel extends JPanel {
                 // 有失败：红色图标和文字
                 setIcon(new FlatSVGIcon("icons/fail.svg", 16, 16));
                 if (!selected) {
-                    setForeground(ModernColors.ERROR_DARK);
+                    setForeground(ModernColors.getErrorDark());
                 }
             } else if (hasTests) {
                 // 全部通过：绿色图标和文字
                 setIcon(new FlatSVGIcon("icons/pass.svg", 16, 16));
                 if (!selected) {
-                    setForeground(ModernColors.SUCCESS_DARK);
+                    setForeground(ModernColors.getSuccessDark());
                 }
             } else {
                 // 无测试：默认图标
@@ -642,7 +637,7 @@ public class ExecutionResultsPanel extends JPanel {
             } else if (AssertionResult.FAIL.equals(assertion) || FunctionalPanel.ERROR.equals(status)) {
                 // 失败：红色图标和文字
                 setIcon(new FlatSVGIcon("icons/fail.svg", 16, 16));
-                setForegroundIfNotSelected(ModernColors.ERROR_DARK, selected);
+                setForegroundIfNotSelected(ModernColors.getErrorDark(), selected);
             } else if (AssertionResult.NO_TESTS.equals(assertion)) {
                 // 无测试：蓝色图标和文字
                 setIcon(IconUtil.createThemed("icons/nocheck.svg", 16, 16));
@@ -650,7 +645,7 @@ public class ExecutionResultsPanel extends JPanel {
             } else if (AssertionResult.PASS.equals(assertion)) {
                 // 通过：绿色图标和文字
                 setIcon(new FlatSVGIcon("icons/pass.svg", 16, 16));
-                setForegroundIfNotSelected(ModernColors.SUCCESS_DARK, selected);
+                setForegroundIfNotSelected(ModernColors.getSuccessDark(), selected);
 
             } else {
                 // 其他状态：默认图标
@@ -668,6 +663,7 @@ public class ExecutionResultsPanel extends JPanel {
 
     private JPanel createWelcomePanel() {
         JPanel welcomePanel = new JPanel(new GridBagLayout());
+        ToolWindowSurfaceStyle.applyCard(welcomePanel);
         JPanel inner = new JPanel();
         inner.setLayout(new BoxLayout(inner, BoxLayout.Y_AXIS));
         inner.setOpaque(false);
@@ -723,23 +719,21 @@ public class ExecutionResultsPanel extends JPanel {
 
         // 使用 GridBagLayout 实现4列卡片，自适应宽度
         JPanel statsPanel = new JPanel(new GridBagLayout());
-        statsPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_DETAIL_EXECUTION_STATS)),
-                BorderFactory.createEmptyBorder(4, 8, 8, 8)
-        ));
+        statsPanel.setOpaque(false);
+        statsPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 14, 8));
 
         // 定义卡片数据：[数值, 标签, 颜色(null=主色)]
         Object[][] cards = {
                 {String.valueOf(totalIterations), I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_TOTAL_ITERATIONS), null},
                 {String.valueOf(totalRequests), I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_TOTAL_REQUESTS), null},
                 {String.format("%.1f%%", successRate), I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_SUCCESS_RATE),
-                        successRate >= 100 ? ModernColors.SUCCESS_DARK : (successRate >= 80 ? ModernColors.WARNING_DARKER : ModernColors.ERROR_DARK)},
+                        successRate >= 100 ? ModernColors.getSuccessDark() : (successRate >= 80 ? ModernColors.getWarningDarker() : ModernColors.getErrorDark())},
                 {TimeDisplayUtil.formatElapsedTime(totalTime), I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_TOTAL_TIME), null},
                 {formatTimestamp(executionHistory.getStartTime()), I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_START_TIME), null},
                 {formatTimestamp(executionHistory.getEndTime()), I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_END_TIME), null},
                 {avgTime + " ms", I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_AVERAGE_TIME), null},
                 {I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_STATUS_COMPLETED), I18nUtil.getMessage(MessageKeys.FUNCTIONAL_STATS_STATUS),
-                        ModernColors.SUCCESS_DARK},
+                        ModernColors.getSuccessDark()},
         };
 
         GridBagConstraints gbc = new GridBagConstraints();
@@ -879,8 +873,7 @@ public class ExecutionResultsPanel extends JPanel {
                                                            boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 if (value != null) {
-                    String color = HttpUtil.getMethodColor(value.toString());
-                    c.setForeground(Color.decode(color));
+                    c.setForeground(HttpRequestDisplayMetadata.methodColor(value.toString()));
                 }
                 setHorizontalAlignment(CENTER);
                 return c;
@@ -914,14 +907,14 @@ public class ExecutionResultsPanel extends JPanel {
             try {
                 int code = Integer.parseInt(status);
                 if (code >= 200 && code < 300) {
-                    foreground = ModernColors.SUCCESS_DARK;
+                    foreground = ModernColors.getSuccessDark();
                 } else if (code >= 400 && code < 500) {
-                    foreground = ModernColors.WARNING_DARKER;
+                    foreground = ModernColors.getWarningDarker();
                 } else if (code >= 500) {
-                    foreground = ModernColors.ERROR_DARKER;
+                    foreground = ModernColors.getErrorDarker();
                 }
             } catch (NumberFormatException e) {
-                foreground = ModernColors.ERROR_DARK;
+                foreground = ModernColors.getErrorDark();
             }
         }
         c.setForeground(foreground);
@@ -964,9 +957,9 @@ public class ExecutionResultsPanel extends JPanel {
                 } else if (value instanceof AssertionResult ar) {
                     setText(ar.getDisplayValue());
                     if (AssertionResult.PASS.equals(ar)) {
-                        c.setForeground(isSelected ? c.getForeground() : ModernColors.SUCCESS_DARK);
+                        c.setForeground(isSelected ? c.getForeground() : ModernColors.getSuccessDark());
                     } else if (AssertionResult.FAIL.equals(ar)) {
-                        c.setForeground(isSelected ? c.getForeground() : ModernColors.ERROR_DARK);
+                        c.setForeground(isSelected ? c.getForeground() : ModernColors.getErrorDark());
                     } else {
                         c.setForeground(isSelected ? c.getForeground() : ModernColors.getTextSecondary());
                     }
@@ -981,7 +974,13 @@ public class ExecutionResultsPanel extends JPanel {
 
     private JPanel createCsvDataPanel(java.util.Map<String, String> csvData) {
         JPanel csvPanel = new JPanel(new BorderLayout());
-        csvPanel.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_DETAIL_CSV_DATA)));
+        csvPanel.setOpaque(false);
+        csvPanel.setBorder(BorderFactory.createEmptyBorder(12, 8, 0, 8));
+        JLabel titleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_DETAIL_CSV_DATA));
+        titleLabel.setFont(FontsUtil.getDefaultFontWithOffset(Font.BOLD, 1));
+        titleLabel.setForeground(ModernColors.getTextPrimary());
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        csvPanel.add(titleLabel, BorderLayout.NORTH);
 
         JTable csvTable = new JTable();
         String[] headers = csvData.keySet().toArray(new String[0]);
@@ -997,19 +996,23 @@ public class ExecutionResultsPanel extends JPanel {
 
         JScrollPane csvScrollPane = new JScrollPane(csvTable);
         csvScrollPane.setPreferredSize(new Dimension(0, 100));
+        ToolWindowSurfaceStyle.applyTableScrollPaneCard(csvScrollPane, csvTable);
         csvPanel.add(csvScrollPane, BorderLayout.CENTER);
 
         return csvPanel;
     }
 
+    private JScrollPane createHtmlDetailScrollPane(JEditorPane pane) {
+        ToolWindowSurfaceStyle.applyTextComponentCard(pane);
+        JScrollPane scrollPane = new JScrollPane(pane);
+        ToolWindowSurfaceStyle.applyScrollPaneCard(scrollPane);
+        return scrollPane;
+    }
+
     @Override
     public void updateUI() {
         super.updateUI();
-        // 主题切换时重新设置边框，确保分隔线颜色更新
-        setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createEmptyBorder(8, 8, 8, 8),
-                BorderFactory.createMatteBorder(1, 1, 1, 1, ModernColors.getDividerBorderColor())
-        ));
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
     }
 
 }

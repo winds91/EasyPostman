@@ -2,6 +2,7 @@ package com.laker.postman.service.variable;
 
 import com.laker.postman.model.Environment;
 import com.laker.postman.service.EnvironmentService;
+import com.laker.postman.variable.VariableType;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
@@ -12,8 +13,8 @@ import java.util.Map;
  * <p>
  * 负责从当前激活的环境中获取环境变量
  * <ul>
- *   <li>优先级中等（优先级 = 2）</li>
- *   <li>低于临时变量，高于内置函数</li>
+ *   <li>优先级中等（位于执行变量、迭代数据、分组变量之后）</li>
+ *   <li>高于全局变量与内置函数</li>
  * </ul>
  */
 @Slf4j
@@ -43,7 +44,7 @@ public class EnvironmentVariableService implements VariableProvider {
             return null;
         }
 
-        Environment activeEnv = EnvironmentService.getActiveEnvironment();
+        Environment activeEnv = activeEnvironment();
         if (activeEnv == null) {
             return null;
         }
@@ -57,7 +58,7 @@ public class EnvironmentVariableService implements VariableProvider {
             return false;
         }
 
-        Environment activeEnv = EnvironmentService.getActiveEnvironment();
+        Environment activeEnv = activeEnvironment();
         if (activeEnv == null) {
             return false;
         }
@@ -67,7 +68,7 @@ public class EnvironmentVariableService implements VariableProvider {
 
     @Override
     public Map<String, String> getAll() {
-        Environment activeEnv = EnvironmentService.getActiveEnvironment();
+        Environment activeEnv = activeEnvironment();
         if (activeEnv == null || activeEnv.getVariables() == null) {
             return Collections.emptyMap();
         }
@@ -83,5 +84,10 @@ public class EnvironmentVariableService implements VariableProvider {
     @Override
     public VariableType getType() {
         return VariableType.ENVIRONMENT;
+    }
+
+    private Environment activeEnvironment() {
+        Environment scopedEnvironment = RunScopedVariableContext.currentEnvironment();
+        return scopedEnvironment == null ? EnvironmentService.getActiveEnvironment() : scopedEnvironment;
     }
 }

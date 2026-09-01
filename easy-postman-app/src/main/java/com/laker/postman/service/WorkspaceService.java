@@ -1,10 +1,18 @@
 package com.laker.postman.service;
 
-import com.laker.postman.common.constants.ConfigPathConstants;
-import com.laker.postman.model.*;
-import com.laker.postman.plugin.bridge.GitPluginService;
-import com.laker.postman.plugin.bridge.GitPluginServices;
-import com.laker.postman.util.SystemUtil;
+import com.laker.postman.model.GitAuthType;
+import com.laker.postman.model.GitBranchInfo;
+import com.laker.postman.model.GitCommitInfo;
+import com.laker.postman.model.GitFileChange;
+import com.laker.postman.model.GitOperation;
+import com.laker.postman.model.GitOperationResult;
+import com.laker.postman.model.GitRepoSource;
+import com.laker.postman.model.GitStatusCheck;
+import com.laker.postman.model.RemoteStatus;
+import com.laker.postman.model.Workspace;
+import com.laker.postman.model.WorkspaceType;
+import com.laker.postman.plugin.api.service.GitPluginService;
+import com.laker.postman.plugin.host.GitServiceAccess;
 import com.laker.postman.util.WorkspaceStorageUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +42,6 @@ public class WorkspaceService {
 
     private WorkspaceService() {
         loadWorkspaces();
-        migrateDefaultWorkspaceIfNeeded();
     }
 
     public static synchronized WorkspaceService getInstance() {
@@ -90,115 +97,6 @@ public class WorkspaceService {
      */
     private void handleGitWorkspace(Workspace workspace) throws Exception {
         requireGitService().prepareGitWorkspace(workspace);
-    }
-
-    /**
-     * 版本兼容迁移：将旧版默认工作区数据从根目录迁移到 workspaces/default/
-     *
-     * <h3>旧版结构（v1）</h3>
-     * <pre>
-     *   ~/EasyPostman/
-     *       collections.json      ← 默认工作区数据（旧位置）
-     *       environments.json     ← 默认工作区数据（旧位置）
-     *       README.md             ← 可选，旧位置
-     *       .git/                 ← 若用户曾 git init（旧位置，不迁移）
-     *       .gitignore            ← 旧白名单模式（不迁移，新目录用标准模式）
-     *       workspaces/
-     *           ws1/
-     * </pre>
-     *
-     * <h3>新版结构（v2+）</h3>
-     * <pre>
-     *   ~/EasyPostman/
-     *       workspaces/
-     *           default/          ← 默认工作区（与其他工作区完全平级）
-     *               collections.json
-     *               environments.json
-     *           ws1/
-     * </pre>
-     *
-     * <h3>迁移策略</h3>
-     * <ul>
-     *   <li><b>collections.json / environments.json / README.md</b>：有旧无新则复制，幂等</li>
-     *   <li><b>.git/</b>：绝不迁移。Git 仓库的 working tree 路径与目录绑定，
-     *       直接复制会导致所有文件显示为 deleted/missing。
-     *       若旧目录是 Git 工作区，在新目录重新 git init 并提交现有数据。</li>
-     *   <li><b>.gitignore</b>：不迁移旧版白名单。新目录是独立子目录，
-     *       由 createGitignore() 生成标准模式。</li>
-     * </ul>
-     */
-    private void migrateDefaultWorkspaceIfNeeded() {
-        try {
-            String rootDir = SystemUtil.getEasyPostmanPath();
-            Path newDefaultDir = Paths.get(ConfigPathConstants.DEFAULT_WORKSPACE_DIR);
-
-            // 确保新目录存在
-            Files.createDirectories(newDefaultDir);
-
-            // 若迁移标记文件已存在，说明之前已完成迁移，直接返回，避免重复迁移
-            Path migratedMarker = newDefaultDir.resolve(".migrated");
-            if (Files.exists(migratedMarker)) {
-                return;
-            }
-
-            log.info(" ======!!!!!! Migrating default workspace at: {}", rootDir);
-
-            // 1. 迁移数据文件（collections.json / environments.json / README.md）
-            //    .git/ 和 .gitignore 不在迁移范围内（见 Javadoc）
-            String[] dataFiles = {"collections.json", "environments.json", "README.md"};
-            boolean migrated = false;
-            for (String fileName : dataFiles) {
-                Path oldFile = Paths.get(rootDir, fileName);
-                Path newFile = newDefaultDir.resolve(fileName);
-                if (!Files.exists(newFile) && Files.exists(oldFile)) {
-                    Files.copy(oldFile, newFile);
-                    log.info(" ========!!!!!! Migrated default workspace file: {} -> {}", oldFile, newFile);
-                    migrated = true;
-                }
-            }
-
-            // 2. 处理 Git 仓库：旧目录有 .git/ 说明用户曾做过 git init
-            Path oldGitDir = Paths.get(rootDir, ".git");
-            Path newGitDir = newDefaultDir.resolve(".git");
-            if (Files.exists(oldGitDir) && !Files.exists(newGitDir)) {
-                Workspace defaultWs = workspaces.stream()
-                        .filter(WorkspaceStorageUtil::isDefaultWorkspace)
-                        .findFirst().orElse(null);
-                if (defaultWs != null) {
-                    defaultWs.setPath(ConfigPathConstants.DEFAULT_WORKSPACE_DIR);
-                    try {
-                        requireGitService().migrateDefaultWorkspaceGit(
-                                defaultWs,
-                                "Migrate default workspace to workspaces/default/");
-                        migrated = true;
-                        log.info("Re-initialized git repository in new default workspace dir: {}", newDefaultDir);
-                    } catch (Exception ex) {
-                        log.warn("Failed to re-init git in new default workspace dir, skipping git migration", ex);
-                    }
-                }
-            }
-
-            if (migrated) {
-                log.info("Default workspace migration complete: {}", newDefaultDir);
-            }
-
-            // 3. 同步更新内存中所有默认工作区对象的 path
-            //    （loadWorkspaces 从旧 workspaces.json 加载时可能读到旧路径）
-            workspaces.stream()
-                    .filter(WorkspaceStorageUtil::isDefaultWorkspace)
-                    .forEach(ws -> ws.setPath(ConfigPathConstants.DEFAULT_WORKSPACE_DIR));
-
-            // 4. 持久化：将更新后的 path 写回 workspaces.json
-            //    否则下次启动 loadWorkspaces 仍读到旧路径，每次都重复触发迁移逻辑
-            saveWorkspaces();
-
-            // 5. 写入迁移标记文件，下次启动时检测到后直接跳过，避免重复迁移
-            Files.writeString(migratedMarker, String.valueOf(System.currentTimeMillis()));
-            log.info("Migration marker written: {}", migratedMarker);
-
-        } catch (Exception e) {
-            log.warn("Failed to migrate default workspace, will use new path directly", e);
-        }
     }
 
     /**
@@ -431,6 +329,16 @@ public class WorkspaceService {
         return requireGitService().getChangedFilesBetweenCommits(workspace, oldCommitId, newCommitId);
     }
 
+    public List<GitFileChange> listWorkingTreeChanges(String workspaceId) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        return requireGitService().listWorkingTreeChanges(workspace);
+    }
+
+    public String getWorkingTreeDiff(String workspaceId, String filePath) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        return requireGitService().getWorkingTreeDiff(workspace, filePath);
+    }
+
     /**
      * 根据ID获取工作区
      */
@@ -489,8 +397,15 @@ public class WorkspaceService {
      */
     public void addRemoteRepository(String workspaceId, String remoteUrl, String remoteBranch,
                                     GitAuthType authType, String username, String password, String token) throws Exception {
+        addRemoteRepository(workspaceId, remoteUrl, remoteBranch, authType, username, password, token, null, null);
+    }
+
+    public void addRemoteRepository(String workspaceId, String remoteUrl, String remoteBranch,
+                                    GitAuthType authType, String username, String password, String token,
+                                    String sshPrivateKeyPath, String sshPassphrase) throws Exception {
         Workspace workspace = getWorkspaceById(workspaceId);
-        requireGitService().addRemoteRepository(workspace, remoteUrl, remoteBranch, authType, username, password, token);
+        requireGitService().addRemoteRepository(workspace, remoteUrl, remoteBranch, authType, username, password, token,
+                sshPrivateKeyPath, sshPassphrase);
         saveWorkspaces();
     }
 
@@ -643,11 +558,53 @@ public class WorkspaceService {
         requireGitService().clearSshCache(privateKeyPath);
     }
 
-    public boolean isGitPluginInstalled() {
-        return GitPluginServices.isGitPluginInstalled();
+    public boolean isGitServiceAvailable() {
+        return GitServiceAccess.isServiceAvailable();
+    }
+
+    public List<GitBranchInfo> listGitBranches(String workspaceId) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        return requireGitService().listBranches(workspace);
+    }
+
+    public GitOperationResult switchGitBranch(String workspaceId, String branchName) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        GitOperationResult result = requireGitService().switchBranch(workspace, branchName);
+        saveWorkspaces();
+        return result;
+    }
+
+    public GitOperationResult fetchGitBranches(String workspaceId) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        return requireGitService().fetchBranches(workspace);
+    }
+
+    public GitOperationResult createGitBranch(String workspaceId, String branchName) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        GitOperationResult result = requireGitService().createBranch(workspace, branchName);
+        saveWorkspaces();
+        return result;
+    }
+
+    public GitOperationResult deleteGitBranch(String workspaceId, String branchName) throws Exception {
+        return deleteGitBranch(workspaceId, branchName, false);
+    }
+
+    public GitOperationResult deleteGitBranch(String workspaceId, String branchName, boolean force) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        GitOperationResult result = requireGitService().deleteBranch(workspace, branchName, force);
+        saveWorkspaces();
+        return result;
+    }
+
+    public GitOperationResult publishGitBranch(String workspaceId) throws Exception {
+        Workspace workspace = getWorkspaceById(workspaceId);
+        GitOperationResult result = requireGitService().publishBranch(workspace);
+        saveWorkspaces();
+        return result;
     }
 
     private GitPluginService requireGitService() {
-        return GitPluginServices.requireGitService();
+        return GitServiceAccess.requireService();
     }
 }

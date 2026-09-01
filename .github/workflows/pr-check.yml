@@ -28,7 +28,7 @@ permissions:
 env:
   JAVA_VERSION: '17'
   JAVA_DISTRIBUTION: 'jetbrains'
-  JLINK_MODULES: 'java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki'
+  JLINK_MODULES: 'java.base,java.desktop,java.logging,jdk.unsupported,java.naming,java.net.http,jdk.httpserver,java.prefs,java.sql,java.security.sasl,java.security.jgss,jdk.crypto.ec,java.management,java.management.rmi,jdk.crypto.cryptoki'
   JAVA_OPTIONS: '-Xms256m|-Xmx512m|-Dfile.encoding=UTF-8'
   JAVA_OPTIONS_MACOS: '-Dsun.java2d.metal=false'
 
@@ -143,7 +143,7 @@ jobs:
           if (Test-Path $runtimeDir) { Remove-Item -Recurse -Force $runtimeDir }
           
           jlink `
-            --add-modules $env:JLINK_MODULES `
+            --add-modules "$env:JLINK_MODULES,jdk.crypto.mscapi" `
             --strip-debug `
             --no-header-files `
             --no-man-pages `
@@ -284,46 +284,12 @@ jobs:
             }
           }
 
-      - name: Run Windows smoke test
+      - name: Run Windows single-instance smoke test
         shell: pwsh
         timeout-minutes: 2
         run: |
-          Write-Host "🧪 Running Windows smoke test..."
-          $exeFile = "target\EasyPostman\EasyPostMan.exe"
-          
-          # 启动应用（后台运行，使用 headless 模式）
-          $env:JAVA_TOOL_OPTIONS = "-Djava.awt.headless=false"
-          $process = Start-Process -FilePath $exeFile -PassThru -WindowStyle Hidden -RedirectStandardError "stderr.log" -RedirectStandardOutput "stdout.log"
-          
-          if ($process) {
-            Write-Host "✅ Application started (PID: $($process.Id))"
-          
-            # 等待应用启动
-            Start-Sleep -Seconds 8
-          
-            # 检查进程是否还在运行
-            $runningProcess = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
-            if ($runningProcess) {
-              Write-Host "✅ Application is running successfully"
-              Write-Host "   Process: $($runningProcess.ProcessName)"
-              Write-Host "   Memory: $([math]::Round($runningProcess.WorkingSet64 / 1MB, 2)) MB"
-          
-              # 停止应用
-              Stop-Process -Id $process.Id -Force
-              Start-Sleep -Seconds 2
-              Write-Host "✅ Application stopped"
-            } else {
-              Write-Host "❌ Application crashed or exited immediately"
-              if (Test-Path "stderr.log") {
-                Write-Host "=== Error Log ==="
-                Get-Content "stderr.log"
-              }
-              exit 1
-            }
-          } else {
-            Write-Host "❌ Failed to start application"
-            exit 1
-          }
+          .\build\verify-windows-single-instance.ps1 `
+            -AppExe "target\EasyPostman\EasyPostman.exe"
 
   # Job 3: macOS 打包和验证
   test-macos-package:

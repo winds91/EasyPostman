@@ -1,11 +1,18 @@
 package com.laker.postman.service.postman;
 
+import com.laker.postman.collection.importer.postman.PostmanCollectionParser;
+import com.laker.postman.collection.model.CollectionParseResult;
+import com.laker.postman.request.model.AuthApiKeyPlacement;
+import com.laker.postman.request.model.AuthType;
+import com.laker.postman.request.model.HttpFormData;
+import com.laker.postman.request.model.HttpFormUrlencoded;
+import com.laker.postman.request.model.HttpHeader;
+import com.laker.postman.request.model.HttpParam;
+import com.laker.postman.request.model.HttpRequestItem;
+
+
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
-import com.laker.postman.model.HttpFormData;
-import com.laker.postman.model.HttpHeader;
-import com.laker.postman.model.HttpRequestItem;
-import com.laker.postman.service.common.CollectionParseResult;
 import org.testng.annotations.Test;
 
 import java.util.List;
@@ -63,6 +70,27 @@ public class PostmanCollectionExporterTest {
         JSONArray query = url.getJSONArray("query");
         assertNotNull(query);
         assertEquals(query.size(), 2);
+    }
+
+    @Test
+    public void testToPostmanItem_WithPathVariables() {
+        HttpRequestItem item = new HttpRequestItem();
+        item.setName("Get User");
+        item.setMethod("GET");
+        item.setUrl("https://api.example.com/users/:userId");
+        item.setPathVariablesList(List.of(new HttpParam(true, "userId", "42", "User id")));
+
+        JSONObject postmanItem = PostmanCollectionExporter.toPostmanItem(item);
+
+        JSONObject url = postmanItem.getJSONObject("request").getJSONObject("url");
+        assertEquals(url.getStr("raw"), "https://api.example.com/users/:userId");
+        JSONArray variables = url.getJSONArray("variable");
+        assertNotNull(variables);
+        assertEquals(variables.size(), 1);
+        JSONObject variable = variables.getJSONObject(0);
+        assertEquals(variable.getStr("key"), "userId");
+        assertEquals(variable.getStr("value"), "42");
+        assertEquals(variable.getStr("description"), "User id");
     }
 
     @Test
@@ -134,9 +162,9 @@ public class PostmanCollectionExporterTest {
 
         // 通过List添加formData
         List<HttpFormData> formDataList = new java.util.ArrayList<>();
-        formDataList.add(new HttpFormData(true, "field1", com.laker.postman.model.HttpFormData.TYPE_TEXT, "value1"));
-        formDataList.add(new HttpFormData(true, "field2", com.laker.postman.model.HttpFormData.TYPE_TEXT, "value2"));
-        formDataList.add(new HttpFormData(true, "file", com.laker.postman.model.HttpFormData.TYPE_FILE, "/path/to/file.pdf"));
+        formDataList.add(new HttpFormData(true, "field1", com.laker.postman.request.model.HttpFormData.TYPE_TEXT, "value1"));
+        formDataList.add(new HttpFormData(true, "field2", com.laker.postman.request.model.HttpFormData.TYPE_TEXT, "value2"));
+        formDataList.add(new HttpFormData(true, "file", com.laker.postman.request.model.HttpFormData.TYPE_FILE, "/path/to/file.pdf"));
         item.setFormDataList(formDataList);
 
         // 执行导出
@@ -162,9 +190,9 @@ public class PostmanCollectionExporterTest {
         item.setUrl("https://api.example.com/login");
 
         // 通过List添加urlencoded数据
-        List<com.laker.postman.model.HttpFormUrlencoded> urlencodedList = new java.util.ArrayList<>();
-        urlencodedList.add(new com.laker.postman.model.HttpFormUrlencoded(true, "username", "admin"));
-        urlencodedList.add(new com.laker.postman.model.HttpFormUrlencoded(true, "password", "secret"));
+        List<com.laker.postman.request.model.HttpFormUrlencoded> urlencodedList = new java.util.ArrayList<>();
+        urlencodedList.add(new com.laker.postman.request.model.HttpFormUrlencoded(true, "username", "admin"));
+        urlencodedList.add(new com.laker.postman.request.model.HttpFormUrlencoded(true, "password", "secret"));
         item.setUrlencodedList(urlencodedList);
 
         // 执行导出
@@ -247,6 +275,57 @@ public class PostmanCollectionExporterTest {
         JSONObject tokenObj = (JSONObject) bearer.get(0);
         assertEquals(tokenObj.getStr("key"), "token");
         assertEquals(tokenObj.getStr("value"), "jwt-token-123");
+    }
+
+    @Test
+    public void testToPostmanItem_WithApiKeyAuth() {
+        HttpRequestItem item = new HttpRequestItem();
+        item.setName("API Key API");
+        item.setMethod("GET");
+        item.setUrl("https://api.example.com/keyed");
+        item.setAuthType(AuthType.API_KEY.getConstant());
+        item.setAuthApiKeyName("api_key");
+        item.setAuthApiKeyValue("secret");
+        item.setAuthApiKeyPlacement(AuthApiKeyPlacement.QUERY_PARAMS.getConstant());
+
+        JSONObject postmanItem = PostmanCollectionExporter.toPostmanItem(item);
+
+        JSONObject auth = postmanItem.getJSONObject("request").getJSONObject("auth");
+        assertNotNull(auth);
+        assertEquals(auth.getStr("type"), "apikey");
+        JSONArray apiKey = auth.getJSONArray("apikey");
+        assertNotNull(apiKey);
+        assertEquals(apiKey.size(), 3);
+        assertEquals(((JSONObject) apiKey.get(0)).getStr("key"), "key");
+        assertEquals(((JSONObject) apiKey.get(0)).getStr("value"), "api_key");
+        assertEquals(((JSONObject) apiKey.get(1)).getStr("key"), "value");
+        assertEquals(((JSONObject) apiKey.get(1)).getStr("value"), "secret");
+        assertEquals(((JSONObject) apiKey.get(2)).getStr("key"), "in");
+        assertEquals(((JSONObject) apiKey.get(2)).getStr("value"), "query");
+    }
+
+    @Test
+    public void testToPostmanItem_WithDigestAuth() {
+        HttpRequestItem item = new HttpRequestItem();
+        item.setName("Digest API");
+        item.setMethod("GET");
+        item.setUrl("https://api.example.com/digest");
+        item.setAuthType(AuthType.DIGEST.getConstant());
+        item.setAuthUsername("digest-user");
+        item.setAuthPassword("digest-pass");
+
+        JSONObject postmanItem = PostmanCollectionExporter.toPostmanItem(item);
+
+        JSONObject auth = postmanItem.getJSONObject("request").getJSONObject("auth");
+        assertNotNull(auth);
+        assertEquals(auth.getStr("type"), "digest");
+        JSONArray digest = auth.getJSONArray("digest");
+        assertNotNull(digest);
+        assertEquals(digest.size(), 2);
+        assertEquals(((JSONObject) digest.get(0)).getStr("key"), "username");
+        assertEquals(((JSONObject) digest.get(0)).getStr("value"), "digest-user");
+        assertEquals(((JSONObject) digest.get(1)).getStr("key"), "password");
+        assertEquals(((JSONObject) digest.get(1)).getStr("value"), "digest-pass");
     }
 
     @Test
@@ -334,9 +413,9 @@ public class PostmanCollectionExporterTest {
         item.setUrl("https://api.example.com/complex?param1=value1");
 
         // 通过List添加headers
-        List<com.laker.postman.model.HttpHeader> headers = new java.util.ArrayList<>();
-        headers.add(new com.laker.postman.model.HttpHeader(true, "Content-Type", "application/json"));
-        headers.add(new com.laker.postman.model.HttpHeader(true, "X-Custom", "custom-value"));
+        List<com.laker.postman.request.model.HttpHeader> headers = new java.util.ArrayList<>();
+        headers.add(new com.laker.postman.request.model.HttpHeader(true, "Content-Type", "application/json"));
+        headers.add(new com.laker.postman.request.model.HttpHeader(true, "X-Custom", "custom-value"));
         item.setHeadersList(headers);
 
         item.setBody("{\"data\": \"value\"}");
@@ -374,8 +453,8 @@ public class PostmanCollectionExporterTest {
         original.setBody("{\"test\": \"data\"}");
 
         // 通过List添加headers
-        List<com.laker.postman.model.HttpHeader> headers = new java.util.ArrayList<>();
-        headers.add(new com.laker.postman.model.HttpHeader(true, "Content-Type", "application/json"));
+        List<com.laker.postman.request.model.HttpHeader> headers = new java.util.ArrayList<>();
+        headers.add(new com.laker.postman.request.model.HttpHeader(true, "Content-Type", "application/json"));
         original.setHeadersList(headers);
 
         // 导出为单个请求
@@ -437,4 +516,3 @@ public class PostmanCollectionExporterTest {
         assertTrue(path.contains("123"));
     }
 }
-

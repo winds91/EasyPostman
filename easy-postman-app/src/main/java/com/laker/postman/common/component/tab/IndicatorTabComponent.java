@@ -1,6 +1,5 @@
 package com.laker.postman.common.component.tab;
 
-import com.formdev.flatlaf.FlatLaf;
 import com.laker.postman.util.FontsUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,8 +15,9 @@ import java.awt.*;
 public class IndicatorTabComponent extends JPanel {
     private static final int INDICATOR_DIAMETER = 6; // 指示器直径
     private static final int INDICATOR_SPACING = 6; // 指示器与文字之间的间距
-    private static final int LABEL_HORIZONTAL_PADDING = 0; // Label 左右内边距
+    private static final int LABEL_HORIZONTAL_PADDING = 6; // Label 左右内边距
     private static final int LABEL_VERTICAL_PADDING = 4; // Label 上下内边距
+    private static final int INDICATOR_STROKE_MARGIN = 1; // drawOval 右/下边框占用
 
     private final String title;
     private boolean showIndicator = false; // 是否显示指示器
@@ -61,7 +61,7 @@ public class IndicatorTabComponent extends JPanel {
 
         // 只有在显示指示器时才增加指示器的宽度
         if (showIndicator) {
-            width += INDICATOR_DIAMETER + INDICATOR_SPACING;
+            width += INDICATOR_DIAMETER + INDICATOR_STROKE_MARGIN + INDICATOR_SPACING;
         }
 
         int height = fm.getHeight() + LABEL_VERTICAL_PADDING * 2;
@@ -109,46 +109,15 @@ public class IndicatorTabComponent extends JPanel {
                 int indicatorY = (totalHeight - INDICATOR_DIAMETER) / 2;
 
                 // 绘制绿色圆点
-                g2.setColor(getIndicatorColor());
+                g2.setColor(IndicatorTabTheme.indicator());
                 g2.fillOval(indicatorX, indicatorY, INDICATOR_DIAMETER, INDICATOR_DIAMETER);
 
                 // 添加一个微妙的边框使其更明显
-                g2.setColor(getIndicatorBorderColor());
+                g2.setColor(IndicatorTabTheme.indicatorBorder());
                 g2.drawOval(indicatorX, indicatorY, INDICATOR_DIAMETER, INDICATOR_DIAMETER);
             }
         } finally {
             g2.dispose();
-        }
-    }
-
-    /**
-     * 检查当前是否为暗色主题
-     */
-    private boolean isDarkTheme() {
-        return FlatLaf.isLafDark();
-    }
-
-    /**
-     * 获取主题适配的指示器颜色
-     */
-    private Color getIndicatorColor() {
-        // 绿色在两种主题下都适用，暗色主题使用更亮的绿色
-        if (isDarkTheme()) {
-            return new Color(76, 175, 80); // Material Green 500
-        } else {
-            return new Color(56, 142, 60); // Material Green 700
-        }
-    }
-
-    /**
-     * 获取主题适配的指示器边框颜色
-     */
-    private Color getIndicatorBorderColor() {
-        // 边框颜色比填充颜色深一点
-        if (isDarkTheme()) {
-            return new Color(56, 142, 60, 100);
-        } else {
-            return new Color(27, 94, 32, 100);
         }
     }
 

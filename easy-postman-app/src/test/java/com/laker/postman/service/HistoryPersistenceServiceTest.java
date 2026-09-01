@@ -1,9 +1,9 @@
 package com.laker.postman.service;
 
 import cn.hutool.json.JSONObject;
-import com.laker.postman.model.HttpResponse;
-import com.laker.postman.model.PreparedRequest;
-import com.laker.postman.model.RequestHistoryItem;
+import com.laker.postman.http.runtime.model.HttpResponse;
+import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.history.RequestHistoryItem;
 import org.testng.annotations.Test;
 
 import java.lang.reflect.Method;
@@ -23,7 +23,7 @@ public class HistoryPersistenceServiceTest {
         request.method = "POST";
         request.url = "https://example.com/api/test";
         request.body = largeBody;
-        request.okHttpRequestBody = largeBody;
+        request.sentRequestBody = largeBody;
 
         HttpResponse response = new HttpResponse();
         response.code = 200;
@@ -34,10 +34,10 @@ public class HistoryPersistenceServiceTest {
         JSONObject json = invokeConvertToJson(service, item);
         RequestHistoryItem restored = invokeConvertFromJson(service, json);
 
-        assertNotNull(restored.request);
-        assertTrue(restored.request.body.length() < largeBody.length());
-        assertEquals(restored.request.body, restored.request.okHttpRequestBody);
-        assertTrue(restored.request.body.contains("内容过大，已截断"));
+        assertNotNull(restored.getRequest());
+        assertTrue(restored.getRequest().body.length() < largeBody.length());
+        assertEquals(restored.getRequest().body, restored.getRequest().sentRequestBody);
+        assertTrue(restored.getRequest().body.contains("内容过大，已截断"));
     }
 
     private JSONObject invokeConvertToJson(HistoryPersistenceService service, RequestHistoryItem item) throws Exception {

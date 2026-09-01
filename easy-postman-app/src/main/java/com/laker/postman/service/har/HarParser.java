@@ -1,10 +1,17 @@
 package com.laker.postman.service.har;
 
+import com.laker.postman.collection.model.RequestGroup;
+import com.laker.postman.request.model.HttpHeader;
+import com.laker.postman.request.model.HttpParam;
+import com.laker.postman.request.model.HttpFormData;
+import com.laker.postman.request.model.HttpFormUrlencoded;
+import com.laker.postman.request.model.HttpRequestItem;
+
 import cn.hutool.core.lang.Pair;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.laker.postman.model.*;
+import com.laker.postman.service.collections.CollectionTreeNodes;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -16,7 +23,12 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
-import static com.laker.postman.panel.collections.right.request.sub.AuthTabPanel.*;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BASIC;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_BEARER;
+import static com.laker.postman.request.model.RequestAuthTypes.AUTH_TYPE_NONE;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_DATA;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_FORM_URLENCODED;
+import static com.laker.postman.request.model.RequestBodyTypes.BODY_TYPE_RAW;
 
 /**
  * HAR (HTTP Archive) 格式解析器
@@ -24,10 +36,6 @@ import static com.laker.postman.panel.collections.right.request.sub.AuthTabPanel
  */
 @Slf4j
 public class HarParser {
-    // 常量定义
-    private static final String GROUP = "group";
-    private static final String REQUEST = "request";
-
     /**
      * 私有构造函数，防止实例化
      */
@@ -58,7 +66,7 @@ public class HarParser {
             // 创建分组节点
             String groupName = "HAR Import " + System.currentTimeMillis();
             RequestGroup collectionGroup = new RequestGroup(groupName);
-            DefaultMutableTreeNode collectionNode = new DefaultMutableTreeNode(new Object[]{GROUP, collectionGroup});
+            DefaultMutableTreeNode collectionNode = CollectionTreeNodes.groupNode(collectionGroup);
 
             // 解析 entries
             JSONArray entries = logObj.getJSONArray("entries");
@@ -72,8 +80,7 @@ public class HarParser {
                 JSONObject entry = (JSONObject) entryObj;
                 HttpRequestItem requestItem = parseHarEntry(entry);
                 if (requestItem != null) {
-                    DefaultMutableTreeNode requestNode = new DefaultMutableTreeNode(new Object[]{REQUEST, requestItem});
-                    collectionNode.add(requestNode);
+                    collectionNode.add(CollectionTreeNodes.requestNode(requestItem));
                 }
             }
 
@@ -185,7 +192,7 @@ public class HarParser {
 
                 if (mimeType.contains("application/json")) {
                     req.setBody(text);
-                    req.setBodyType("raw");
+                    req.setBodyType(BODY_TYPE_RAW);
                 } else if (mimeType.contains("application/x-www-form-urlencoded")) {
                     // 解析 urlencoded 数据
                     List<HttpFormUrlencoded> urlencodedList = new ArrayList<>();
@@ -208,6 +215,7 @@ public class HarParser {
                         }
                     }
                     req.setUrlencodedList(urlencodedList);
+                    req.setBodyType(BODY_TYPE_FORM_URLENCODED);
                 } else if (mimeType.contains("multipart/form-data")) {
                     // 解析 multipart/form-data
                     List<HttpFormData> formDataList = new ArrayList<>();
@@ -226,10 +234,11 @@ public class HarParser {
                         }
                     }
                     req.setFormDataList(formDataList);
+                    req.setBodyType(BODY_TYPE_FORM_DATA);
                 } else if (!text.isEmpty()) {
                     // 其他类型作为 raw body
                     req.setBody(text);
-                    req.setBodyType("raw");
+                    req.setBodyType(BODY_TYPE_RAW);
                 }
             }
             return req;
@@ -263,4 +272,3 @@ public class HarParser {
         }
     }
 }
-

@@ -1,16 +1,23 @@
 package com.laker.postman.common.component.dialog;
 
-import com.laker.postman.util.FontsUtil;
+import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
+import com.laker.postman.common.component.SyntaxEditorScrollPane;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.button.ModernButtonFactory;
+import com.laker.postman.util.EditorThemeUtil;
+import com.laker.postman.util.I18nUtil;
+import com.laker.postman.util.MessageKeys;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.fife.ui.rsyntaxtextarea.Theme;
-import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.IOException;
 
 public class CurlImportDialog extends JDialog {
+    private static final Dimension DIALOG_SIZE = new Dimension(900, 600);
+    private static final Dimension ACTION_BUTTON_SIZE = new Dimension(80, 30);
+    private static final Insets CONTENT_PADDING = new Insets(5, 10, 10, 10);
+
     private RSyntaxTextArea curlArea;
     private boolean confirmed = false;
 
@@ -21,90 +28,103 @@ public class CurlImportDialog extends JDialog {
     }
 
     private void initComponents(String message, String defaultText) {
-        setLayout(new BorderLayout(10, 10));
+        ToolWindowSurfaceStyle.applyDialogWindowChrome(this);
+        setResizable(true);
+        JPanel rootPanel = new JPanel(new BorderLayout(10, 10));
+        ToolWindowSurfaceStyle.applyDialogSurface(rootPanel);
+        setContentPane(rootPanel);
 
-        // 消息标签
+        addMessageLabel(rootPanel, message);
+        rootPanel.add(createEditorPanel(defaultText), BorderLayout.CENTER);
+        rootPanel.add(createButtonPanel(), BorderLayout.SOUTH);
+        configureDialogShortcuts();
+
+        setMinimumSize(DIALOG_SIZE);
+        setSize(DIALOG_SIZE);
+    }
+
+    private void addMessageLabel(JPanel rootPanel, String message) {
         if (message != null && !message.isEmpty()) {
             JLabel messageLabel = new JLabel(message);
-            messageLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 5, 10));
-            add(messageLabel, BorderLayout.NORTH);
+            ToolWindowSurfaceStyle.applyDialogHeader(messageLabel, 10, 10, 5, 10);
+            rootPanel.add(messageLabel, BorderLayout.NORTH);
         }
+    }
 
-        // cURL 输入区域
-        curlArea = new RSyntaxTextArea(20, 80);
-        curlArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL);
-        curlArea.setCodeFoldingEnabled(false);
-        curlArea.setEditable(true);
-        curlArea.setLineWrap(true);
-        curlArea.setWrapStyleWord(true);
-        curlArea.setAntiAliasingEnabled(true);
-        curlArea.setAutoIndentEnabled(true);
-        curlArea.setTabSize(2);
-        curlArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, +1)); // 比标准字体大1号
-
-        // 尝试应用主题
-        try {
-            Theme theme = Theme.load(getClass().getResourceAsStream("/org/fife/ui/rsyntaxtextarea/themes/idea.xml"));
-            theme.apply(curlArea);
-        } catch (IOException e) {
-            // 忽略主题加载失败
-        }
-
+    private JComponent createEditorPanel(String defaultText) {
+        curlArea = createCurlEditor();
         if (defaultText != null && !defaultText.isEmpty()) {
             curlArea.setText(defaultText);
             curlArea.setCaretPosition(0);
         }
 
-        RTextScrollPane scrollPane = new RTextScrollPane(curlArea);
+        SyntaxEditorScrollPane scrollPane = new SyntaxEditorScrollPane(curlArea);
         scrollPane.setLineNumbersEnabled(true);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 10, 10, 10));
-        add(scrollPane, BorderLayout.CENTER);
+        JPanel editorWrapper = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyDialogSurface(editorWrapper);
+        editorWrapper.setBorder(BorderFactory.createEmptyBorder(
+                CONTENT_PADDING.top,
+                CONTENT_PADDING.left,
+                CONTENT_PADDING.bottom,
+                CONTENT_PADDING.right
+        ));
+        editorWrapper.add(scrollPane, BorderLayout.CENTER);
+        return editorWrapper;
+    }
 
-        // 按钮面板
+    private RSyntaxTextArea createCurlEditor() {
+        RSyntaxTextArea editor = new FallbackAwareRSyntaxTextArea(20, 80);
+        editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL);
+        editor.setCodeFoldingEnabled(false);
+        editor.setEditable(true);
+        editor.setLineWrap(true);
+        editor.setWrapStyleWord(true);
+        editor.setAntiAliasingEnabled(true);
+        editor.setAutoIndentEnabled(true);
+        editor.setTabSize(2);
+        EditorThemeUtil.loadTheme(editor);
+        return editor;
+    }
+
+    private JPanel createButtonPanel() {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        JButton okButton = new JButton("OK");
-        JButton cancelButton = new JButton("Cancel");
+        ToolWindowSurfaceStyle.applyDialogFooter(buttonPanel);
+        JButton okButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.GENERAL_OK), true);
+        JButton cancelButton = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.BUTTON_CANCEL), false);
 
-        okButton.setPreferredSize(new Dimension(80, 30));
-        cancelButton.setPreferredSize(new Dimension(80, 30));
+        okButton.setPreferredSize(ACTION_BUTTON_SIZE);
+        cancelButton.setPreferredSize(ACTION_BUTTON_SIZE);
 
-        okButton.addActionListener(e -> {
-            confirmed = true;
-            dispose();
-        });
-
-        cancelButton.addActionListener(e -> {
-            confirmed = false;
-            dispose();
-        });
+        okButton.addActionListener(e -> confirmAndClose());
+        cancelButton.addActionListener(e -> cancelAndClose());
 
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
-        add(buttonPanel, BorderLayout.SOUTH);
+        return buttonPanel;
+    }
 
-        // 设置对话框大小
-        setPreferredSize(new Dimension(900, 600));
-        pack();
-
-        // ESC 键关闭
+    private void configureDialogShortcuts() {
         getRootPane().registerKeyboardAction(
-                e -> {
-                    confirmed = false;
-                    dispose();
-                },
+                e -> cancelAndClose(),
                 KeyStroke.getKeyStroke("ESCAPE"),
                 JComponent.WHEN_IN_FOCUSED_WINDOW
         );
 
-        // Enter 键确认（Ctrl+Enter）
         getRootPane().registerKeyboardAction(
-                e -> {
-                    confirmed = true;
-                    dispose();
-                },
+                e -> confirmAndClose(),
                 KeyStroke.getKeyStroke("ctrl ENTER"),
                 JComponent.WHEN_IN_FOCUSED_WINDOW
         );
+    }
+
+    private void confirmAndClose() {
+        confirmed = true;
+        dispose();
+    }
+
+    private void cancelAndClose() {
+        confirmed = false;
+        dispose();
     }
 
     public static String show(Component parent, String title, String message, String defaultText) {
@@ -117,4 +137,3 @@ public class CurlImportDialog extends JDialog {
         return null;
     }
 }
-

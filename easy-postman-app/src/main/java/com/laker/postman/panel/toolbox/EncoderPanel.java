@@ -1,6 +1,6 @@
 package com.laker.postman.panel.toolbox;
 
-import com.laker.postman.common.constants.ModernColors;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
@@ -28,57 +28,52 @@ public class EncoderPanel extends JPanel {
     }
 
     private void initUI() {
-        setLayout(new BorderLayout(10, 10));
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        ToolboxWorkbench.applyRoot(this);
 
         // 顶部工具栏
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        topPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_TITLE) + ":"));
+        JLabel typeLabel = new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_TITLE) + ":");
 
         typeCombo = new JComboBox<>(new String[]{
                 "Base64", "URL", "HTML Entity", "Unicode"
         });
-        topPanel.add(typeCombo);
 
         JButton encodeBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_ENCODE));
         JButton decodeBtn = new JButton(I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_DECODE));
         JButton copyBtn = new JButton(I18nUtil.getMessage(MessageKeys.BUTTON_COPY));
         JButton clearBtn = new JButton(I18nUtil.getMessage(MessageKeys.BUTTON_CLEAR));
 
-        topPanel.add(encodeBtn);
-        topPanel.add(decodeBtn);
-        topPanel.add(copyBtn);
-        topPanel.add(clearBtn);
-
-        add(topPanel, BorderLayout.NORTH);
+        JPanel leftControls = ToolboxWorkbench.leftToolbar(typeLabel, typeCombo);
+        JPanel rightActions = ToolboxWorkbench.rightToolbar(encodeBtn, decodeBtn, copyBtn, clearBtn);
+        add(ToolboxWorkbench.toolbar(leftControls, rightActions), BorderLayout.NORTH);
 
         // 中间分割面板
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-
         // 输入区域
-        JPanel inputPanel = new JPanel(new BorderLayout(5, 5));
-        inputPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_INPUT)), BorderLayout.NORTH);
         inputArea = new JTextArea();
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
-        inputArea.setBackground(ModernColors.getInputBackgroundColor());
-        inputArea.setForeground(ModernColors.getTextPrimary());
-        inputPanel.add(new JScrollPane(inputArea), BorderLayout.CENTER);
+        ToolWindowSurfaceStyle.applyTextComponentInput(inputArea);
+        JScrollPane inputScrollPane = new JScrollPane(inputArea);
+        ToolWindowSurfaceStyle.applyFramedScrollPaneCard(inputScrollPane);
+        JPanel inputPanel = ToolboxWorkbench.editorSection(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_INPUT),
+                inputScrollPane
+        );
 
         // 输出区域
-        JPanel outputPanel = new JPanel(new BorderLayout(5, 5));
-        outputPanel.add(new JLabel(I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_OUTPUT)), BorderLayout.NORTH);
         outputArea = new JTextArea();
         outputArea.setLineWrap(true);
         outputArea.setWrapStyleWord(true);
         outputArea.setEditable(false);
-        outputArea.setForeground(ModernColors.getTextPrimary());
-        outputPanel.add(new JScrollPane(outputArea), BorderLayout.CENTER);
+        ToolWindowSurfaceStyle.applyTextComponentCard(outputArea);
+        JScrollPane outputScrollPane = new JScrollPane(outputArea);
+        ToolWindowSurfaceStyle.applyFramedScrollPaneCard(outputScrollPane);
+        JPanel outputPanel = ToolboxWorkbench.editorSection(
+                I18nUtil.getMessage(MessageKeys.TOOLBOX_ENCODER_OUTPUT),
+                outputScrollPane
+        );
 
-        splitPane.setTopComponent(inputPanel);
-        splitPane.setBottomComponent(outputPanel);
-        splitPane.setDividerLocation(200);
-
+        JSplitPane splitPane = ToolboxWorkbench.editorSplit(inputPanel, outputPanel, 220);
+        splitPane.setResizeWeight(0.42);
         add(splitPane, BorderLayout.CENTER);
 
         // 按钮事件

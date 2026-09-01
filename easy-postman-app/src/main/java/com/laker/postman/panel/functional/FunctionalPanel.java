@@ -1,32 +1,48 @@
 package com.laker.postman.panel.functional;
 
+import com.laker.postman.common.component.notification.NotificationCenter;
+
+import com.laker.postman.functional.model.AssertionResult;
+import com.laker.postman.functional.model.BatchExecutionHistory;
+import com.laker.postman.functional.execution.FunctionalRequestExecutionResult;
+import com.laker.postman.functional.execution.FunctionalRequestExecutor;
+import com.laker.postman.functional.model.IterationResult;
+import com.laker.postman.functional.model.RequestResult;
+import com.laker.postman.functional.model.RunnerRowData;
+import com.laker.postman.request.model.HttpRequestItem;
+
 import com.formdev.flatlaf.extras.FlatSVGIcon;
-import com.laker.postman.common.SingletonBasePanel;
-import com.laker.postman.common.SingletonFactory;
+import com.laker.postman.common.DebouncedSaveSupport;
+import com.laker.postman.common.UiSingletonPanel;
+import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.CsvDataPanel;
+import com.laker.postman.common.component.ToolWindowActionToolbar;
+import com.laker.postman.common.component.AppToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
 import com.laker.postman.common.component.button.*;
 import com.laker.postman.common.constants.ModernColors;
-import com.laker.postman.model.*;
-import com.laker.postman.panel.collections.right.RequestEditPanel;
+import com.laker.postman.functional.model.FunctionalConfigRow;
+import com.laker.postman.functional.model.FunctionalConfigSnapshot;
+import com.laker.postman.functional.model.FunctionalCsvDataState;
+import com.laker.postman.ioc.BeanFactory;
+import com.laker.postman.panel.collections.RequestSelectionDialogSupport;
+import com.laker.postman.panel.collections.editor.RequestEditorPanel;
 import com.laker.postman.panel.functional.table.FunctionalRunnerTableModel;
-import com.laker.postman.panel.functional.table.RunnerRowData;
 import com.laker.postman.panel.functional.table.TableRowTransferHandler;
-import com.laker.postman.panel.sidebar.ConsolePanel;
 import com.laker.postman.panel.sidebar.SidebarTabPanel;
 import com.laker.postman.service.FunctionalPersistenceService;
-import com.laker.postman.service.collections.RequestCollectionsService;
-import com.laker.postman.service.http.HttpSingleRequestExecutor;
-import com.laker.postman.service.http.HttpUtil;
-import com.laker.postman.service.http.PreparedRequestBuilder;
-import com.laker.postman.service.js.ScriptExecutionPipeline;
-import com.laker.postman.service.js.ScriptExecutionResult;
-import com.laker.postman.service.variable.VariableResolver;
+import com.laker.postman.common.component.HttpRequestDisplayMetadata;
+import com.laker.postman.service.collections.CollectionRequestLookup;
+import com.laker.postman.service.collections.RequestSaveEventPublisher;
+import com.laker.postman.service.variable.ExecutionVariableContext;
+import com.laker.postman.service.variable.IterationDataRuntimeSupport;
 import com.laker.postman.util.*;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import javax.swing.Timer;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.event.TableModelEvent;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -35,7 +51,7 @@ import java.util.List;
 import java.util.stream.IntStream;
 
 @Slf4j
-public class FunctionalPanel extends SingletonBasePanel {
+public class FunctionalPanel extends UiSingletonPanel {
     public static final String ERROR = "Error";
     private JTable table;
     private FunctionalRunnerTableModel tableModel;
@@ -46,6 +62,7 @@ public class FunctionalPanel extends SingletonBasePanel {
     private long startTime;       // 记录开始时间
     private Timer executionTimer; // 执行时间计时器
     private volatile boolean isStopped = false; // 停止标志
+    private volatile int executionGeneration = 0;
 
     // CSV 数据管理面板
     private CsvDataPanel csvDataPanel;
@@ -57,36 +74,47 @@ public class FunctionalPanel extends SingletonBasePanel {
 
     // 持久化服务
     private transient FunctionalPersistenceService persistenceService;
+    private final transient CollectionRequestLookup requestLookup = new CollectionRequestLookup();
+    private final transient DebouncedSaveSupport autoSaveSupport = new DebouncedSaveSupport(500, this::saveAsync);
+    private final transient FunctionalRequestExecutor requestExecutor =
+            new FunctionalRequestExecutor(error -> com.laker.postman.panel.sidebar.ConsolePanel.appendLog(
+                    "[Request Error]\n" + error,
+                    com.laker.postman.panel.sidebar.ConsolePanel.LogType.ERROR
+            ));
 
 
     @Override
     protected void initUI() {
         setLayout(new BorderLayout());
+        ToolWindowSurfaceStyle.applyBackground(this);
         // 移除硬编码 setPreferredSize，改用最小尺寸约束，让父容器自适应分配
         setMinimumSize(new Dimension(500, 300));
 
         // 创建主选项卡面板
         mainTabbedPane = new JTabbedPane();
+        ToolWindowSurfaceStyle.applyTabbedPaneCard(mainTabbedPane);
+        mainTabbedPane.setBorder(BorderFactory.createEmptyBorder());
         mainTabbedPane.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, +1));
 
         JPanel executionPanel = new JPanel(new BorderLayout());
+        ToolWindowSurfaceStyle.applyCard(executionPanel);
         executionPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         executionPanel.add(createTopPanel(), BorderLayout.NORTH);
         executionPanel.add(createTablePanel(), BorderLayout.CENTER);
         mainTabbedPane.addTab(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_TAB_REQUEST_CONFIG),
                 new FlatSVGIcon("icons/functional.svg", 16, 16)
-                        .setColorFilter(new FlatSVGIcon.ColorFilter(color -> UIManager.getColor("Button.foreground"))),
+                        .setColorFilter(new FlatSVGIcon.ColorFilter(color -> ModernColors.getTextPrimary())),
                 executionPanel);
 
         resultsPanel = new ExecutionResultsPanel();
         mainTabbedPane.addTab(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_TAB_EXECUTION_RESULTS),
                 new FlatSVGIcon("icons/history.svg", 16, 16)
-                        .setColorFilter(new FlatSVGIcon.ColorFilter(color -> UIManager.getColor("Button.foreground"))),
+                        .setColorFilter(new FlatSVGIcon.ColorFilter(color -> ModernColors.getTextPrimary())),
                 resultsPanel);
 
-        add(mainTabbedPane, BorderLayout.CENTER);
+        add(AppToolWindowChrome.wrapInsetToolWindow(mainTabbedPane), BorderLayout.CENTER);
 
-        this.persistenceService = SingletonFactory.getInstance(FunctionalPersistenceService.class);
+        this.persistenceService = BeanFactory.getBean(FunctionalPersistenceService.class);
         loadSaved();
     }
 
@@ -98,7 +126,7 @@ public class FunctionalPanel extends SingletonBasePanel {
 
         // 初始化 CSV 数据面板
         csvDataPanel = new CsvDataPanel();
-        csvDataPanel.setChangeListener(this::save);
+        csvDataPanel.setChangeListener(this::scheduleSave);
 
         // 左侧按钮组
         topPanel.add(createButtonPanel(), BorderLayout.WEST);
@@ -114,7 +142,7 @@ public class FunctionalPanel extends SingletonBasePanel {
         timeLabel = new JLabel("0 ms");
         timeLabel.setFont(FontsUtil.getDefaultFont(Font.BOLD));
         JLabel timeIcon = new JLabel(new FlatSVGIcon("icons/time.svg", 16, 16)
-                .setColorFilter(new FlatSVGIcon.ColorFilter(color -> UIManager.getColor("Button.foreground"))));
+                .setColorFilter(new FlatSVGIcon.ColorFilter(color -> ModernColors.getTextPrimary())));
         rightPanel.add(timeIcon);
         rightPanel.add(timeLabel);
 
@@ -127,7 +155,7 @@ public class FunctionalPanel extends SingletonBasePanel {
         progressLabel = new JLabel("0/0");
         progressLabel.setFont(FontsUtil.getDefaultFont(Font.BOLD));
         JLabel taskIcon = new JLabel(new FlatSVGIcon("icons/functional.svg", 16, 16)
-                .setColorFilter(new FlatSVGIcon.ColorFilter(color -> UIManager.getColor("Button.foreground"))));
+                .setColorFilter(new FlatSVGIcon.ColorFilter(color -> ModernColors.getTextPrimary())));
         rightPanel.add(taskIcon);
         rightPanel.add(progressLabel);
 
@@ -136,18 +164,13 @@ public class FunctionalPanel extends SingletonBasePanel {
     }
 
     private JPanel createButtonPanel() {
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        btnPanel.setOpaque(false);
-
         JButton loadBtn = new LoadButton();
         loadBtn.addActionListener(e -> showLoadRequestsDialog());
-        btnPanel.add(loadBtn);
 
         runBtn = new StartButton();
         runBtn.addActionListener(e -> {
             runSelectedRequests();
         });
-        btnPanel.add(runBtn);
 
         stopBtn = new StopButton();
         stopBtn.setEnabled(false); // 初始禁用，执行时才启用
@@ -155,11 +178,9 @@ public class FunctionalPanel extends SingletonBasePanel {
             isStopped = true;
             stopBtn.setEnabled(false);
         });
-        btnPanel.add(stopBtn);
 
         JButton refreshBtn = new RefreshButton();
         refreshBtn.addActionListener(e -> refreshRequestsFromCollections());
-        btnPanel.add(refreshBtn);
 
         JButton clearBtn = new ClearButton();
         clearBtn.addActionListener(e -> {
@@ -168,11 +189,14 @@ public class FunctionalPanel extends SingletonBasePanel {
             stopBtn.setEnabled(false);
             resetProgress();
             resultsPanel.updateExecutionHistory(null);
+            autoSaveSupport.cancel();
+            if (csvDataPanel != null) {
+                csvDataPanel.restoreState(null);
+            }
             persistenceService.clear();
         });
-        btnPanel.add(clearBtn);
 
-        return btnPanel;
+        return ToolWindowActionToolbar.inlineLeft(loadBtn, runBtn, stopBtn, refreshBtn, clearBtn);
     }
 
     // 批量运行
@@ -181,7 +205,7 @@ public class FunctionalPanel extends SingletonBasePanel {
         int rowCount = tableModel.getRowCount();
         int selectedCount = (int) IntStream.range(0, rowCount).mapToObj(i -> tableModel.getRow(i)).filter(row -> row != null && row.selected).count();
         if (selectedCount == 0) {
-            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_NO_RUNNABLE_REQUEST));
+            NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_NO_RUNNABLE_REQUEST));
             return;
         }
 
@@ -199,9 +223,11 @@ public class FunctionalPanel extends SingletonBasePanel {
         }
 
         final int totalExecutions = selectedCount * iterations;
-        executionHistory = new BatchExecutionHistory();
-        executionHistory.setTotalIterations(iterations);
-        executionHistory.setTotalRequests(totalExecutions);
+        BatchExecutionHistory currentHistory = new BatchExecutionHistory();
+        currentHistory.setTotalIterations(iterations);
+        currentHistory.setTotalRequests(totalExecutions);
+        executionHistory = currentHistory;
+        int generation = ++executionGeneration;
 
         clearRunResults(rowCount);
         runBtn.setEnabled(false);
@@ -215,7 +241,7 @@ public class FunctionalPanel extends SingletonBasePanel {
         executionTimer.start();
 
         final int finalIterations = iterations;
-        new Thread(() -> executeBatchRequestsWithCsv(rowCount, selectedCount, finalIterations)).start();
+        new Thread(() -> executeBatchRequestsWithCsv(rowCount, selectedCount, finalIterations, generation, currentHistory)).start();
     }
 
     private void clearRunResults(int rowCount) {
@@ -232,31 +258,40 @@ public class FunctionalPanel extends SingletonBasePanel {
         }
     }
 
-    private void executeBatchRequestsWithCsv(int rowCount, int selectedCount, int iterations) {
+    private void executeBatchRequestsWithCsv(int rowCount, int selectedCount, int iterations,
+                                             int generation, BatchExecutionHistory currentHistory) {
         int totalFinished = 0;
 
-        for (int iteration = 0; iteration < iterations && !isStopped; iteration++) {
+        for (int iteration = 0; iteration < iterations && isExecutionActive(generation); iteration++) {
             // 获取当前迭代的 CSV 数据
             Map<String, String> currentCsvRow = getCsvDataForIteration(iteration);
+            Map<String, String> currentIterationData = IterationDataRuntimeSupport.prepare(currentCsvRow);
+            ExecutionVariableContext iterationContext = new ExecutionVariableContext();
+            iterationContext.setIterationInfo(iteration, iterations);
+            iterationContext.replaceIterationData(currentIterationData);
 
             // 创建当前迭代的结果记录
-            IterationResult iterationResult = new IterationResult(iteration, currentCsvRow);
+            IterationResult iterationResult = new IterationResult(iteration, currentIterationData);
 
-            totalFinished = processIterationRequests(rowCount, selectedCount, iterations, totalFinished, iterationResult, currentCsvRow);
+            totalFinished = processIterationRequests(rowCount, selectedCount, iterations, totalFinished,
+                    iterationResult, currentIterationData, iterationContext, generation);
 
             // 完成当前迭代并添加到历史记录（无论是否停止，都要保存当前迭代的结果）
             iterationResult.complete();
-            executionHistory.addIteration(iterationResult);
+            currentHistory.addIteration(iterationResult);
 
             // 实时更新结果面板
-            SwingUtilities.invokeLater(() -> resultsPanel.updateExecutionHistory(executionHistory));
+            SwingUtilities.invokeLater(() -> {
+                if (isExecutionGenerationCurrent(generation)) {
+                    resultsPanel.updateExecutionHistory(currentHistory);
+                }
+            });
 
             if (isStopped) break;
         }
 
-        // 完成整个批量执行
-        executionHistory.complete();
-        finalizeExecution();
+        currentHistory.complete();
+        finalizeExecution(generation, currentHistory);
     }
 
     private Map<String, String> getCsvDataForIteration(int iteration) {
@@ -268,10 +303,12 @@ public class FunctionalPanel extends SingletonBasePanel {
 
     private int processIterationRequests(int rowCount, int selectedCount, int iterations,
                                          int totalFinished, IterationResult iterationResult,
-                                         Map<String, String> currentCsvRow) {
+                                         Map<String, String> currentCsvRow,
+                                         ExecutionVariableContext iterationContext,
+                                         int generation) {
         int finished = totalFinished;
 
-        for (int i = 0; i < rowCount && !isStopped; i++) {
+        for (int i = 0; i < rowCount && isExecutionActive(generation); i++) {
             RunnerRowData row = tableModel.getRow(i);
 
             if (!isValidRow(row)) {
@@ -279,7 +316,8 @@ public class FunctionalPanel extends SingletonBasePanel {
             }
 
             if (row.selected) {
-                finished = executeAndRecordRequest(row, currentCsvRow, iterationResult, finished, selectedCount, iterations);
+                finished = executeAndRecordRequest(row, currentCsvRow, iterationResult, finished,
+                        selectedCount, iterations, iterationContext, generation);
             }
         }
 
@@ -287,16 +325,30 @@ public class FunctionalPanel extends SingletonBasePanel {
     }
 
     private boolean isValidRow(RunnerRowData row) {
-        if (row == null || row.requestItem == null || row.preparedRequest == null) {
+        if (row == null || row.requestItem == null) {
             log.warn("Row is invalid, skipping execution");
             return false;
         }
         return true;
     }
 
+    private boolean isExecutionActive(int generation) {
+        return isExecutionGenerationCurrent(generation) && !isStopped;
+    }
+
+    private boolean isExecutionGenerationCurrent(int generation) {
+        return generation == executionGeneration;
+    }
+
     private int executeAndRecordRequest(RunnerRowData row, Map<String, String> currentCsvRow,
                                         IterationResult iterationResult, int totalFinished,
-                                        int selectedCount, int iterations) {
+                                        int selectedCount, int iterations,
+                                        ExecutionVariableContext iterationContext,
+                                        int generation) {
+        if (!isExecutionGenerationCurrent(generation)) {
+            return totalFinished;
+        }
+
         // 找到当前行的索引
         int rowIndex = -1;
         for (int i = 0; i < tableModel.getRowCount(); i++) {
@@ -310,46 +362,67 @@ public class FunctionalPanel extends SingletonBasePanel {
         final int currentRowIndex = rowIndex;
         if (currentRowIndex >= 0) {
             SwingUtilities.invokeLater(() -> {
-                table.setRowSelectionInterval(currentRowIndex, currentRowIndex);
-                table.scrollRectToVisible(table.getCellRect(currentRowIndex, 0, true));
+                if (isExecutionGenerationCurrent(generation) && currentRowIndex < tableModel.getRowCount()) {
+                    table.setRowSelectionInterval(currentRowIndex, currentRowIndex);
+                    table.scrollRectToVisible(table.getCellRect(currentRowIndex, 0, true));
+                }
             });
         }
 
-        BatchResult result = executeSingleRequestWithCsv(row, currentCsvRow);
+        FunctionalRequestExecutionResult result = requestExecutor.execute(
+                row,
+                iterationContext,
+                () -> isExecutionActive(generation)
+        );
+        if (!isExecutionGenerationCurrent(generation)) {
+            return totalFinished;
+        }
 
         // 更新表格中的执行结果
         if (currentRowIndex >= 0) {
-            row.status = result.status;
-            row.cost = result.cost;
-            row.assertion = result.assertion;
-            row.response = result.resp;
+            row.status = result.getStatus();
+            row.cost = result.getCost();
+            row.assertion = result.getAssertion();
+            row.response = result.getResponse();
+            row.testResults = result.getTestResults();
 
-            SwingUtilities.invokeLater(() -> tableModel.fireTableRowsUpdated(currentRowIndex, currentRowIndex));
+            SwingUtilities.invokeLater(() -> {
+                if (isExecutionGenerationCurrent(generation) && currentRowIndex < tableModel.getRowCount()) {
+                    tableModel.fireTableRowsUpdated(currentRowIndex, currentRowIndex);
+                }
+            });
         }
 
         // 记录请求结果到执行历史
         RequestResult requestResult = new RequestResult(
                 row.requestItem.getName(),
                 row.requestItem.getMethod(),
-                row.preparedRequest.url,
-                result.req,
-                result.resp,
-                result.cost,
-                result.status,
-                result.assertion,
-                row.testResults,
-                result.errorMessage
+                result.getRequest().url,
+                result.getRequest(),
+                result.getResponse(),
+                result.getCost(),
+                result.getStatus(),
+                result.getAssertion(),
+                result.getTestResults(),
+                result.getErrorMessage()
         );
         iterationResult.addRequestResult(requestResult);
 
         int newTotalFinished = totalFinished + 1;
-        SwingUtilities.invokeLater(() -> progressLabel.setText(newTotalFinished + "/" + (selectedCount * iterations)));
+        SwingUtilities.invokeLater(() -> {
+            if (isExecutionGenerationCurrent(generation)) {
+                progressLabel.setText(newTotalFinished + "/" + (selectedCount * iterations));
+            }
+        });
 
         return newTotalFinished;
     }
 
-    private void finalizeExecution() {
+    private void finalizeExecution(int generation, BatchExecutionHistory currentHistory) {
         SwingUtilities.invokeLater(() -> {
+            if (!isExecutionGenerationCurrent(generation)) {
+                return;
+            }
             runBtn.setEnabled(true);
             stopBtn.setEnabled(false);
 
@@ -357,7 +430,7 @@ public class FunctionalPanel extends SingletonBasePanel {
             stopExecutionTimer();
 
             // 最终更新结果面板
-            resultsPanel.updateExecutionHistory(executionHistory);
+            resultsPanel.updateExecutionHistory(currentHistory);
 
             // 无论是正常完成还是用户停止，都切换到结果面板显示已执行的结果
             mainTabbedPane.setSelectedIndex(1); // 切换到执行结果面板
@@ -372,93 +445,6 @@ public class FunctionalPanel extends SingletonBasePanel {
             executionTimer.stop();
         }
     }
-
-    private static class BatchResult {
-        PreparedRequest req;
-        HttpResponse resp;
-        long cost;
-        String status;
-        String errorMessage;
-        AssertionResult assertion;
-    }
-
-    private BatchResult executeSingleRequestWithCsv(RunnerRowData row, Map<String, String> csvRowData) {
-        if (isStopped) return new BatchResult(); // 检查停止标志，直接返回空结果
-        BatchResult result = new BatchResult();
-        long start = System.currentTimeMillis();
-        HttpRequestItem item = row.requestItem;
-
-        // build() 会自动应用 group 继承，并将合并后的脚本存储在 req 中
-        PreparedRequest req = PreparedRequestBuilder.build(item);
-
-        // Functional 场景：收集完整信息（用于结果展示），但不输出 UI 日志
-        req.collectBasicInfo = true;   // 收集 headers、body
-        req.collectEventInfo = true;   // 收集完整事件信息（DNS、连接时间等），用于结果表格展示
-        req.enableNetworkLog = false;  // 不输出 NetworkLogPanel，避免 UI 开销
-
-        result.req = req;
-        // 每次执行前清理临时变量
-        VariableResolver.clearTemporaryVariables();
-
-        // 创建脚本执行流水线（使用 req 中合并后的脚本）
-        ScriptExecutionPipeline pipeline = ScriptExecutionPipeline.builder()
-                .request(req)
-                .preScript(req.prescript)
-                .postScript(req.postscript)
-                .build();
-
-        // 添加 CSV 数据到脚本执行环境
-        if (csvRowData != null) {
-            pipeline.addCsvDataBindings(csvRowData);
-        }
-
-        // 执行前置脚本
-        ScriptExecutionResult preResult = pipeline.executePreScript();
-
-        // 前置脚本执行完成后，进行变量替换
-        if (preResult.isSuccess()) {
-            PreparedRequestBuilder.replaceVariablesAfterPreScript(req);
-        }
-
-        HttpResponse resp = null;
-        String status; // HTTP状态码
-        AssertionResult assertion = AssertionResult.NO_TESTS; // 断言结果
-
-
-        if (!preResult.isSuccess()) {
-            result.errorMessage = preResult.getErrorMessage();
-            status = ERROR;
-        } else {
-            try {
-                resp = HttpSingleRequestExecutor.executeHttp(req);
-                status = String.valueOf(resp.code); // HTTP状态码
-
-                // 执行后置脚本
-                ScriptExecutionResult postResult = pipeline.executePostScript(resp);
-                row.testResults = postResult.getTestResults();
-
-                // 判断断言结果
-                if (postResult.hasTestResults()) {
-                    // 有测试时，根据结果设置断言状态
-                    assertion = postResult.allTestsPassed() ? AssertionResult.PASS : AssertionResult.FAIL;
-                }
-                // 没有测试时，保持默认的 NO_TESTS
-            } catch (Exception ex) {
-                log.error("请求执行失败", ex);
-                ConsolePanel.appendLog("[Request Error]\n" + ex.getMessage(), ConsolePanel.LogType.ERROR);
-                assertion = AssertionResult.FAIL; // 错误消息也作为断言结果
-                result.errorMessage = ex.getMessage();
-                status = ERROR;
-            }
-        }
-        long cost = System.currentTimeMillis() - start;
-        result.resp = resp;
-        result.cost = resp == null ? cost : resp.costMs;
-        result.status = status;
-        result.assertion = assertion;
-        return result;
-    }
-
 
     // 更新执行时间显示
     private void updateExecutionTime() {
@@ -499,7 +485,13 @@ public class FunctionalPanel extends SingletonBasePanel {
                 if (column == 0) { // 点击选择列
                     boolean hasSelected = tableModel.hasSelectedRows();
                     tableModel.setAllSelected(!hasSelected);
+                    scheduleSave();
                 }
+            }
+        });
+        tableModel.addTableModelListener(e -> {
+            if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 0) {
+                scheduleSave();
             }
         });
 
@@ -509,11 +501,11 @@ public class FunctionalPanel extends SingletonBasePanel {
         table.setDragEnabled(true);
         table.setDropMode(DropMode.INSERT_ROWS);
         TableRowTransferHandler transferHandler = new TableRowTransferHandler(table);
-        transferHandler.setOnRowOrderChanged(this::save); // 拖拽完成后自动持久化
+        transferHandler.setOnRowOrderChanged(this::scheduleSave); // 拖拽完成后自动持久化
         table.setTransferHandler(transferHandler);
 
         JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 5, 5, 5));
+        ToolWindowSurfaceStyle.applyTableScrollPaneCard(scrollPane, table);
         return scrollPane;
     }
 
@@ -566,8 +558,7 @@ public class FunctionalPanel extends SingletonBasePanel {
             public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 if (value != null) {
-                    String color = HttpUtil.getMethodColor(value.toString());
-                    c.setForeground(Color.decode(color));
+                    c.setForeground(HttpRequestDisplayMetadata.methodColor(value.toString()));
                 }
                 return c;
             }
@@ -597,24 +588,24 @@ public class FunctionalPanel extends SingletonBasePanel {
 
         if (ERROR.equalsIgnoreCase(status)) {
             // 错误状态：使用错误色
-            foreground = ModernColors.ERROR_DARK;
+            foreground = ModernColors.getErrorDark();
         } else {
             // 尝试解析状态码
             try {
                 int code = Integer.parseInt(status);
                 if (code >= 200 && code < 300) {
                     // 成功：使用绿色
-                    foreground = ModernColors.SUCCESS_DARK;
+                    foreground = ModernColors.getSuccessDark();
                 } else if (code >= 400 && code < 500) {
                     // 客户端错误：使用警告色
-                    foreground = ModernColors.WARNING_DARKER;
+                    foreground = ModernColors.getWarningDarker();
                 } else if (code >= 500) {
                     // 服务器错误：使用错误色
-                    foreground = ModernColors.ERROR_DARKER;
+                    foreground = ModernColors.getErrorDarker();
                 }
             } catch (NumberFormatException e) {
                 // 非数字状态（如错误消息）
-                foreground = ModernColors.ERROR_DARK;
+                foreground = ModernColors.getErrorDark();
             }
 
         }
@@ -631,9 +622,9 @@ public class FunctionalPanel extends SingletonBasePanel {
                 if (value instanceof AssertionResult ar) {
                     setText(ar.getDisplayValue());
                     if (AssertionResult.PASS.equals(ar)) {
-                        c.setForeground(isSelected ? c.getForeground() : ModernColors.SUCCESS_DARK);
+                        c.setForeground(isSelected ? c.getForeground() : ModernColors.getSuccessDark());
                     } else if (AssertionResult.FAIL.equals(ar)) {
-                        c.setForeground(isSelected ? c.getForeground() : ModernColors.ERROR_DARK);
+                        c.setForeground(isSelected ? c.getForeground() : ModernColors.getErrorDark());
                     } else {
                         c.setForeground(isSelected ? c.getForeground() : ModernColors.getTextSecondary());
                     }
@@ -648,6 +639,7 @@ public class FunctionalPanel extends SingletonBasePanel {
 
     @Override
     protected void registerListeners() {
+        RequestSaveEventPublisher.register(this::syncRequestItem);
         // 添加表格鼠标监听器
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
@@ -672,13 +664,13 @@ public class FunctionalPanel extends SingletonBasePanel {
         RunnerRowData row = tableModel.getRow(rowIndex);
         if (row != null && row.requestItem != null) {
             // 打开请求编辑面板
-            RequestEditPanel editPanel =
-                    SingletonFactory.getInstance(RequestEditPanel.class);
+            RequestEditorPanel editPanel =
+                    UiSingletonFactory.getInstance(RequestEditorPanel.class);
             editPanel.showOrCreateTab(row.requestItem);
 
             // 切换到Collections标签
             SidebarTabPanel sidebarPanel =
-                    SingletonFactory.getInstance(SidebarTabPanel.class);
+                    UiSingletonFactory.getInstance(SidebarTabPanel.class);
             sidebarPanel.getTabbedPane().setSelectedIndex(0);
         }
     }
@@ -688,6 +680,7 @@ public class FunctionalPanel extends SingletonBasePanel {
      */
     private void showTableContextMenu(java.awt.event.MouseEvent e, int rowIndex) {
         JPopupMenu menu = new JPopupMenu();
+        ToolWindowSurfaceStyle.applyPopupMenuCard(menu);
         RunnerRowData row = tableModel.getRow(rowIndex);
 
         // 查看详情
@@ -706,7 +699,7 @@ public class FunctionalPanel extends SingletonBasePanel {
             toggleItem.addActionListener(evt -> {
                 row.selected = !row.selected;
                 tableModel.fireTableRowsUpdated(rowIndex, rowIndex);
-                save();
+                scheduleSave();
             });
             menu.add(toggleItem);
         }
@@ -719,7 +712,7 @@ public class FunctionalPanel extends SingletonBasePanel {
         upItem.addActionListener(evt -> {
             tableModel.moveRow(rowIndex, rowIndex - 1);
             table.setRowSelectionInterval(rowIndex - 1, rowIndex - 1);
-            save();
+            scheduleSave();
         });
         menu.add(upItem);
 
@@ -729,7 +722,7 @@ public class FunctionalPanel extends SingletonBasePanel {
         downItem.addActionListener(evt -> {
             tableModel.moveRow(rowIndex, rowIndex + 1);
             table.setRowSelectionInterval(rowIndex + 1, rowIndex + 1);
-            save();
+            scheduleSave();
         });
         menu.add(downItem);
 
@@ -742,7 +735,7 @@ public class FunctionalPanel extends SingletonBasePanel {
             if (tableModel.getRowCount() == 0) {
                 runBtn.setEnabled(false);
             }
-            save();
+            scheduleSave();
         });
         menu.add(deleteItem);
 
@@ -751,7 +744,7 @@ public class FunctionalPanel extends SingletonBasePanel {
 
     // 弹出选择请求/分组对话框
     private void showLoadRequestsDialog() {
-        RequestCollectionsService.showMultiSelectRequestDialog(
+        RequestSelectionDialogSupport.showMultiSelectRequestDialog(
                 selected -> {
                     if (selected == null || selected.isEmpty()) return;
                     // 过滤只保留HTTP类型的请求
@@ -759,7 +752,7 @@ public class FunctionalPanel extends SingletonBasePanel {
                             .filter(reqItem -> reqItem.getProtocol() != null && reqItem.getProtocol().isHttpProtocol())
                             .toList();
                     if (httpOnlyList.isEmpty()) {
-                        NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.MSG_ONLY_HTTP_SUPPORTED));
+                        NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.MSG_ONLY_HTTP_SUPPORTED));
                         return;
                     }
                     loadRequests(httpOnlyList);
@@ -781,22 +774,20 @@ public class FunctionalPanel extends SingletonBasePanel {
                 skippedCount++;
                 continue; // 跳过已存在的请求，避免重复
             }
-            // build() 会自动应用 group 继承
-            PreparedRequest req = PreparedRequestBuilder.build(item);
-            tableModel.addRow(new RunnerRowData(item, req));
+            tableModel.addRow(new RunnerRowData(item));
             if (item.getId() != null) {
                 existingIds.add(item.getId()); // 同批次中也去重
             }
         }
 
         if (skippedCount > 0) {
-            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_DUPLICATE_SKIPPED, skippedCount));
+            NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_DUPLICATE_SKIPPED, skippedCount));
         }
 
         table.setEnabled(true);
         runBtn.setEnabled(true);
         // 加载请求后保存配置
-        save();
+        scheduleSave();
     }
 
     /**
@@ -804,9 +795,10 @@ public class FunctionalPanel extends SingletonBasePanel {
      */
     private void loadSaved() {
         try {
-            List<RunnerRowData> savedRows = persistenceService.load();
-            csvDataPanel.restoreState(persistenceService.loadCsvState());
-            if (savedRows != null && !savedRows.isEmpty()) {
+            FunctionalConfigSnapshot snapshot = persistenceService.loadSnapshot();
+            csvDataPanel.restoreState(toCsvState(snapshot.getCsvState()));
+            List<RunnerRowData> savedRows = restoreRows(snapshot.getRows());
+            if (!savedRows.isEmpty()) {
                 for (RunnerRowData row : savedRows) {
                     tableModel.addRow(row);
                 }
@@ -817,6 +809,41 @@ public class FunctionalPanel extends SingletonBasePanel {
         } catch (Exception e) {
             log.error("Failed to load saved config", e);
         }
+    }
+
+    public void switchWorkspaceAndRefreshUI() {
+        if (!isReadyForWorkspaceSwitch()) {
+            return;
+        }
+
+        executionGeneration++;
+        isStopped = true;
+        stopExecutionTimer();
+        // 切换 workspace 前取消待保存任务，避免旧 workspace 的 CSV/行配置延迟写到新 workspace。
+        autoSaveSupport.cancel();
+        tableModel.clear();
+        table.clearSelection();
+        table.setEnabled(false);
+        runBtn.setEnabled(false);
+        stopBtn.setEnabled(false);
+        resetProgress();
+        executionHistory = null;
+        resultsPanel.updateExecutionHistory(null);
+        mainTabbedPane.setSelectedIndex(0);
+        loadSaved();
+    }
+
+    private boolean isReadyForWorkspaceSwitch() {
+        return tableModel != null
+                && table != null
+                && persistenceService != null
+                && csvDataPanel != null
+                && runBtn != null
+                && stopBtn != null
+                && timeLabel != null
+                && progressLabel != null
+                && resultsPanel != null
+                && mainTabbedPane != null;
     }
 
     /**
@@ -846,11 +873,92 @@ public class FunctionalPanel extends SingletonBasePanel {
      */
     public void save() {
         try {
-            List<RunnerRowData> rows = tableModel.getAllRows();
-            persistenceService.saveAsync(rows, csvDataPanel != null ? csvDataPanel.exportState() : null);
+            if (tableModel == null || persistenceService == null) {
+                return;
+            }
+            if (table != null && table.isEditing()) {
+                table.getCellEditor().stopCellEditing();
+            }
+            autoSaveSupport.cancel();
+            persistenceService.save(toConfigSnapshot(tableModel.getAllRows()));
         } catch (Exception e) {
             log.error("Failed to save config", e);
         }
+    }
+
+    private void scheduleSave() {
+        // 表格和 CSV 面板变更较频繁，统一走防抖保存，降低连续编辑时的落盘压力。
+        autoSaveSupport.requestSave();
+    }
+
+    private void saveAsync() {
+        try {
+            if (tableModel == null || persistenceService == null) {
+                return;
+            }
+            persistenceService.saveAsync(toConfigSnapshot(tableModel.getAllRows()));
+        } catch (Exception e) {
+            log.error("Failed to schedule functional config save", e);
+        }
+    }
+
+    private List<RunnerRowData> restoreRows(List<FunctionalConfigRow> configRows) {
+        List<RunnerRowData> rows = new ArrayList<>();
+        if (configRows == null || configRows.isEmpty()) {
+            return rows;
+        }
+        for (FunctionalConfigRow configRow : configRows) {
+            if (configRow == null || configRow.getRequestId() == null || configRow.getRequestId().isBlank()) {
+                continue;
+            }
+            try {
+                Optional<HttpRequestItem> requestItem = requestLookup.findRequestItemById(configRow.getRequestId());
+                if (requestItem.isEmpty()) {
+                    log.warn("Request with ID {} not found in collections, skipping", configRow.getRequestId());
+                    continue;
+                }
+                RunnerRowData row = new RunnerRowData(requestItem.get());
+                row.selected = configRow.isSelected();
+                rows.add(row);
+            } catch (Exception e) {
+                log.warn("Failed to restore functional row for request {}: {}", configRow.getRequestId(), e.getMessage());
+            }
+        }
+        return rows;
+    }
+
+    private FunctionalConfigSnapshot toConfigSnapshot(List<RunnerRowData> rows) {
+        List<FunctionalConfigRow> configRows = new ArrayList<>();
+        if (rows != null) {
+            for (RunnerRowData row : rows) {
+                if (row != null && row.requestItem != null && row.requestItem.getId() != null) {
+                    configRows.add(new FunctionalConfigRow(row.requestItem.getId(), row.selected));
+                }
+            }
+        }
+        return new FunctionalConfigSnapshot(configRows, exportFunctionalCsvState());
+    }
+
+    private FunctionalCsvDataState exportFunctionalCsvState() {
+        if (csvDataPanel == null) {
+            return null;
+        }
+        CsvDataPanel.CsvState state = csvDataPanel.exportState();
+        return toFunctionalCsvDataState(state);
+    }
+
+    private static FunctionalCsvDataState toFunctionalCsvDataState(CsvDataPanel.CsvState state) {
+        if (state == null) {
+            return null;
+        }
+        return new FunctionalCsvDataState(state.getSourceName(), state.getHeaders(), state.getRows());
+    }
+
+    private static CsvDataPanel.CsvState toCsvState(FunctionalCsvDataState state) {
+        if (state == null) {
+            return null;
+        }
+        return new CsvDataPanel.CsvState(state.getSourceName(), state.getHeaders(), state.getRows());
     }
 
     /**
@@ -860,7 +968,7 @@ public class FunctionalPanel extends SingletonBasePanel {
     private void refreshRequestsFromCollections() {
         List<RunnerRowData> currentRows = tableModel.getAllRows();
         if (currentRows.isEmpty()) {
-            NotificationUtil.showInfo(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_NO_RUNNABLE_REQUEST));
+            NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_NO_RUNNABLE_REQUEST));
             return;
         }
 
@@ -877,7 +985,7 @@ public class FunctionalPanel extends SingletonBasePanel {
             }
 
             // 通过ID从集合中查找最新的请求配置
-            HttpRequestItem latestRequestItem = persistenceService.findRequestItemById(row.requestItem.getId());
+            HttpRequestItem latestRequestItem = requestLookup.findRequestItemById(row.requestItem.getId()).orElse(null);
 
             if (latestRequestItem == null) {
                 // 请求在集合中已被删除
@@ -887,10 +995,7 @@ public class FunctionalPanel extends SingletonBasePanel {
             } else {
                 // 更新请求数据
                 try {
-                    // build() 会自动应用 group 继承
-                    PreparedRequest preparedRequest = PreparedRequestBuilder.build(latestRequestItem);
                     row.requestItem = latestRequestItem;
-                    row.preparedRequest = preparedRequest;
                     row.name = latestRequestItem.getName();
                     row.url = latestRequestItem.getUrl();
                     row.method = latestRequestItem.getMethod();
@@ -910,7 +1015,7 @@ public class FunctionalPanel extends SingletonBasePanel {
         tableModel.fireTableDataChanged();
 
         // 保存更新后的配置
-        save();
+        scheduleSave();
 
         // 更新按钮状态
         if (tableModel.getRowCount() == 0) {
@@ -919,13 +1024,9 @@ public class FunctionalPanel extends SingletonBasePanel {
 
         // 显示刷新结果
         if (removedCount > 0) {
-            NotificationUtil.showWarning(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_REFRESH_WARNING, removedCount));
+            NotificationCenter.showWarning(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_REFRESH_WARNING, removedCount));
         } else {
-            NotificationUtil.showInfo(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_REFRESH_SUCCESS, updatedCount));
+            NotificationCenter.showInfo(I18nUtil.getMessage(MessageKeys.FUNCTIONAL_MSG_REFRESH_SUCCESS, updatedCount));
         }
     }
 }
-
-
-
-

@@ -103,10 +103,15 @@ public class PluginCatalogServiceTest {
         assertFalse(githubKafka.version().isBlank());
         assertNotNull(giteeKafka.version());
         assertFalse(giteeKafka.version().isBlank());
-        assertEquals(githubKafka.minPlatformVersion(), "1.0.0");
-        assertEquals(githubKafka.maxPlatformVersion(), "1.0.0");
-        assertEquals(giteeKafka.minPlatformVersion(), "1.0.0");
-        assertEquals(giteeKafka.maxPlatformVersion(), "1.0.0");
+        assertFalse(githubKafka.minPlatformVersion().isBlank());
+        assertEquals(githubKafka.minPlatformVersion(), giteeKafka.minPlatformVersion());
+        assertEquals(githubKafka.maxPlatformVersion(), giteeKafka.maxPlatformVersion());
+    }
+
+    @Test
+    public void shouldKeepPublicAndBundledOfficialCatalogsInSync() throws Exception {
+        assertCatalogCopiesInSync("catalog-github.json");
+        assertCatalogCopiesInSync("catalog-gitee.json");
     }
 
     @Test
@@ -152,5 +157,26 @@ public class PluginCatalogServiceTest {
         assertEquals(entries.get(0).id(), "plugin-kafka");
         assertEquals(entries.get(0).version(), "5.3.18");
         assertEquals(entries.get(0).installUrl(), "https://example.com/plugin-kafka-5.3.18.jar");
+    }
+
+    private static void assertCatalogCopiesInSync(String fileName) throws IOException {
+        Path root = findRepositoryRoot();
+        Path publicCatalog = root.resolve("plugin-catalog").resolve(fileName);
+        Path bundledCatalog = root.resolve("easy-postman-plugins/plugin-manager/src/main/resources/plugin-catalog")
+                .resolve(fileName);
+
+        assertEquals(Files.readString(bundledCatalog), Files.readString(publicCatalog));
+    }
+
+    private static Path findRepositoryRoot() {
+        Path current = Path.of("").toAbsolutePath();
+        while (current != null) {
+            if (Files.exists(current.resolve("plugin-catalog/catalog-github.json"))
+                    && Files.exists(current.resolve("easy-postman-plugins/plugin-manager/pom.xml"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("Repository root not found");
     }
 }

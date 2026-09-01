@@ -1,16 +1,26 @@
 package com.laker.postman.common.component.dialog;
 
-import com.laker.postman.common.SingletonFactory;
+import com.laker.postman.common.UiSingletonFactory;
+import com.laker.postman.common.component.FallbackAwareRSyntaxTextArea;
 import com.laker.postman.common.component.SearchTextField;
+import com.laker.postman.common.component.SyntaxEditorScrollPane;
+import com.laker.postman.common.component.AppToolWindowChrome;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.button.ModernButtonFactory;
+import com.laker.postman.common.component.setting.SettingsInputStyle;
+import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.frame.MainFrame;
-import com.laker.postman.model.Snippet;
-import com.laker.postman.model.SnippetType;
-import com.laker.postman.plugin.bridge.PluginAccess;
+import com.laker.postman.plugin.host.PluginAccess;
+import com.laker.postman.snippet.Snippet;
+import com.laker.postman.snippet.SnippetType;
+import com.laker.postman.util.EditorThemeUtil;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.IconUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.Getter;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -31,8 +41,8 @@ import java.util.stream.Stream;
 public class SnippetDialog extends JDialog {
     private final JList<Snippet> snippetList;
     private final DefaultListModel<Snippet> listModel;
-    private final JTextField searchField;
-    private final JTextArea previewArea;
+    private final SearchTextField searchField;
+    private final RSyntaxTextArea previewArea;
     private final JLabel descriptionLabel;
     private final JComboBox<String> categoryCombo;
     private final Map<String, List<Snippet>> snippetCategories = new LinkedHashMap<>();
@@ -50,9 +60,12 @@ public class SnippetDialog extends JDialog {
 
 
     public SnippetDialog() {
-        super(SingletonFactory.getInstance(MainFrame.class), I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_TITLE), true);
-        Frame owner = SingletonFactory.getInstance(MainFrame.class);
-        setLayout(new BorderLayout(10, 10));
+        super(UiSingletonFactory.getInstance(MainFrame.class), I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_TITLE), true);
+        ToolWindowSurfaceStyle.applyDialogWindowChrome(this);
+        Frame owner = UiSingletonFactory.getInstance(MainFrame.class);
+        JPanel contentPanel = new JPanel(new BorderLayout(0, 0));
+        ToolWindowSurfaceStyle.applyDialogSurface(contentPanel);
+        contentPanel.setBorder(new EmptyBorder(12, 12, 8, 12));
 
         // 初始化片段数据
         snippets = getI18nSnippets();
@@ -60,12 +73,15 @@ public class SnippetDialog extends JDialog {
         initCategories();
 
         // 创建北部面板：搜索框和分类选择器
-        JPanel northPanel = new JPanel(new BorderLayout(5, 0));
-        northPanel.setBorder(new EmptyBorder(10, 10, 5, 10));
+        JPanel northPanel = new JPanel(new BorderLayout(12, 0));
+        ToolWindowSurfaceStyle.applyDialogSurface(northPanel);
+        northPanel.setBorder(new EmptyBorder(0, 0, 12, 0));
 
         // 搜索框带图标和提示
         JPanel searchPanel = new JPanel(new BorderLayout());
+        searchPanel.setOpaque(false);
         searchField = new SearchTextField();
+        searchField.installUserActivatedFocus();
 
         // 添加搜索图标
         searchPanel.add(searchField, BorderLayout.CENTER);
@@ -73,7 +89,9 @@ public class SnippetDialog extends JDialog {
         // 下拉分类选择器
         String[] categories = snippetCategories.keySet().toArray(new String[0]);
         categoryCombo = new JComboBox<>(categories);
-        categoryCombo.setPreferredSize(new Dimension(150, 30));
+        categoryCombo.setPreferredSize(new Dimension(160, 32));
+        categoryCombo.setFocusable(false);
+        SettingsInputStyle.apply(categoryCombo);
 
         northPanel.add(searchPanel, BorderLayout.CENTER);
         northPanel.add(categoryCombo, BorderLayout.EAST);
@@ -136,7 +154,7 @@ public class SnippetDialog extends JDialog {
                         case TOKEN ->
                                 label.setIcon(IconUtil.createThemed("icons/security.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
                         case COOKIES ->
-                                label.setIcon(IconUtil.create("icons/cookie.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL)); // 彩色图标
+                                label.setIcon(IconUtil.createThemed("icons/cookie.svg", IconUtil.SIZE_SMALL, IconUtil.SIZE_SMALL));
 
                         // 内置库分类
                         case CRYPTOJS ->
@@ -172,56 +190,50 @@ public class SnippetDialog extends JDialog {
         });
 
         JScrollPane listScrollPane = new JScrollPane(snippetList);
-        listScrollPane.setBorder(BorderFactory.createEmptyBorder(0, 10, 15, 0));
-
-        // 创建南部面板：预览区域和按钮
-        JPanel southPanel = new JPanel(new BorderLayout(5, 5));
-        southPanel.setBorder(new EmptyBorder(5, 10, 10, 10));
+        ToolWindowSurfaceStyle.applyDialogListScrollPane(listScrollPane, snippetList);
 
         // 预览区域
-        JPanel previewPanel = new JPanel(new BorderLayout(5, 5));
-        previewPanel.setBorder(BorderFactory.createTitledBorder(I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_PREVIEW_TITLE)));
+        JPanel previewPanel = new JPanel(new BorderLayout(0, 8));
+        ToolWindowSurfaceStyle.applyDialogSurface(previewPanel);
+        JLabel previewTitleLabel = new JLabel(I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_PREVIEW_TITLE));
+        previewTitleLabel.setFont(FontsUtil.getDefaultFont(Font.BOLD));
+        previewTitleLabel.setForeground(ModernColors.getTextPrimary());
+        previewTitleLabel.setBorder(new EmptyBorder(0, 0, 2, 0));
+        previewPanel.add(previewTitleLabel, BorderLayout.NORTH);
 
-        previewArea = new JTextArea(8, 40);
-        previewArea.setEditable(false);
-        previewArea.setLineWrap(false);  // 代码不应该自动换行
-        previewArea.setFont(FontsUtil.getDefaultFontWithOffset(Font.PLAIN, +1)); // 比标准字体大1号
-        previewArea.setTabSize(4);  // 设置 Tab 缩进为 4 个空格
-        JScrollPane previewScrollPane = new JScrollPane(previewArea);
+        previewArea = createPreviewEditor();
+        SyntaxEditorScrollPane previewScrollPane = new SyntaxEditorScrollPane(previewArea);
+        previewScrollPane.setLineNumbersEnabled(true);
         previewScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         previewPanel.add(previewScrollPane, BorderLayout.CENTER);
 
+        // 按钮面板
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        buttonPanel.setOpaque(false);
+        JButton closeBtn = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_CLOSE), false);
+        JButton insertBtn = ModernButtonFactory.createButton(I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_INSERT), true);
+
+        buttonPanel.add(closeBtn);
+        buttonPanel.add(insertBtn);
+
         // 描述标签
         descriptionLabel = new JLabel(" ");
-        descriptionLabel.setBorder(new EmptyBorder(5, 0, 0, 0));
-        previewPanel.add(descriptionLabel, BorderLayout.SOUTH);
+        descriptionLabel.setForeground(ModernColors.getTextSecondary());
 
-        // 按钮面板
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton insertBtn = new JButton(I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_INSERT));
-        insertBtn.setPreferredSize(new Dimension(100, 30));
+        JPanel footerPanel = new JPanel(new BorderLayout(12, 0));
+        ToolWindowSurfaceStyle.applyDialogFooter(footerPanel);
+        footerPanel.add(descriptionLabel, BorderLayout.CENTER);
+        footerPanel.add(buttonPanel, BorderLayout.EAST);
 
-        JButton closeBtn = new JButton(I18nUtil.getMessage(MessageKeys.SNIPPET_DIALOG_CLOSE));
-        closeBtn.setPreferredSize(new Dimension(100, 30));
+        // 代码片段弹窗整体只保留一个外层圆角卡片，列表和预览之间用内部 split 分割。
+        JSplitPane splitPane = AppToolWindowChrome.createHorizontalInnerSplitPane(listScrollPane, previewPanel, 260);
+        splitPane.setResizeWeight(0.28); // 设置左右比例
 
-        buttonPanel.add(insertBtn);
-        buttonPanel.add(closeBtn);
-
-        southPanel.add(previewPanel, BorderLayout.CENTER);
-        southPanel.add(buttonPanel, BorderLayout.SOUTH);
-
-        // 将分割面板添加到主面板
-        JSplitPane splitPane = new JSplitPane(
-                JSplitPane.HORIZONTAL_SPLIT,
-                listScrollPane,
-                southPanel
-        );
-        splitPane.setResizeWeight(0.3); // 设置左右比例
-        splitPane.setDividerLocation(230); // 设置初始分割位置
-
-        // 添加到对话框
-        add(northPanel, BorderLayout.NORTH);
-        add(splitPane, BorderLayout.CENTER);
+        contentPanel.add(northPanel, BorderLayout.NORTH);
+        contentPanel.add(AppToolWindowChrome.wrapToolWindow(splitPane, new Insets(0, 0, 0, 0)), BorderLayout.CENTER);
+        contentPanel.add(footerPanel, BorderLayout.SOUTH);
+        setContentPane(contentPanel);
+        getRootPane().setDefaultButton(insertBtn);
 
         // 绑定事件监听器
 
@@ -362,18 +374,26 @@ public class SnippetDialog extends JDialog {
             public void windowClosing(WindowEvent e) {
                 selectedSnippet = null;
             }
-
-            @Override
-            public void windowOpened(WindowEvent e) {
-                // 对话框打开时，搜索框自动获得焦点
-                searchField.requestFocusInWindow();
-            }
         });
 
         // 设置对话框属性
         setSize(800, 600);
         setLocationRelativeTo(owner);
         setMinimumSize(new Dimension(600, 400));
+    }
+
+    private RSyntaxTextArea createPreviewEditor() {
+        RSyntaxTextArea editor = new FallbackAwareRSyntaxTextArea(8, 40);
+        editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT);
+        editor.setEditable(false);
+        editor.setLineWrap(false);
+        editor.setCodeFoldingEnabled(true);
+        editor.setAntiAliasingEnabled(true);
+        editor.setPaintTabLines(true);
+        editor.setHighlightCurrentLine(false);
+        editor.setTabSize(4);
+        EditorThemeUtil.loadTheme(editor);
+        return editor;
     }
 
     // 初始化代码片段分类

@@ -1,10 +1,10 @@
 package com.laker.postman.common.component.table;
 
-import com.formdev.flatlaf.FlatLaf;
 import com.laker.postman.common.constants.ModernColors;
 
 import javax.swing.*;
 import javax.swing.border.Border;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 
 /**
@@ -17,9 +17,6 @@ public class TableUIConstants {
     public static final String SELECT_FILE_TEXT = "Select File";
     public static final String FILE_TYPE = "File";
 
-    // 颜色常量 - 基础色（保留向后兼容）
-    public static final Color PRIMARY_COLOR = new Color(66, 133, 244);  // 主题色
-
     // 图标大小
     public static final int ICON_SIZE = 14;
 
@@ -30,24 +27,17 @@ public class TableUIConstants {
     public static final int PADDING_BOTTOM = 2;
 
     /**
-     * 检查当前是否为暗色主题
-     */
-    private static boolean isDarkTheme() {
-        return FlatLaf.isLafDark();
-    }
-
-    /**
      * 获取边框颜色 - 主题适配
      */
     public static Color getBorderColor() {
-        return isDarkTheme() ? new Color(80, 80, 85) : new Color(220, 225, 230);
+        return ModernColors.getTableGridColor();
     }
 
     /**
      * 获取悬停颜色 - 主题适配
      */
     public static Color getHoverColor() {
-        return isDarkTheme() ? new Color(60, 63, 65) : new Color(230, 240, 255);
+        return ModernColors.getHoverBackgroundColor();
     }
 
     /**
@@ -55,21 +45,21 @@ public class TableUIConstants {
      */
     public static Color getFileButtonTextColor() {
         // 主题色在两种模式下都保持一致
-        return PRIMARY_COLOR;
+        return ModernColors.getPrimary();
     }
 
     /**
      * 获取文件选中文字颜色 - 主题适配
      */
     public static Color getFileSelectedTextColor() {
-        return isDarkTheme() ? new Color(100, 150, 230) : new Color(76, 130, 206);
+        return ModernColors.getPrimaryLight();
     }
 
     /**
      * 获取文件空状态文字颜色 - 主题适配
      */
     public static Color getFileEmptyTextColor() {
-        return isDarkTheme() ? new Color(140, 140, 145) : new Color(95, 99, 104);
+        return ModernColors.getTextHint();
     }
 
     /**
@@ -91,18 +81,118 @@ public class TableUIConstants {
     }
 
     /**
-     * 获取单元格背景色
+     * 创建表格编辑态外框。
+     * 直接返回编辑器组件时使用，替代 FlatTextField 默认 focus/underline 效果。
+     */
+    public static Border createCellEditorBorder() {
+        return BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(ModernColors.getPrimaryLight()),
+                BorderFactory.createEmptyBorder(0, PADDING_LEFT - 1, 0, PADDING_RIGHT - 1)
+        );
+    }
+
+    /**
+     * 创建容器内部输入组件的内边距。
+     */
+    public static Border createCellEditorInnerBorder() {
+        return BorderFactory.createEmptyBorder(0, PADDING_LEFT, 0, PADDING_RIGHT);
+    }
+
+    /**
+     * 创建 form-data Key/Type 分组表头边框。
+     * 该表头是表格结构强调，不应在具体面板里散落 legacy Swing border 组合。
+     */
+    public static Border createFormDataGroupedHeaderBorder(Color gridColor,
+                                                          boolean rightBoundary,
+                                                          int leftPadding,
+                                                          int rightPadding) {
+        return BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, rightBoundary ? 1 : 0, gridColor),
+                BorderFactory.createEmptyBorder(0, leftPadding, 0, rightPadding)
+        );
+    }
+
+    /**
+     * 获取指定行的非选中背景色，保持编辑态和渲染态斑马纹一致。
+     */
+    public static Color getRowBackground(JTable table, int row) {
+        Color base = table.getBackground();
+        return row % 2 == 1 ? EasyTextFieldCellRenderer.stripeBackground(base) : base;
+    }
+
+    /**
+     * 获取指定单元格背景色，包含选中、悬停、空值和斑马纹状态。
      */
     public static Color getCellBackground(boolean isSelected, boolean isHovered, boolean isEmpty,
-                                          JTable table) {
+                                          JTable table, int row) {
         if (isSelected) {
             return table.getSelectionBackground();
         } else if (isHovered) {
             return getHoverColor();
         } else if (isEmpty) {
             return ModernColors.getEmptyCellBackground();
+        } else if (row >= 0) {
+            return getRowBackground(table, row);
         } else {
             return table.getBackground();
         }
+    }
+
+    /**
+     * 编辑器直接作为 cell editor 返回时使用。
+     */
+    public static void styleTextCellEditor(JTextComponent editor, JTable table, int row) {
+        styleTextCellEditor(editor, table, row, createCellEditorBorder());
+    }
+
+    /**
+     * 编辑器放在带外框的容器内时使用。
+     */
+    public static void styleContainedTextCellEditor(JTextComponent editor, JTable table, int row) {
+        styleTextCellEditor(editor, table, row, createCellEditorInnerBorder());
+    }
+
+    /**
+     * 容器型 cell editor 使用，例如智能多行 editor 和文件 editor。
+     */
+    public static void styleCellEditorContainer(JComponent container, JTable table, int row) {
+        Color background = getRowBackground(table, row);
+        container.setOpaque(true);
+        container.setBackground(background);
+        container.setBorder(createCellEditorBorder());
+    }
+
+    /**
+     * JScrollPane 放在 cell editor 内部时，需要同步 viewport 背景，否则暗色主题会露白。
+     */
+    public static void styleEditorScrollPane(JScrollPane scrollPane, JTable table, int row) {
+        Color background = getRowBackground(table, row);
+        scrollPane.setOpaque(true);
+        scrollPane.setBackground(background);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setViewportBorder(BorderFactory.createEmptyBorder());
+        if (scrollPane.getViewport() != null) {
+            scrollPane.getViewport().setOpaque(true);
+            scrollPane.getViewport().setBackground(background);
+        }
+    }
+
+    private static void styleTextCellEditor(JTextComponent editor, JTable table, int row, Border border) {
+        Color background = getRowBackground(table, row);
+        editor.setOpaque(true);
+        editor.setBackground(background);
+        editor.setForeground(table.getForeground());
+        editor.setCaretColor(table.getForeground());
+        editor.setBorder(border);
+        editor.putClientProperty("JComponent.outline", null);
+        editor.putClientProperty("FlatLaf.style", null);
+    }
+
+    /**
+     * 获取单元格背景色
+     */
+    public static Color getCellBackground(boolean isSelected, boolean isHovered, boolean isEmpty,
+                                          JTable table) {
+        return getCellBackground(isSelected, isHovered, isEmpty, table, -1);
     }
 }

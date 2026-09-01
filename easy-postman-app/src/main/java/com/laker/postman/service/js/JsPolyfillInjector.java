@@ -1,6 +1,6 @@
 package com.laker.postman.service.js;
 
-import com.laker.postman.service.http.HttpUtil;
+import com.laker.postman.request.util.HttpUrlUtil;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -45,7 +45,6 @@ public class JsPolyfillInjector {
 
         // 外部 JS 库支持
         JsLibraryLoader.injectBuiltinLibraries(context);
-        JsLibraryLoader.injectRequireFunction(context);
 
         log.debug("Polyfills injected successfully");
     }
@@ -135,7 +134,7 @@ public class JsPolyfillInjector {
         // decodeURIComponent - URL 解码
         injectFunction(context, "decodeURIComponent", args -> {
             String str = args[0].asString();
-            return HttpUtil.decodeURIComponent(str);
+            return HttpUrlUtil.decodeComponent(str);
         });
 
         // encodeURI - URL 编码（保留特殊字符）
@@ -190,7 +189,7 @@ public class JsPolyfillInjector {
             return value;
         }
 
-        return HttpUtil.decodeURIComponent(value)
+        return HttpUrlUtil.decodeComponent(value)
                 .replace("#", "%23")
                 .replace("&", "%26")
                 .replace("+", "%2B")

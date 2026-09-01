@@ -1,6 +1,7 @@
 package com.laker.postman.panel.sidebar.cookie;
 
-import com.laker.postman.panel.collections.right.request.sub.CookieTablePanel;
+import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.panel.collections.editor.request.sub.CookieTablePanel;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 
@@ -19,16 +20,15 @@ public class CookieManagerDialog extends JDialog {
     }
 
     private void initUI() {
-        setLayout(new BorderLayout());
-
-        // 使用现有的 CookieTablePanel
+        ToolWindowSurfaceStyle.skipDialogWindowChrome(this);
         CookieTablePanel cookiePanel = new CookieTablePanel();
-        add(cookiePanel, BorderLayout.CENTER);
+        ToolWindowSurfaceStyle.applyDialogSurface(cookiePanel);
+        setContentPane(cookiePanel);
 
         // 设置对话框属性
         setSize(900, 500);
+        setMinimumSize(new Dimension(760, 420));
         setLocationRelativeTo(getOwner());
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
     }
 }
-
