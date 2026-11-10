@@ -64,7 +64,7 @@ public class PerformanceResultDisplayMapperTest {
         assertNull(request.bodyType);
         assertNull(request.headersList);
         assertNull(response.filePath);
-        assertNull(response.fileName);
+        assertEquals(response.fileName, "result.bin", "文件名用于详情页展示文件信息");
         assertNull(response.httpEventInfo);
         assertEquals(resultNodeInfo.costMs, 123);
     }
@@ -259,7 +259,9 @@ public class PerformanceResultDisplayMapperTest {
                 true
         );
 
-        assertFalse(resultNodeInfo.isActuallySuccessful());
+        assertTrue(resultNodeInfo.cancelled);
+        assertFalse(resultNodeInfo.executionFailed, "取消与执行失败分开展示");
+        assertFalse(resultNodeInfo.isActuallySuccessful(), "已握手 101 的取消采样也不算成功");
         assertEquals(resultNodeInfo.errorMsg, "Execution interrupted");
         assertTrue(resultNodeInfo.resp.body.contains("Error: Execution interrupted"));
         assertTrue(resultNodeInfo.resp.body.contains("Sent: 120"));

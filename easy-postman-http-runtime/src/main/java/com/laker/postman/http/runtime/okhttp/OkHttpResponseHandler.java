@@ -6,25 +6,35 @@ import com.laker.postman.http.runtime.interaction.DownloadProgressSinkFactory;
 import com.laker.postman.http.runtime.interaction.ResponseSizeLimitWarning;
 import com.laker.postman.http.runtime.interaction.ResponseSizeLimitWarningSink;
 import com.laker.postman.http.runtime.config.HttpRuntimeSettingsProvider;
+import com.laker.postman.http.runtime.file.ResponseFileNames;
+import com.laker.postman.http.runtime.file.ResponseFileTypeDetector;
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
+import com.laker.postman.http.runtime.sse.SseEventReader;
 import com.laker.postman.http.runtime.sse.SseResponseCallback;
 import com.laker.postman.util.FileExtensionUtil;
 import com.laker.postman.util.HttpHeaderConstants;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.Call;
 import okhttp3.MediaType;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-import okhttp3.internal.sse.ServerSentEventReader;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * OkHttp 响应处理工具类
@@ -42,12 +52,14 @@ public class OkHttpResponseHandler {
 
     // 常量定义
     private static final String CONTENT_TYPE_HEADER = "Content-Type";
-    private static final String CONTENT_DISPOSITION_HEADER = "Content-Disposition";
     private static final String SSE_CONTENT_TYPE = "text/event-stream";
 
     /**
      * 私有构造函数，防止实例化
      */
+    private static final String UNKNOWN_BINARY_EXTENSION = ".bin";
+    private static final Set<String> IMAGE_EXTENSIONS = Set.of(".png", ".jpg", ".gif", ".webp");
+
     private OkHttpResponseHandler() {
         throw new UnsupportedOperationException("Utility class cannot be instantiated");
     }
@@ -100,6 +112,36 @@ public class OkHttpResponseHandler {
                                       int previewLimitBytes,
                                       DownloadProgressSinkFactory downloadProgressSinkFactory,
                                       ResponseSizeLimitWarningSink responseSizeLimitWarningSink) throws IOException {
+        handleResponse(okResponse, response, callback, bodyMode, previewLimitBytes,
+                downloadProgressSinkFactory, responseSizeLimitWarningSink, null);
+    }
+
+    public static void handleResponse(Response okResponse,
+                                      HttpResponse response,
+                                      SseResponseCallback callback,
+                                      PreparedRequest.ResponseBodyMode bodyMode,
+                                      int previewLimitBytes,
+                                      DownloadProgressSinkFactory downloadProgressSinkFactory,
+                                      ResponseSizeLimitWarningSink responseSizeLimitWarningSink,
+                                      Call call) throws IOException {
+        try {
+            readResponse(okResponse, response, callback, bodyMode, previewLimitBytes,
+                    downloadProgressSinkFactory, responseSizeLimitWarningSink, call);
+        } finally {
+            if (okResponse.body() != null) {
+                okResponse.close();
+            }
+        }
+    }
+
+    private static void readResponse(Response okResponse,
+                                     HttpResponse response,
+                                     SseResponseCallback callback,
+                                     PreparedRequest.ResponseBodyMode bodyMode,
+                                     int previewLimitBytes,
+                                     DownloadProgressSinkFactory downloadProgressSinkFactory,
+                                     ResponseSizeLimitWarningSink responseSizeLimitWarningSink,
+                                     Call call) throws IOException {
         response.code = okResponse.code();
         response.headers = new LinkedHashMap<>();
         for (String name : okResponse.headers().names()) {
@@ -122,7 +164,7 @@ public class OkHttpResponseHandler {
                 callback.onOpen(response);
                 boolean failed = false;
                 if (body != null) {
-                    var reader = new ServerSentEventReader(body.source(), callback);
+                    var reader = new SseEventReader(body.source(), callback);
                     try {
                         while (reader.processNextEvent()) {
                             // 持续读取直到流结束
@@ -142,14 +184,11 @@ public class OkHttpResponseHandler {
         } else if (bodyMode != null && bodyMode != PreparedRequest.ResponseBodyMode.FULL) {
             handleLightweightResponse(okResponse, response, bodyMode, previewLimitBytes);
         } else if (FileExtensionUtil.isBinaryType(contentType)) {
-            handleBinaryResponse(okResponse, response, downloadProgressSinkFactory, responseSizeLimitWarningSink);
+            handleBinaryResponse(okResponse, response, downloadProgressSinkFactory, responseSizeLimitWarningSink, call);
         } else {
-            handleTextResponse(okResponse, response, contentLengthHeader, downloadProgressSinkFactory, responseSizeLimitWarningSink);
+            handleTextResponse(okResponse, response, contentLengthHeader, downloadProgressSinkFactory,
+                    responseSizeLimitWarningSink, call);
         }
-        if (okResponse.body() != null) {
-            okResponse.body().close();
-        }
-        okResponse.close();
     }
 
     private static void handleLightweightResponse(Response okResponse,
@@ -314,38 +353,61 @@ public class OkHttpResponseHandler {
                                                          String prefix,
                                                          String suffix,
                                                          int contentLengthHeader,
-                                                         DownloadProgressSinkFactory downloadProgressSinkFactory) throws IOException {
-        File tempFile = File.createTempFile(prefix, suffix);
-        int totalBytes = 0;
-        byte[] buf = new byte[64 * 1024];
-        int len;
-        int contentLength = getContentLength(is, contentLengthHeader);
-
+                                                         DownloadProgressSinkFactory downloadProgressSinkFactory,
+                                                         boolean streamingMedia,
+                                                         String sourceUrl,
+                                                         Call call) throws IOException {
         DownloadProgressSink progressSink = createDownloadProgressSink(downloadProgressSinkFactory);
-        progressSink.start(contentLength);
-
-        try (BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(tempFile), 64 * 1024)) {
-            while ((len = is.read(buf)) != -1) {
-                if (progressSink.isCancelled()) {
-                    deleteTempFile(tempFile);
-                    throw new DownloadCancelledException();
+        File tempFile = File.createTempFile(prefix, suffix);
+        long totalBytes = 0;
+        int maxDownloadSize = getMaxDownloadSize();
+        byte[] buf = new byte[64 * 1024];
+        boolean completed = false;
+        try {
+            progressSink.start(contentLengthHeader, streamingMedia, sourceUrl, call == null ? null : call::cancel);
+            try (BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(tempFile), 64 * 1024)) {
+                while (true) {
+                    checkDownloadCancelled(progressSink, call);
+                    int len = is.read(buf);
+                    checkDownloadCancelled(progressSink, call);
+                    if (len == -1) {
+                        break;
+                    }
+                    long receivedBytes = totalBytes + len;
+                    if (maxDownloadSize > 0 && receivedBytes > maxDownloadSize) {
+                        throw new DownloadSizeLimitException(receivedBytes, maxDownloadSize);
+                    }
+                    bos.write(buf, 0, len);
+                    totalBytes = receivedBytes;
+                    progressSink.updateProgress(len);
                 }
-                bos.write(buf, 0, len);
-                totalBytes += len;
-                progressSink.updateProgress(len);
             }
-        } catch (DownloadCancelledException e) {
-            // 用户取消下载，这是正常行为，直接向上抛出
-            deleteTempFile(tempFile);
-            throw e;
+            checkDownloadCancelled(progressSink, call);
+            completed = true;
+            return new FileAndSize(tempFile, totalBytes);
         } catch (IOException e) {
-            // 其他IO异常，删除临时文件后抛出
-            deleteTempFile(tempFile);
+            // A cancelled socket read is a user action, not a network failure.
+            if (e instanceof DownloadCancelledException || isDownloadCancelled(progressSink, call)) {
+                throw new DownloadCancelledException(totalBytes);
+            }
             throw e;
         } finally {
-            progressSink.finish();
+            if (!completed) {
+                // The output stream is closed before deleting, including on Windows.
+                deleteTempFile(tempFile);
+            }
+            progressSink.finish(completed, isDownloadCancelled(progressSink, call));
         }
-        return new FileAndSize(tempFile, totalBytes);
+    }
+
+    private static void checkDownloadCancelled(DownloadProgressSink sink, Call call) throws DownloadCancelledException {
+        if (isDownloadCancelled(sink, call)) {
+            throw new DownloadCancelledException();
+        }
+    }
+
+    private static boolean isDownloadCancelled(DownloadProgressSink sink, Call call) {
+        return sink.isCancelled() || (call != null && call.isCanceled());
     }
 
     private static DownloadProgressSink createDownloadProgressSink(DownloadProgressSinkFactory factory) {
@@ -371,35 +433,6 @@ public class OkHttpResponseHandler {
     }
 
     /**
-     * 获取内容长度，优先使用响应头中的值，其次尝试从流中获取
-     *
-     * @param is                  输入流
-     * @param contentLengthHeader Content-Length 响应头的值
-     * @return 内容长度（字节），如果无法确定则返回 -1
-     */
-    private static int getContentLength(InputStream is, int contentLengthHeader) {
-        int contentLength = contentLengthHeader;
-
-        // 如果响应头没有，再从流获取
-        if (contentLength < 0 && is instanceof FileInputStream) {
-            try {
-                contentLength = Math.toIntExact(((FileInputStream) is).getChannel().size());
-            } catch (IOException ignored) {
-                // 无法获取文件大小，继续尝试其他方法
-            }
-        }
-        if (contentLength < 0) {
-            try {
-                contentLength = is.available();
-            } catch (IOException ignored) {
-                // 无法获取可用字节数，返回当前的contentLength（可能是-1）
-            }
-        }
-        return contentLength;
-    }
-
-
-    /**
      * 处理二进制类型的响应（图片、PDF、压缩包等）
      * <p>
      * 二进制响应会被保存到临时文件，文件名按以下优先级获取：
@@ -415,41 +448,13 @@ public class OkHttpResponseHandler {
     private static void handleBinaryResponse(Response okResponse,
                                              HttpResponse response,
                                              DownloadProgressSinkFactory downloadProgressSinkFactory,
-                                             ResponseSizeLimitWarningSink responseSizeLimitWarningSink) throws IOException {
+                                             ResponseSizeLimitWarningSink responseSizeLimitWarningSink,
+                                             Call call) throws IOException {
         InputStream is = okResponse.body() != null ? okResponse.body().byteStream() : null;
-        String fileName = null;
-        // 优先 Content-Disposition
-        String contentDisposition = getContentDisposition(response.headers);
-        if (contentDisposition != null) {
-            fileName = parseFileNameFromContentDisposition(contentDisposition);
-        }
-        // 其次 URL 路径
-        if (fileName == null) {
-            String url = okResponse.request().url().encodedPath();
-            int lastSlash = url.lastIndexOf('/');
-            if (lastSlash >= 0 && lastSlash < url.length() - 1) {
-                String rawName = url.substring(lastSlash + 1);
-                // 去除 !、?、# 及其后内容
-                int excl = rawName.indexOf('!');
-                int ques = rawName.indexOf('?');
-                int sharp = rawName.indexOf('#');
-                int cut = rawName.length();
-                if (excl >= 0) cut = excl;
-                if (ques >= 0 && ques < cut) cut = ques;
-                if (sharp >= 0 && sharp < cut) cut = sharp;
-                fileName = rawName.substring(0, cut);
-            }
-        }
-        // 如果没有获取到文件名，或者文件名没有扩展名，尝试补充
         String ext = FileExtensionUtil.guessExtension(okResponse.header(CONTENT_TYPE_HEADER));
-        if (fileName == null) {
-            // 完全没有文件名，使用智能生成（根据 Content-Type）
-            fileName = FileExtensionUtil.generateSmartFileName(ext);
-        } else if (!fileName.contains(".") && ext != null) {
-            // 有文件名但没有扩展名，根据 Content-Type 添加扩展名
-            fileName += ext;
-        }
-        response.fileName = fileName;
+        response.fileName = resolveFileName(okResponse, response.headers, ext, (ResponseFileTypeDetector.Detection) null);
+        String contentDisposition = ResponseFileNames.getContentDisposition(response.headers);
+        response.fileAttachment = ResponseFileNames.isAttachment(contentDisposition);
 
         // 检查文件大小限制
         int maxDownloadSize = getMaxDownloadSize();
@@ -470,14 +475,28 @@ public class OkHttpResponseHandler {
                         "easyPostman_download_",
                         ext,
                         contentLengthHeader,
-                        downloadProgressSinkFactory
+                        downloadProgressSinkFactory,
+                        isStreamingMediaResponse(okResponse, contentDisposition),
+                        okResponse.request().url().toString(),
+                        call
                 );
                 response.filePath = fs.file.getAbsolutePath();
                 response.body = I18nUtil.getMessage(MessageKeys.BINARY_SAVED_TEMP_FILE);
                 response.bodySize = fs.size;
+                applyDetectedBinaryType(okResponse, response, fs.file, ext);
                 // 标记是否为图片类型，供 UI 层预览使用
                 String ct = okResponse.header(CONTENT_TYPE_HEADER, "");
-                response.isImage = ct != null && ct.toLowerCase().startsWith("image/");
+                // 内容与声明冲突时以识别结果为准，避免把声明为 image/png 的 PDF 当作图片预览
+                response.isImage = response.detectedFileExtension != null
+                        ? IMAGE_EXTENSIONS.contains(response.detectedFileExtension)
+                        : ct.toLowerCase(Locale.ROOT).startsWith("image/");
+            } catch (DownloadSizeLimitException e) {
+                warnResponseTooLarge(responseSizeLimitWarningSink,
+                        new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.BINARY,
+                                (int) Math.min(e.receivedBytes, Integer.MAX_VALUE), e.maxDownloadBytes));
+                response.body = I18nUtil.getMessage(MessageKeys.BINARY_TOO_LARGE_BODY, e.maxDownloadBytes / 1024 / 1024);
+                response.bodySize = 0;
+                response.filePath = null;
             } catch (IOException e) {
                 if (!isIncompleteResponseBodyError(e)) {
                     throw e;
@@ -494,6 +513,46 @@ public class OkHttpResponseHandler {
         }
     }
 
+
+    /**
+     * 所有二进制响应都检查文件头：声明笼统（application/octet-stream）时采用识别结果；
+     * 声明具体但与内容冲突（application/vnd.ms-excel 实际是 xlsx）时以内容为准并提示；
+     * 一致或声明更具体（声明 .xlsm、文件头只能确定 .xlsx）时以声明为准。识别结果同时用于纠正 URL 中错误的后缀。
+     */
+    private static void applyDetectedBinaryType(Response okResponse, HttpResponse response, File file, String declaredExtension) {
+        ResponseFileTypeDetector.Detection detection = ResponseFileTypeDetector.detect(file.toPath());
+        if (detection == null) {
+            return;
+        }
+        String detected = detection.extension();
+        String contentType = okResponse.header(CONTENT_TYPE_HEADER, "");
+        // application/zip 同样只说明是容器，docx/jar 等基于 ZIP 的具体格式不算类型冲突
+        boolean genericDeclared = contentType.isBlank() || ".zip".equals(declaredExtension)
+                || ResponseFiles.isGenericBinaryContentType(contentType);
+        if (!genericDeclared && declaredExtension == null && ResponseFileTypeDetector.isGenericContainer(detected)) {
+            // 具体但没有扩展名映射的 MIME（如 APK 的 application/vnd.android.package-archive），只识别到容器时信任声明
+            return;
+        }
+        String naming = genericDeclared ? detected : ResponseFileTypeDetector.reconcile(declaredExtension, detection);
+        // 只有内容与声明不一致时才提示：application/pdf + PDF、application/zip + ZIP/docx/jar 都不提示
+        boolean consistent = naming.equalsIgnoreCase(String.valueOf(declaredExtension))
+                || (".zip".equals(declaredExtension) && ResponseFileTypeDetector.reconcile(naming, ".zip").equals(naming));
+        if (!consistent) {
+            response.detectedFileExtension = detected;
+        }
+        response.fileName = resolveFileName(okResponse, response.headers, naming, detection);
+    }
+
+    private static boolean isStreamingMediaResponse(Response response, String contentDisposition) {
+        String contentType = response.header(CONTENT_TYPE_HEADER, "");
+        String mediaType = contentType.split(";", 2)[0].trim();
+        String disposition = contentDisposition == null ? "" : contentDisposition.split(";", 2)[0].trim();
+        // FLV may also be a finite file. This selects unknown-length transfer UX
+        // without claiming the stream is live or changing the EOF completion rule.
+        return "video/x-flv".equalsIgnoreCase(mediaType)
+                && response.body() != null && response.body().contentLength() < 0
+                && !"attachment".equalsIgnoreCase(disposition);
+    }
 
     /**
      * 处理文本类型的响应（JSON、XML、HTML、纯文本等）
@@ -513,7 +572,8 @@ public class OkHttpResponseHandler {
                                            HttpResponse response,
                                            int contentLengthHeader,
                                            DownloadProgressSinkFactory downloadProgressSinkFactory,
-                                           ResponseSizeLimitWarningSink responseSizeLimitWarningSink) throws IOException {
+                                           ResponseSizeLimitWarningSink responseSizeLimitWarningSink,
+                                           Call call) throws IOException {
         String ext = FileExtensionUtil.guessExtension(okResponse.header(CONTENT_TYPE_HEADER));
         int maxDownloadSize = getMaxDownloadSize();
         ResponseBody body = okResponse.body();
@@ -544,36 +604,33 @@ public class OkHttpResponseHandler {
                 log.error("Error reading response body: {}", e.getMessage(), e);
                 throw e;
             }
+            if (maxDownloadSize > 0 && bytes.length > maxDownloadSize) {
+                warnResponseTooLarge(responseSizeLimitWarningSink,
+                        new ResponseSizeLimitWarning(ResponseSizeLimitWarning.Kind.TEXT, bytes.length, maxDownloadSize));
+                response.body = I18nUtil.getMessage(MessageKeys.TEXT_TOO_LARGE_BODY, maxDownloadSize / 1024 / 1024);
+                response.bodySize = 0;
+                response.filePath = null;
+                return;
+            }
             response.bodySize = bytes.length;
+            String extension = applyFileMetadata(okResponse, response, bytes, ext);
             if (bytes.length > getMaxBodySize()) { // 如果解压后内容超过设置值，保存为临时文件
-                String extension = ext != null ? ext : ".txt";
                 FileAndSize fs = saveInputStreamToTempFile(
                         new ByteArrayInputStream(bytes),
                         "easyPostman_text_download_",
                         extension,
-                        contentLengthHeader,
-                        downloadProgressSinkFactory
+                        bytes.length,
+                        downloadProgressSinkFactory,
+                        false,
+                        okResponse.request().url().toString(),
+                        call
                 );
                 response.filePath = fs.file.getAbsolutePath();
-                // 智能生成文件名：根据扩展名生成更友好的名称
-                response.fileName = FileExtensionUtil.generateSmartFileName(extension);
                 int maxBodySizeKB = getMaxBodySize() / 1024;
                 response.body = I18nUtil.getMessage(MessageKeys.BODY_TOO_LARGE_SAVED, maxBodySizeKB);
             } else {
-                // 确定字符集
-                Charset charset = StandardCharsets.UTF_8; // 默认使用 UTF-8
-                MediaType mediaType = body.contentType();
-                if (mediaType != null) {
-                    Charset detectedCharset = mediaType.charset();
-                    if (detectedCharset != null) {
-                        charset = detectedCharset;
-                    }
-                }
-                response.body = new String(bytes, charset);
+                decodeInMemoryBody(response, bytes, body.contentType());
                 response.filePath = null;
-                // 即使不保存为文件，也设置一个默认文件名，方便用户下载
-                String extension = ext != null ? ext : ".txt";
-                response.fileName = FileExtensionUtil.generateSmartFileName(extension);
             }
         } else {
             response.body = "";
@@ -582,86 +639,88 @@ public class OkHttpResponseHandler {
         }
     }
 
+    /**
+     * 根据内容识别文件格式与附件声明，填充文件元信息并返回保存用扩展名。
+     * 普通文本接口保持智能文件名；只有明确的文件响应才从 Content-Disposition / URL 推导文件名。
+     */
+    private static String applyFileMetadata(Response okResponse, HttpResponse response, byte[] bytes, String contentTypeExtension) {
+        ResponseFileTypeDetector.Detection signature = ResponseFileTypeDetector.detect(bytes);
+        String detectedExtension = signature == null ? null : signature.extension();
+        if (detectedExtension == null
+                && mayBeUnlabeledBinary(okResponse.header(CONTENT_TYPE_HEADER, ""), ResponseFiles.declaredCharset(response))
+                && ResponseFileTypeDetector.looksBinary(bytes)) {
+            // 未声明类型（或声明为 text/plain）却含有文本中不会出现的控制字节：按未知二进制文件处理
+            detectedExtension = UNKNOWN_BINARY_EXTENSION;
+        }
+        response.detectedFileExtension = detectedExtension;
+        response.fileAttachment = ResponseFileNames.isAttachment(
+                ResponseFileNames.getContentDisposition(response.headers));
+        String extension = detectedExtension != null
+                ? detectedExtension
+                : (contentTypeExtension != null ? contentTypeExtension : ".txt");
+        response.fileName = detectedExtension != null || response.fileAttachment
+                ? resolveFileName(okResponse, response.headers, extension, signature)
+                : FileExtensionUtil.generateSmartFileName(extension);
+        return extension;
+    }
+
+    /**
+     * 解码内存中的响应体；仅在文本无法无损还原原始字节或响应是文件时保留原始字节，避免普通 UTF-8 文本内存翻倍。
+     */
+    /**
+     * 控制字节判定只适用于 ASCII 兼容的编码；UTF-16/UTF-32 文本本身就含有大量 0x00，不能按此判断。
+     */
+    private static boolean mayBeUnlabeledBinary(String contentType, Charset declaredCharset) {
+        String mediaType = contentType == null ? "" : contentType.split(";", 2)[0].trim();
+        boolean unlabeledOrPlainText = mediaType.isEmpty() || "text/plain".equalsIgnoreCase(mediaType);
+        return unlabeledOrPlainText && isAsciiCompatible(declaredCharset);
+    }
+
+    private static boolean isAsciiCompatible(Charset charset) {
+        try {
+            byte[] encoded = "\t\n\r A~".getBytes(charset);
+            return Arrays.equals(encoded, "\t\n\r A~".getBytes(StandardCharsets.US_ASCII));
+        } catch (UnsupportedOperationException e) {
+            return false;
+        }
+    }
+
+    private static void decodeInMemoryBody(HttpResponse response, byte[] bytes, MediaType mediaType) {
+        Charset charset = mediaType != null && mediaType.charset() != null
+                ? mediaType.charset()
+                : StandardCharsets.UTF_8;
+        String strictText = decodeStrictly(bytes, charset);
+        response.body = strictText != null ? strictText : new String(bytes, charset);
+        boolean losslessUtf8Text = strictText != null && StandardCharsets.UTF_8.equals(charset);
+        if (response.detectedFileExtension != null || response.fileAttachment || !losslessUtf8Text) {
+            response.rawBodyBytes = bytes;
+        }
+    }
+
+    private static String decodeStrictly(byte[] bytes, Charset charset) {
+        try {
+            return charset.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            return null;
+        }
+    }
+
+    private static String resolveFileName(Response okResponse, Map<String, List<String>> headers,
+                                          String extension, ResponseFileTypeDetector.Detection detection) {
+        return ResponseFileNames.resolve(
+                ResponseFileNames.getContentDisposition(headers),
+                okResponse.request().url().encodedPath(),
+                extension,
+                detection);
+    }
+
     private static void warnResponseTooLarge(ResponseSizeLimitWarningSink sink, ResponseSizeLimitWarning warning) {
         ResponseSizeLimitWarningSink resolvedSink = sink == null ? ResponseSizeLimitWarningSink.noop() : sink;
         resolvedSink.warn(warning);
-    }
-
-    /**
-     * 从响应头中提取 Content-Disposition 字段
-     * <p>
-     * Content-Disposition 响应头通常包含文件下载时的文件名信息
-     * </p>
-     *
-     * @param headers 响应头 Map
-     * @return Content-Disposition 的值，如果不存在则返回 null
-     */
-    public static String getContentDisposition(Map<String, List<String>> headers) {
-        if (headers == null) return null;
-        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-            if (entry.getKey() != null && CONTENT_DISPOSITION_HEADER.equalsIgnoreCase(entry.getKey())) {
-                List<String> values = entry.getValue();
-                // 修复：检查 list 不为空，避免 IndexOutOfBoundsException
-                if (values != null && !values.isEmpty()) {
-                    return values.get(0);
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 从 Content-Disposition 响应头中解析文件名
-     * <p>
-     * 支持两种格式：
-     * 1. filename*=UTF-8''filename.txt (RFC 5987 编码格式)
-     * 2. filename="filename.txt" (普通格式)
-     * </p>
-     *
-     * @param contentDisposition Content-Disposition 响应头的值
-     * @return 解析出的文件名，如果无法解析则返回 null
-     */
-    public static String parseFileNameFromContentDisposition(String contentDisposition) {
-        if (contentDisposition == null) return null;
-        String lower = contentDisposition.toLowerCase();
-
-        // 优先解析 filename*= (RFC 5987 编码格式)
-        int idxStar = lower.indexOf("filename*=");
-        if (idxStar >= 0) {
-            // 修复：偏移量应该是 10 ("filename*=" 的长度)
-            String fn = contentDisposition.substring(idxStar + 10).trim();
-            // 跳过编码声明部分 (如 UTF-8'')
-            int firstQuote = fn.indexOf("''");
-            if (firstQuote >= 0) {
-                fn = fn.substring(firstQuote + 2);
-            } else {
-                // 如果没有编码声明，直接去除分号后的内容
-                int semi = fn.indexOf(';');
-                if (semi > 0) fn = fn.substring(0, semi);
-            }
-            // 再次去除可能的分号
-            int semi = fn.indexOf(';');
-            if (semi > 0) fn = fn.substring(0, semi);
-            return fn.trim();
-        }
-
-        // 解析普通的 filename= 格式
-        int idx = lower.indexOf("filename=");
-        if (idx >= 0) {
-            String fn = contentDisposition.substring(idx + 9).trim();
-            // 去除引号
-            if (fn.startsWith("\"")) fn = fn.substring(1);
-            int end = fn.indexOf('"');
-            if (end >= 0) {
-                fn = fn.substring(0, end);
-            } else {
-                // 没有引号，去除分号后的内容
-                int semi = fn.indexOf(';');
-                if (semi > 0) fn = fn.substring(0, semi);
-            }
-            return fn.trim();
-        }
-        return null;
     }
 
     /**
@@ -676,7 +735,7 @@ public class OkHttpResponseHandler {
         /**
          * 实际写入的字节数
          */
-        final int size;
+        final long size;
 
         /**
          * 构造函数
@@ -684,9 +743,20 @@ public class OkHttpResponseHandler {
          * @param file 临时文件
          * @param size 实际写入的字节数
          */
-        FileAndSize(File file, int size) {
+        FileAndSize(File file, long size) {
             this.file = file;
             this.size = size;
+        }
+    }
+
+    private static final class DownloadSizeLimitException extends IOException {
+        private final long receivedBytes;
+        private final int maxDownloadBytes;
+
+        private DownloadSizeLimitException(long receivedBytes, int maxDownloadBytes) {
+            super("Response exceeded the download size limit");
+            this.receivedBytes = receivedBytes;
+            this.maxDownloadBytes = maxDownloadBytes;
         }
     }
 }

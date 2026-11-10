@@ -63,7 +63,7 @@ public final class HttpExchangeExecutor {
         try {
             okResponse = call.execute();
         } finally {
-            HttpExchangeTraceSupport.attachToResponse(httpResponse, queueStartMs);
+            HttpExchangeTraceSupport.attachToResponse(httpResponse, queueStartMs, request);
         }
         OkHttpResponseHandler.handleResponse(
                 okResponse,
@@ -72,7 +72,8 @@ public final class HttpExchangeExecutor {
                 request.responseBodyMode,
                 request.responseBodyPreviewLimitBytes,
                 request.downloadProgressSinkFactory,
-                request.responseSizeLimitWarningSink
+                request.responseSizeLimitWarningSink,
+                call
         );
         long elapsedMs = stopwatch.elapsedMs();
         httpResponse.costMs = elapsedMs;

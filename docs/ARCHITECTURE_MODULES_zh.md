@@ -16,6 +16,7 @@ easy-postman-parent
 ├── easy-postman-ui
 ├── easy-postman-performance-core
 ├── easy-postman-plugin-runtime
+├── easy-postman-mcp
 ├── easy-postman-plugins/*
 └── easy-postman-app
 ```
@@ -26,7 +27,7 @@ easy-postman-parent
 
 `easy-postman-request-core` 是请求规格核心模型层。它放可被集合、导入导出、脚本、压测计划等复用的请求配置数据，例如 `HttpRequestItem`、`SavedResponse`、`HttpHeader`、`HttpParam`、`HttpFormData`、`HttpFormUrlencoded`、`CookieInfo`、`AuthType`、`RequestAuthTypes`、`RequestBodyTypes`、`RequestItemProtocolEnum`、`TransportAuth`、`RedirectInfo`。它只表达“请求是什么”，不能依赖 Swing、OkHttp、app service、panel、插件运行时或具体发送/渲染实现。`PreparedRequest`、`HttpResponse`、`HttpEventInfo` 是运行期交换快照，归属 `easy-postman-http-runtime` 的 `com.laker.postman.http.runtime.model`，不能回流到 request-core 或 app model。
 
-`easy-postman-http-runtime` 是无 UI 的 HTTP 传输运行时层。它放发送态模型 `PreparedRequest`、`HttpResponse`、`HttpEventInfo`，以及 `http.runtime.transport`、`http.runtime.okhttp`、`http.runtime.ssl`、`http.runtime.sse`、`http.runtime.cookie`、`http.runtime.redirect`、`http.runtime.error`、`http.runtime.config`、`http.runtime.interaction`、`http.runtime.observation` 下的传输执行、OkHttp 适配、TLS/证书、SSE、Cookie、redirect、错误映射、运行期设置、交互端口和观测端口。该模块可以依赖 foundation、request-core 和 OkHttp，但不能依赖 Swing/AWT、panel、app `SettingManager`、插件宿主访问器或 IOC。宿主必须通过 `HttpRuntimeSettingsProvider`、`ClientCertificateProvider`、sink/dispatcher 等端口注入设置、证书和 UI 交互实现。
+`easy-postman-http-runtime` 是无 UI 的 HTTP 传输运行时层。它放发送态模型 `PreparedRequest`、`HttpResponse`、`HttpEventInfo`，以及 `http.runtime.transport`、`http.runtime.okhttp`、`http.runtime.file`、`http.runtime.ssl`、`http.runtime.sse`、`http.runtime.cookie`、`http.runtime.redirect`、`http.runtime.error`、`http.runtime.config`、`http.runtime.interaction`、`http.runtime.observation` 下的传输执行、OkHttp 适配、TLS/证书、SSE、Cookie、redirect、错误映射、运行期设置、交互端口和观测端口；`http.runtime.file` 负责响应文件识别（文件头检测、下载文件名解析、是否按文件处理的统一判定），供响应面板、示例保存、历史与渲染共用。该模块可以依赖 foundation、request-core 和 OkHttp，但不能依赖 Swing/AWT、panel、app `SettingManager`、插件宿主访问器或 IOC。宿主必须通过 `HttpRuntimeSettingsProvider`、`ClientCertificateProvider`、sink/dispatcher 等端口注入设置、证书和 UI 交互实现。
 
 `easy-postman-collection-core` 是集合领域核心层。它放集合树和导入解析可复用的无 UI 类型，例如 `RequestGroup`、`CollectionNode`、`CollectionNodeType`、`CollectionParseResult`、集合认证解析 helper，以及 Postman collection parser。它可以依赖 `easy-postman-foundation` 和 `easy-postman-request-core`，但不能依赖 Swing/AWT、OkHttp、app service/panel/runtime、platform、plugin-runtime、IOC 或具体发送/渲染实现。`TreeNodeBuilder`、集合树 UI、持久化服务、导出器和其他仍绑定宿主 UI/服务的逻辑先留在 `easy-postman-app`。
 
@@ -44,11 +45,15 @@ easy-postman-parent
 
 `easy-postman-plugin-runtime` 只负责插件扫描、descriptor 解析、classloader、registry、生命周期和状态持久化。它不放具体业务插件能力，也不负责 catalog 解析、下载或安装 UI。
 
+`easy-postman-mcp` 是独立的 MCP 协议适配层，只负责官方 SDK、stdio 生命周期、tool schema、annotations、结构化结果和最小 `EasyPostmanMcpBackend` 契约。它可以依赖 foundation 和 MCP SDK，但不能依赖 app、Swing、工作区持久化或具体 HTTP/脚本执行；宿主在 app 内实现 backend。
+
 `easy-postman-performance-core` 放无 UI、无传输实现绑定的压测领域核心：编辑态计划节点数据、运行态 `plan.json` 模型、运行时契约、线程组规划、统计、趋势、报告快照、worker assignment/asset reference 这类 GUI、CLI、worker 都要复用的契约。它不直接依赖 OkHttp、Swing、workspace 服务或 app 执行链。
 
 压测的具体执行适配当前留在 `easy-postman-app`：GUI 运行、headless CLI、worker server 先复用 app 内完整执行链，包含变量解析、环境/全局变量、脚本、断言、提取器、CSV inline/file asset、multipart 文件、证书和 HTTP/SSE/WebSocket 传输。后续只有在这些非 UI 语义能从 app 干净抽离后，才考虑新增独立 headless/runner 模块。
 
 无头运行遵循相同边界：`easy-postman-collection-core` 提供无 UI 的原生集合领域模型；`com.laker.postman.collection.cli` 只拥有 `collection run` 的参数和集合/文件夹选择；`com.laker.postman.functional.cli` 只拥有 `functional run` 的参数、`functional_config.json` 解析和请求选择；`com.laker.postman.workspace.cli` 提供两者共享的工作区解析、原生 `collections.json` / `environments.json` 装载、全局变量、外部迭代数据、HTTP、脚本和报告执行引擎。两个命令通过 `WorkspaceRunPlanner` 计划接口连接，不互相依赖 CLI 包。Postman 解析器只服务导入能力，不进入 CLI 执行链。不要让 collection-core 反向依赖 app 的执行服务、IOC、插件运行时或 Swing。
+
+MCP Server 采用端口/适配器拆分：`easy-postman-mcp/com.laker.postman.mcp.server` 拥有标准 transport、可观测 stdio 生命周期和六个核心 tool schema；`easy-postman-app/com.laker.postman.mcp` 只拥有 `mcp serve` CLI、工作区授权、环境读取、上传路径约束、Cookie 调用隔离、脱敏、结果明细上限和 `WorkspaceRunExecutor` backend。协议模块不能反向依赖 app，也不复制变量、脚本或请求执行语义。为返回每个请求的响应快照并支持单次环境覆盖，共享执行层增加了可选 `WorkspaceRunObserver`、`environmentOverrides`、上传文件根目录和报告明细上限；默认分别为 no-op、空 Map、无限制和无限制，现有 `collection run` / `functional run` 的参数、输出和行为不变。详细使用方式见 `docs/MCP_SERVER_DESIGN_zh.md`。
 
 HTTP 发送执行链按“准备在 app，传输在 runtime，UI 在 adapter”拆分：请求准备、校验和默认请求工厂仍在 `easy-postman-app` 的 `http.request`，因为它们还依赖集合继承、变量解析、脚本和 app 服务；URL/query 通用工具在 `easy-postman-request-core` 的 `request.util`；请求级运行设置解析、`HttpTransport` 端口、`DefaultHttpTransport`、`HttpExchangeExecutor`、`RealtimeConnectionFactory`、作用域 client provider、OkHttp 适配、TLS/证书配置、SSE runtime、Cookie store、redirect、错误映射、交互端口和观测端口已经归属 `easy-postman-http-runtime`。Swing 实现只放在 `panel/http/runtime` 或 `http.runtime.app` 这类 app adapter 中。上述 runtime 代码不能直接依赖 Swing/panel，也不能直接读取 app 的 `SettingManager`；未来 JavaFX host 应只提供 JavaFX adapter，而不改 HTTP runtime。
 

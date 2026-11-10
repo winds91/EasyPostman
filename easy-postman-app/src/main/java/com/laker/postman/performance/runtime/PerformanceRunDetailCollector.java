@@ -1,5 +1,6 @@
 package com.laker.postman.performance.runtime;
 
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.HttpHeader;
@@ -80,6 +81,7 @@ public final class PerformanceRunDetailCollector implements PerformanceResultLis
                 .responseCode(responseCode(info, sampleResult))
                 .costMs(costMs(info, sampleResult))
                 .executionFailed(info.executionFailed)
+                .cancelled(info.cancelled)
                 .request(toDetailRequest(info.req))
                 .response(toDetailResponse(info.resp))
                 .testResults(toDetailTests(info.testResults))
@@ -131,15 +133,20 @@ public final class PerformanceRunDetailCollector implements PerformanceResultLis
         if (response == null) {
             return null;
         }
+        // 文件响应的正文只是乱码或临时文件提示，不随详情传输
+        boolean fileContentOmitted = ResponseFiles.isFileResponse(response);
         return DetailResponse.builder()
                 .code(response.code)
                 .protocol(response.protocol)
                 .headers(copyHeaders(response.headers))
-                .body(response.body)
+                .body(fileContentOmitted ? "" : response.body)
                 .costMs(response.costMs)
                 .endTimeMs(response.endTime)
                 .bodySize(response.bodySize)
                 .headersSize(response.headersSize)
+                .fileName(response.fileName)
+                .detectedFileExtension(response.detectedFileExtension)
+                .fileContentOmitted(fileContentOmitted)
                 .build();
     }
 

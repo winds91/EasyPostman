@@ -4,6 +4,7 @@ import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.HttpHeader;
 import com.laker.postman.request.model.HttpFormData;
 import com.laker.postman.request.model.HttpFormUrlencoded;
+import com.laker.postman.request.util.HttpUrlUtil;
 
 import com.laker.postman.util.FileMimeTypeUtil;
 import com.laker.postman.util.JsonUtil;
@@ -39,7 +40,7 @@ public class OkHttpRequestBuilder {
         RequestBody requestBody = buildRequestBody(req.body, methodUpper, contentType);
 
         Request.Builder builder = new Request.Builder()
-                .url(req.url)
+                .url(HttpUrlUtil.normalizeIpv6Url(req.url))
                 .method(methodUpper, requestBody);
 
         addHeadersFromList(builder, req.headersList);
@@ -56,7 +57,7 @@ public class OkHttpRequestBuilder {
         RequestBody requestBody = buildBinaryRequestBody(req.body, methodUpper, contentType);
 
         Request.Builder builder = new Request.Builder()
-                .url(req.url)
+                .url(HttpUrlUtil.normalizeIpv6Url(req.url))
                 .method(methodUpper, requestBody);
 
         addHeadersFromList(builder, req.headersList);
@@ -73,7 +74,7 @@ public class OkHttpRequestBuilder {
         addFormDataPartsFromList(multipartBuilder, req.formDataList);
 
         Request.Builder builder = new Request.Builder()
-                .url(req.url)
+                .url(HttpUrlUtil.normalizeIpv6Url(req.url))
                 .method(req.method, multipartBuilder.build());
 
         addHeadersFromList(builder, req.headersList);
@@ -90,7 +91,7 @@ public class OkHttpRequestBuilder {
         addFormUrlEncodedPartsFromList(formBuilder, req.urlencodedList);
 
         Request.Builder builder = new Request.Builder()
-                .url(req.url)
+                .url(HttpUrlUtil.normalizeIpv6Url(req.url))
                 .method(req.method, formBuilder.build());
 
         boolean hasContentType = addHeadersFromList(builder, req.headersList);
@@ -167,9 +168,10 @@ public class OkHttpRequestBuilder {
     }
 
     /**
-     * 处理请求体内容（如去除 JSON5 注释）
+     * Normalize raw content for both transport and code snippet generation.
+     * JSON comments are removed only when parsing succeeds; other content is preserved.
      */
-    private static String processBodyContent(String body, String contentType) {
+    public static String processBodyContent(String body, String contentType) {
         if (isJsonContentType(contentType) && containsJsonComment(body)) {
             return cleanJsonComments(body);
         }

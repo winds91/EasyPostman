@@ -1,15 +1,21 @@
 package com.laker.postman.service.sync;
 
+import lombok.extern.slf4j.Slf4j;
 import com.laker.postman.util.JsonUtil;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -20,13 +26,21 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
+@Slf4j
 public class WebDavSnapshotService {
+    static final long DEFAULT_MAX_EXTERNAL_WORKSPACE_BYTES = 100L * 1024L * 1024L;
+    static final long DEFAULT_MAX_EXTERNAL_WORKSPACE_FILES = 1_000L;
+
     private static final DateTimeFormatter BACKUP_TIMESTAMP_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private static final String WORKSPACES_JSON = "workspaces.json";
+    private static final String CURRENT_WORKSPACE_JSON = "current_workspace.json";
+    private static final String WORKSPACE_SETTINGS_JSON = "workspace_settings.json";
     private static final String APP_SETTINGS = "easy_postman_settings.properties";
     private static final String USER_SETTINGS = "user_settings.json";
     private static final String MANAGED_WORKSPACES_DIR = "workspaces";
@@ -47,13 +61,28 @@ public class WebDavSnapshotService {
     );
 
     private final WebDavSnapshotPolicy policy;
+    private final long maxExternalWorkspaceBytes;
+    private final long maxExternalWorkspaceFiles;
 
     public WebDavSnapshotService() {
-        this(new WebDavSnapshotPolicy());
+        this(new WebDavSnapshotPolicy(),
+                DEFAULT_MAX_EXTERNAL_WORKSPACE_BYTES,
+                DEFAULT_MAX_EXTERNAL_WORKSPACE_FILES);
     }
 
     WebDavSnapshotService(WebDavSnapshotPolicy policy) {
+        this(policy, DEFAULT_MAX_EXTERNAL_WORKSPACE_BYTES, DEFAULT_MAX_EXTERNAL_WORKSPACE_FILES);
+    }
+
+    WebDavSnapshotService(WebDavSnapshotPolicy policy,
+                          long maxExternalWorkspaceBytes,
+                          long maxExternalWorkspaceFiles) {
         this.policy = policy;
+        if (maxExternalWorkspaceBytes <= 0 || maxExternalWorkspaceFiles <= 0) {
+            throw new IllegalArgumentException("WebDAV snapshot limits must be positive");
+        }
+        this.maxExternalWorkspaceBytes = maxExternalWorkspaceBytes;
+        this.maxExternalWorkspaceFiles = maxExternalWorkspaceFiles;
     }
 
     public void createSnapshot(Path dataRoot, Path snapshotPath) throws IOException {
@@ -69,25 +98,35 @@ public class WebDavSnapshotService {
             if (!Files.exists(normalizedRoot)) {
                 return;
             }
-            try (var stream = Files.walk(normalizedRoot)) {
-                for (Path file : stream
-                        .filter(Files::isRegularFile)
-                        .filter(path -> policy.shouldInclude(normalizedRoot, path))
-                        .sorted(Comparator.comparing(path -> policy.entryName(normalizedRoot, path)))
-                        .toList()) {
-                    String entryName = policy.entryName(normalizedRoot, file);
-                    writeSnapshotEntry(zip, writtenEntries, entryName,
-                            snapshotContent(normalizedRoot, entryName, file, workspacePlan));
-                }
+            for (Path file : collectIncludedFiles(normalizedRoot, normalizedRoot, normalizedRoot)) {
+                String entryName = policy.entryName(normalizedRoot, file);
+                writeSnapshotEntry(zip, writtenEntries, entryName,
+                        snapshotContent(normalizedRoot, entryName, file, workspacePlan));
+            }
+            byte[] currentWorkspace = snapshotCurrentWorkspace(normalizedRoot);
+            if (currentWorkspace != null) {
+                writeSnapshotEntry(zip, writtenEntries, CURRENT_WORKSPACE_JSON, currentWorkspace);
             }
             writeExternalWorkspaceEntries(zip, writtenEntries, normalizedRoot, workspacePlan.externalWorkspaces());
         }
     }
 
     public WebDavRestoreResult restoreSnapshot(Path snapshotPath, Path dataRoot) throws IOException {
+        return restoreSnapshot(snapshotPath, dataRoot, "unknown");
+    }
+
+    WebDavRestoreResult restoreSnapshot(Path snapshotPath, Path dataRoot, String operationId) throws IOException {
         Path normalizedRoot = dataRoot.toAbsolutePath().normalize();
         Files.createDirectories(normalizedRoot);
+        int restorableEntries = validateSnapshot(snapshotPath, operationId);
+        log.info("Validated WebDAV snapshot archive: operationId={}, restorableEntries={}", operationId, restorableEntries);
+        log.info("Creating pre-restore local backup: operationId={}, dataRoot={}", operationId, normalizedRoot);
         Path backupPath = createBackup(normalizedRoot);
+        log.info("Pre-restore local backup created: operationId={}, backupPath={}", operationId, backupPath);
+        String restoredCurrentWorkspaceId = null;
+        boolean currentWorkspaceMetadataFound = false;
+        int restoredEntries = 0;
+        long restoredBytes = 0;
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(snapshotPath))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -95,11 +134,19 @@ public class WebDavSnapshotService {
                     continue;
                 }
                 String entryName = policy.restoreEntryName(entry.getName());
+                byte[] content = zip.readAllBytes();
+                if (CURRENT_WORKSPACE_JSON.equals(entryName)) {
+                    currentWorkspaceMetadataFound = true;
+                    restoredCurrentWorkspaceId = parseCurrentWorkspaceId(content);
+                    if (restoredCurrentWorkspaceId == null) {
+                        log.warn("WebDAV current workspace metadata is invalid: operationId={}", operationId);
+                    }
+                    continue;
+                }
                 Path target = normalizedRoot.resolve(entryName).normalize();
                 if (!target.startsWith(normalizedRoot)) {
                     continue;
                 }
-                byte[] content = zip.readAllBytes();
                 if (WORKSPACES_JSON.equals(entryName)) {
                     content = restorePortableWorkspacePaths(new String(content, StandardCharsets.UTF_8), normalizedRoot)
                             .getBytes(StandardCharsets.UTF_8);
@@ -108,10 +155,143 @@ public class WebDavSnapshotService {
                 if (parent != null) {
                     Files.createDirectories(parent);
                 }
-                Files.write(target, content);
+                try {
+                    Files.write(target, content);
+                } catch (IOException e) {
+                    log.error("Failed to restore WebDAV snapshot entry: operationId={}, entry={}, bytes={}",
+                            operationId, entryName, content.length, e);
+                    throw e;
+                }
+                restoredEntries++;
+                restoredBytes += content.length;
             }
         }
+        boolean currentWorkspaceApplied = applyRestoredCurrentWorkspace(
+                normalizedRoot, restoredCurrentWorkspaceId, operationId);
+        log.info("WebDAV snapshot files applied: operationId={}, entries={}, bytes={}, currentWorkspaceMetadataFound={}, currentWorkspaceApplied={}",
+                operationId, restoredEntries, restoredBytes, currentWorkspaceMetadataFound, currentWorkspaceApplied);
         return new WebDavRestoreResult(backupPath);
+    }
+
+    private byte[] snapshotCurrentWorkspace(Path dataRoot) {
+        Path settingsPath = dataRoot.resolve(WORKSPACE_SETTINGS_JSON);
+        Path workspacesPath = dataRoot.resolve(WORKSPACES_JSON);
+        if (!Files.isRegularFile(settingsPath) || !Files.isRegularFile(workspacesPath)) {
+            return null;
+        }
+        try {
+            String currentWorkspaceId = parseCurrentWorkspaceId(Files.readAllBytes(settingsPath));
+            if (currentWorkspaceId == null || !containsWorkspaceId(Files.readString(workspacesPath), currentWorkspaceId)) {
+                log.info("Omitting current workspace from WebDAV snapshot: reason=current_workspace_not_in_workspace_list");
+                return null;
+            }
+            ObjectNode selection = JsonUtil.createJsonNode();
+            selection.put("currentWorkspaceId", currentWorkspaceId);
+            return JsonUtil.toJsonPrettyStr(selection).getBytes(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.warn("Omitting current workspace from WebDAV snapshot because local workspace settings could not be read", e);
+            return null;
+        }
+    }
+
+    private String parseCurrentWorkspaceId(byte[] content) {
+        try {
+            JsonNode root = JsonUtil.readTree(new String(content, StandardCharsets.UTF_8));
+            JsonNode id = root == null ? null : root.get("currentWorkspaceId");
+            if (id == null || !id.isTextual() || id.asText().isBlank()) {
+                return null;
+            }
+            return id.asText();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean containsWorkspaceId(String workspacesJson, String workspaceId) {
+        try {
+            JsonNode root = JsonUtil.readTree(workspacesJson);
+            if (!(root instanceof ArrayNode workspaces)) {
+                return false;
+            }
+            for (JsonNode workspace : workspaces) {
+                JsonNode id = workspace.get("id");
+                if (id != null && id.isTextual() && workspaceId.equals(id.asText())) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+            // An invalid workspace list must not cause the local workspace selection to be overwritten.
+        }
+        return false;
+    }
+
+    private boolean applyRestoredCurrentWorkspace(Path dataRoot, String workspaceId, String operationId) {
+        if (workspaceId == null) {
+            log.info("WebDAV snapshot has no current workspace metadata; preserving legacy workspace selection behavior: operationId={}",
+                    operationId);
+            return false;
+        }
+        Path workspacesPath = dataRoot.resolve(WORKSPACES_JSON);
+        if (!Files.isRegularFile(workspacesPath)) {
+            log.warn("WebDAV current workspace was not applied because the restored workspace list is missing: operationId={}",
+                    operationId);
+            return false;
+        }
+        try {
+            if (!containsWorkspaceId(Files.readString(workspacesPath), workspaceId)) {
+                log.warn("WebDAV current workspace was not applied because it is absent from the restored list: operationId={}",
+                        operationId);
+                return false;
+            }
+            Path settingsPath = dataRoot.resolve(WORKSPACE_SETTINGS_JSON);
+            ObjectNode settings;
+            if (Files.isRegularFile(settingsPath)) {
+                JsonNode existingSettings = JsonUtil.readTree(Files.readString(settingsPath));
+                if (!(existingSettings instanceof ObjectNode objectNode)) {
+                    log.warn("WebDAV current workspace was not applied because local workspace settings are not a JSON object: operationId={}",
+                            operationId);
+                    return false;
+                }
+                settings = objectNode;
+            } else {
+                settings = JsonUtil.createJsonNode();
+            }
+            settings.put("currentWorkspaceId", workspaceId);
+            Files.writeString(settingsPath, JsonUtil.toJsonPrettyStr(settings), StandardCharsets.UTF_8);
+            log.info("WebDAV current workspace restored: operationId={}, workspaceId={}", operationId, workspaceId);
+            return true;
+        } catch (Exception e) {
+            log.warn("WebDAV current workspace could not be applied: operationId={}", operationId, e);
+            return false;
+        }
+    }
+
+    private int validateSnapshot(Path snapshotPath, String operationId) throws IOException {
+        boolean hasRestorableEntry = false;
+        int restorableEntries = 0;
+        try (ZipFile zip = new ZipFile(snapshotPath.toFile())) {
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (!entry.isDirectory() && policy.shouldRestoreEntry(entry.getName())) {
+                    if (!CURRENT_WORKSPACE_JSON.equals(policy.restoreEntryName(entry.getName()))) {
+                        hasRestorableEntry = true;
+                    }
+                    restorableEntries++;
+                    try (InputStream content = zip.getInputStream(entry)) {
+                        content.transferTo(OutputStream.nullOutputStream());
+                    }
+                }
+            }
+        } catch (ZipException e) {
+            log.warn("Rejected invalid WebDAV snapshot archive: operationId={}, validation=zip_integrity", operationId, e);
+            throw WebDavSnapshotValidationException.invalidArchive(e);
+        }
+        if (!hasRestorableEntry) {
+            log.warn("Rejected WebDAV snapshot archive: operationId={}, validation=no_restorable_entries", operationId);
+            throw WebDavSnapshotValidationException.invalidArchive(null);
+        }
+        return restorableEntries;
     }
 
     private Path createBackup(Path dataRoot) throws IOException {
@@ -237,7 +417,7 @@ public class WebDavSnapshotService {
         return createWorkspaceSnapshotPlan(content, dataRoot);
     }
 
-    private WorkspaceSnapshotPlan createWorkspaceSnapshotPlan(String content, Path dataRoot) {
+    private WorkspaceSnapshotPlan createWorkspaceSnapshotPlan(String content, Path dataRoot) throws IOException {
         List<ExternalWorkspace> externalWorkspaces = new ArrayList<>();
         Set<String> usedExternalNames = new HashSet<>();
         Path normalizedRoot = dataRoot.toAbsolutePath().normalize();
@@ -254,8 +434,18 @@ public class WebDavSnapshotService {
                 }
                 String snapshotName = uniqueExternalWorkspaceName(objectNode, index, usedExternalNames);
                 String snapshotRoot = EXTERNAL_WORKSPACES_DIR + "/" + snapshotName;
+                inspectExternalWorkspace(
+                        workspaceText(objectNode, "name"),
+                        workspacePath,
+                        snapshotRoot,
+                        dataRoot
+                );
                 externalWorkspaces.add(new ExternalWorkspace(workspacePath, snapshotRoot));
                 return WebDavSnapshotPolicy.DATA_ROOT_TOKEN + "/" + ensureTrailingSlash(snapshotRoot);
+            } catch (WebDavSnapshotPreflightException e) {
+                throw e;
+            } catch (IOException e) {
+                throw e;
             } catch (Exception e) {
                 return path;
             }
@@ -263,7 +453,7 @@ public class WebDavSnapshotService {
         return new WorkspaceSnapshotPlan(transformed, externalWorkspaces);
     }
 
-    private String restorePortableWorkspacePaths(String content, Path dataRoot) {
+    private String restorePortableWorkspacePaths(String content, Path dataRoot) throws IOException {
         return transformWorkspacePaths(content, path -> {
             String prefix = WebDavSnapshotPolicy.DATA_ROOT_TOKEN + "/";
             if (path == null || !path.startsWith(prefix)) {
@@ -274,11 +464,11 @@ public class WebDavSnapshotService {
         });
     }
 
-    private String transformWorkspacePaths(String content, WorkspacePathTransformer transformer) {
+    private String transformWorkspacePaths(String content, WorkspacePathTransformer transformer) throws IOException {
         return transformWorkspaceNodes(content, (objectNode, index, path) -> transformer.transform(path));
     }
 
-    private String transformWorkspaceNodes(String content, WorkspaceNodePathTransformer transformer) {
+    private String transformWorkspaceNodes(String content, WorkspaceNodePathTransformer transformer) throws IOException {
         try {
             JsonNode root = JsonUtil.readTree(content == null || content.isBlank() ? "[]" : content);
             if (!(root instanceof ArrayNode arrayNode)) {
@@ -296,6 +486,8 @@ public class WebDavSnapshotService {
                 index++;
             }
             return JsonUtil.toJsonPrettyStr(arrayNode);
+        } catch (IOException e) {
+            throw e;
         } catch (Exception e) {
             return content;
         }
@@ -324,22 +516,102 @@ public class WebDavSnapshotService {
                                                Path dataRoot,
                                                List<ExternalWorkspace> externalWorkspaces) throws IOException {
         for (ExternalWorkspace externalWorkspace : externalWorkspaces) {
-            try (var stream = Files.walk(externalWorkspace.sourceRoot())) {
-                for (Path file : stream
-                        .filter(Files::isRegularFile)
-                        .sorted(Comparator.comparing(file -> externalWorkspace.sourceRoot().relativize(file).toString()))
-                        .toList()) {
-                    Path relative = externalWorkspace.sourceRoot().relativize(file);
-                    String relativeEntryName = relative.toString().replace('\\', '/');
-                    String entryName = externalWorkspace.snapshotRoot() + "/" + relativeEntryName;
-                    Path virtualPath = dataRoot.resolve(entryName).normalize();
-                    if (!policy.shouldInclude(dataRoot, virtualPath)) {
-                        continue;
-                    }
-                    writeSnapshotEntry(zip, writtenEntries, entryName, Files.readAllBytes(file));
-                }
+            Path virtualRoot = dataRoot.resolve(externalWorkspace.snapshotRoot()).normalize();
+            for (Path file : collectIncludedFiles(externalWorkspace.sourceRoot(), dataRoot, virtualRoot)) {
+                Path relative = externalWorkspace.sourceRoot().relativize(file);
+                String relativeEntryName = relative.toString().replace('\\', '/');
+                String entryName = externalWorkspace.snapshotRoot() + "/" + relativeEntryName;
+                writeSnapshotEntry(zip, writtenEntries, entryName, file);
             }
         }
+    }
+
+    private void inspectExternalWorkspace(String workspaceName,
+                                          Path workspacePath,
+                                          String snapshotRoot,
+                                          Path dataRoot) throws IOException {
+        long[] fileCount = {0};
+        long[] contentBytes = {0};
+        Path virtualRoot = dataRoot.resolve(snapshotRoot).normalize();
+        String displayName = workspaceName == null || workspaceName.isBlank()
+                ? workspacePath.getFileName().toString()
+                : workspaceName;
+        try {
+            Files.walkFileTree(workspacePath, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                    Path relative = workspacePath.relativize(directory);
+                    Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                    return policy.shouldDescend(dataRoot, virtualPath)
+                            ? FileVisitResult.CONTINUE
+                            : FileVisitResult.SKIP_SUBTREE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                    if (!Files.isRegularFile(file)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    Path relative = workspacePath.relativize(file);
+                    Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                    if (!policy.shouldInclude(dataRoot, virtualPath)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    fileCount[0]++;
+                    contentBytes[0] = Math.addExact(contentBytes[0], Files.size(file));
+                    if (fileCount[0] > maxExternalWorkspaceFiles || contentBytes[0] > maxExternalWorkspaceBytes) {
+                        throw new WebDavSnapshotPreflightException(
+                                displayName,
+                                workspacePath,
+                                fileCount[0],
+                                contentBytes[0],
+                                maxExternalWorkspaceBytes,
+                                maxExternalWorkspaceFiles
+                        );
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (ArithmeticException e) {
+            throw new WebDavSnapshotPreflightException(
+                    displayName,
+                    workspacePath,
+                    fileCount[0],
+                    Long.MAX_VALUE,
+                    maxExternalWorkspaceBytes,
+                    maxExternalWorkspaceFiles
+            );
+        }
+    }
+
+    private List<Path> collectIncludedFiles(Path sourceRoot,
+                                            Path dataRoot,
+                                            Path virtualRoot) throws IOException {
+        List<Path> files = new ArrayList<>();
+        Files.walkFileTree(sourceRoot, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                Path relative = sourceRoot.relativize(directory);
+                Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                return policy.shouldDescend(dataRoot, virtualPath)
+                        ? FileVisitResult.CONTINUE
+                        : FileVisitResult.SKIP_SUBTREE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                if (Files.isRegularFile(file)) {
+                    Path relative = sourceRoot.relativize(file);
+                    Path virtualPath = virtualRoot.resolve(relative.toString()).normalize();
+                    if (policy.shouldInclude(dataRoot, virtualPath)) {
+                        files.add(file);
+                    }
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        files.sort(Comparator.comparing(file -> sourceRoot.relativize(file).toString()));
+        return files;
     }
 
     private void writeSnapshotEntry(ZipOutputStream zip,
@@ -352,6 +624,21 @@ public class WebDavSnapshotService {
         zip.putNextEntry(new ZipEntry(entryName));
         zip.write(content);
         zip.closeEntry();
+    }
+
+    private void writeSnapshotEntry(ZipOutputStream zip,
+                                    Set<String> writtenEntries,
+                                    String entryName,
+                                    Path source) throws IOException {
+        if (!writtenEntries.add(entryName)) {
+            return;
+        }
+        zip.putNextEntry(new ZipEntry(entryName));
+        try (InputStream input = Files.newInputStream(source)) {
+            input.transferTo(zip);
+        } finally {
+            zip.closeEntry();
+        }
     }
 
     private String uniqueExternalWorkspaceName(ObjectNode workspaceNode, int index, Set<String> usedNames) {
@@ -396,12 +683,12 @@ public class WebDavSnapshotService {
 
     @FunctionalInterface
     private interface WorkspacePathTransformer {
-        String transform(String path);
+        String transform(String path) throws IOException;
     }
 
     @FunctionalInterface
     private interface WorkspaceNodePathTransformer {
-        String transform(ObjectNode workspaceNode, int index, String path);
+        String transform(ObjectNode workspaceNode, int index, String path) throws IOException;
     }
 
     private record WorkspaceSnapshotPlan(String workspacesJson, List<ExternalWorkspace> externalWorkspaces) {

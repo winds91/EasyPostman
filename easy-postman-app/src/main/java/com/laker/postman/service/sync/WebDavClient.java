@@ -1,5 +1,7 @@
 package com.laker.postman.service.sync;
 
+import com.laker.postman.request.util.HttpUrlUtil;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.Credentials;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -19,7 +21,9 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
+@Slf4j
 public class WebDavClient {
     private static final MediaType OCTET_STREAM = MediaType.get("application/octet-stream");
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
@@ -36,13 +40,24 @@ public class WebDavClient {
     private final String remoteDirectory;
     private final String username;
     private final String password;
+    private String operationId;
 
     public WebDavClient(String serverUrl, String remoteDirectory, String username, String password) {
-        this(new OkHttpClient(), serverUrl, remoteDirectory, username, password);
+        // Keep this standalone constructor IPv6-capable too. The normal sync
+        // path injects the centrally configured runtime client, but this
+        // public convenience path must not regress to a plain OkHttp client.
+        this(new OkHttpClient.Builder().fastFallback(true).build(),
+                serverUrl, remoteDirectory, username, password, UUID.randomUUID().toString());
     }
 
     WebDavClient(OkHttpClient client, String serverUrl, String remoteDirectory, String username, String password) {
-        HttpUrl parsedUrl = HttpUrl.parse(serverUrl == null ? "" : serverUrl.trim());
+        this(client, serverUrl, remoteDirectory, username, password, UUID.randomUUID().toString());
+    }
+
+    WebDavClient(OkHttpClient client, String serverUrl, String remoteDirectory, String username, String password,
+                 String operationId) {
+        String normalizedServerUrl = HttpUrlUtil.normalizeIpv6Url(serverUrl == null ? "" : serverUrl.trim());
+        HttpUrl parsedUrl = HttpUrl.parse(normalizedServerUrl);
         if (parsedUrl == null) {
             throw new IllegalArgumentException("Invalid WebDAV server URL");
         }
@@ -51,6 +66,12 @@ public class WebDavClient {
         this.remoteDirectory = remoteDirectory == null ? "" : remoteDirectory.trim();
         this.username = username == null ? "" : username;
         this.password = password == null ? "" : password;
+        this.operationId = operationId == null || operationId.isBlank() ? UUID.randomUUID().toString() : operationId;
+    }
+
+    WebDavClient withOperationId(String operationId) {
+        this.operationId = operationId == null || operationId.isBlank() ? UUID.randomUUID().toString() : operationId;
+        return this;
     }
 
     public void testConnection() throws IOException {
@@ -73,21 +94,21 @@ public class WebDavClient {
                 .header("Depth", "0")
                 .method("PROPFIND", RequestBody.create(PROPFIND_ALLPROP.getBytes(java.nio.charset.StandardCharsets.UTF_8), XML))
                 .build();
-        try (Response response = client.newCall(propfind).execute()) {
+        try (Response response = execute("PROPFIND directory", propfind)) {
             if (isSuccessfulWebDavResponse(response)) {
                 return;
             }
             if (response.code() != 404) {
-                throw responseException("WebDAV connection test failed", response);
+                throw responseException("WebDAV PROPFIND directory failed", response);
             }
         }
 
         Request mkcol = requestBuilder(directoryUrl)
                 .method("MKCOL", RequestBody.create(new byte[0], null))
                 .build();
-        try (Response response = client.newCall(mkcol).execute()) {
+        try (Response response = execute("MKCOL directory", mkcol)) {
             if (!isSuccessfulWebDavResponse(response) && response.code() != 405) {
-                throw responseException("WebDAV directory creation failed", response);
+                throw responseException("WebDAV MKCOL directory failed", response);
             }
         }
     }
@@ -124,9 +145,9 @@ public class WebDavClient {
         Request request = requestBuilder(remoteUrl(fileName, false))
                 .put(RequestBody.create(content == null ? new byte[0] : content, mediaType))
                 .build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("PUT " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response)) {
-                throw responseException("WebDAV upload failed", response);
+                throw responseException("WebDAV PUT " + fileName + " failed", response);
             }
         }
     }
@@ -135,18 +156,18 @@ public class WebDavClient {
         Request request = requestBuilder(remoteUrl(fileName, false))
                 .put(fileRequestBody(contentPath, mediaType))
                 .build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("PUT " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response)) {
-                throw responseException("WebDAV upload failed", response);
+                throw responseException("WebDAV PUT " + fileName + " failed", response);
             }
         }
     }
 
     private byte[] download(String fileName) throws IOException {
         Request request = requestBuilder(remoteUrl(fileName, false)).get().build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("GET " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response) || response.body() == null) {
-                throw responseException("WebDAV download failed", response);
+                throw responseException("WebDAV GET " + fileName + " failed", response);
             }
             return response.body().bytes();
         }
@@ -154,12 +175,12 @@ public class WebDavClient {
 
     private Optional<byte[]> downloadIfPresent(String fileName) throws IOException {
         Request request = requestBuilder(remoteUrl(fileName, false)).get().build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("GET " + fileName, request)) {
             if (response.code() == 404) {
                 return Optional.empty();
             }
             if (!isSuccessfulWebDavResponse(response) || response.body() == null) {
-                throw responseException("WebDAV download failed", response);
+                throw responseException("WebDAV GET " + fileName + " failed", response);
             }
             return Optional.of(response.body().bytes());
         }
@@ -167,9 +188,9 @@ public class WebDavClient {
 
     private void download(String fileName, Path targetPath) throws IOException {
         Request request = requestBuilder(remoteUrl(fileName, false)).get().build();
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = execute("GET " + fileName, request)) {
             if (!isSuccessfulWebDavResponse(response) || response.body() == null) {
-                throw responseException("WebDAV download failed", response);
+                throw responseException("WebDAV GET " + fileName + " failed", response);
             }
             Path parent = targetPath.toAbsolutePath().normalize().getParent();
             if (parent != null) {
@@ -177,6 +198,13 @@ public class WebDavClient {
             }
             try (InputStream inputStream = response.body().byteStream()) {
                 Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                long downloadedBytes = Files.exists(targetPath) ? Files.size(targetPath) : 0;
+                log.info("WebDAV download stream failed: operationId={}, action=GET {}, endpoint={}, downloadedBytes={}, " +
+                                "failureType={}, message={}",
+                        operationId, fileName, safeEndpoint(request.url()), downloadedBytes,
+                        e.getClass().getSimpleName(), e.getMessage());
+                throw e;
             }
         }
     }
@@ -270,7 +298,55 @@ public class WebDavClient {
         return response.isSuccessful() || code == 207;
     }
 
-    private static IOException responseException(String message, Response response) {
-        return new IOException(message + ": HTTP " + response.code());
+    private Response execute(String operation, Request request) throws IOException {
+        String endpoint = safeEndpoint(request.url());
+        long startedAt = System.nanoTime();
+        long requestBytes = -1;
+        try {
+            if (request.body() != null) {
+                requestBytes = request.body().contentLength();
+            }
+        } catch (IOException ignored) {
+            // Request execution will report the original failure with its operation context.
+        }
+        log.info("WebDAV request started: operationId={}, action={}, method={}, endpoint={}, requestBytes={}",
+                operationId, operation, request.method(), endpoint, requestBytes);
+        try {
+            Response response = client.newCall(request).execute();
+            long elapsedMs = elapsedMillis(startedAt);
+            long responseBytes = response.body() == null ? 0 : response.body().contentLength();
+            log.info("WebDAV request completed: operationId={}, action={}, method={}, endpoint={}, httpStatus={}, " +
+                            "elapsedMs={}, responseBytes={}, contentType={}",
+                    operationId, operation, request.method(), endpoint, response.code(), elapsedMs,
+                    responseBytes, response.header("Content-Type", ""));
+            return response;
+        } catch (IOException e) {
+            log.info("WebDAV request failed: operationId={}, action={}, method={}, endpoint={}, elapsedMs={}, " +
+                            "failureType={}, message={}",
+                    operationId, operation, request.method(), endpoint, elapsedMillis(startedAt),
+                    e.getClass().getSimpleName(), e.getMessage());
+            throw new IOException(operation + " failed: " + e.getMessage(), e);
+        }
+    }
+
+    private IOException responseException(String message, Response response) {
+        IOException exception = new IOException(
+                message + ": HTTP " + response.code() + " (" + safeEndpoint(response.request().url()) + ")"
+        );
+        return exception;
+    }
+
+    private static String safeEndpoint(HttpUrl url) {
+        return url.newBuilder()
+                .username("")
+                .password("")
+                .query(null)
+                .fragment(null)
+                .build()
+                .toString();
+    }
+
+    private static long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 }

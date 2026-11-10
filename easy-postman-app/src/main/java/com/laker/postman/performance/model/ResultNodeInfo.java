@@ -53,6 +53,7 @@ public class ResultNodeInfo {
      * 与断言失败区分：断言失败由 testResults 体现，执行失败由此字段体现。
      */
     public final boolean executionFailed;
+    public final boolean cancelled;
 
     public ResultNodeInfo(
             String name,
@@ -72,12 +73,25 @@ public class ResultNodeInfo {
             List<TestResult> testResults,
             boolean executionFailed,
             PerformanceProtocol protocol) {
+        this(name, errorMsg, req, resp, testResults, executionFailed, false, protocol);
+    }
+
+    public ResultNodeInfo(
+            String name,
+            String errorMsg,
+            PreparedRequest req,
+            HttpResponse resp,
+            List<TestResult> testResults,
+            boolean executionFailed,
+            boolean cancelled,
+            PerformanceProtocol protocol) {
         this.name = name;
         this.errorMsg = errorMsg;
         this.req = req;
         this.resp = resp;
         this.testResults = testResults;
         this.executionFailed = executionFailed;
+        this.cancelled = cancelled;
         this.protocol = protocol == null ? PerformanceProtocol.HTTP : protocol;
 
         // ✅ 统一在这里算 ms（不依赖 costNs）
@@ -106,7 +120,8 @@ public class ResultNodeInfo {
      * 4. 无响应 → false
      */
     public boolean isActuallySuccessful() {
-        return isActuallySuccessful(executionFailed, resp, testResults);
+        // 与采样记录一致：被取消的请求不算成功（即使 WebSocket 已握手 101）
+        return !cancelled && isActuallySuccessful(executionFailed, resp, testResults);
     }
 
     public static boolean isActuallySuccessful(boolean executionFailed,

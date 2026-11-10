@@ -77,7 +77,7 @@
 - ✅ Code Mock 编辑器支持 `pm.*` 自动补全、启用状态、API 速查，以及 8 个精选常用示例，可预览、插入或替换
 - ✅ 支持 CORS、固定/路由延迟、`x-mock-response-delay` 临时延迟、有界/可关闭的调用日志和 `x-mock-session-id` 会话状态
 - ✅ 使用零额外服务端依赖的 JDK `HttpServer`，按 CPU 扩展工作线程并按 HTTP Method 预索引路由，适合并发联调和轻量压测
-- ✅ 默认监听所有网卡并显示可分享的局域网 URL；可通过 `x-api-key` 设置共享访问密钥
+- ✅ 默认监听所有网卡，界面显示本机访问 URL `127.0.0.1`；局域网设备可使用本机可达的 IP 和相同端口访问，可通过 `x-api-key` 设置共享访问密钥
 - ✅ `mock_servers.json` 与 `collections.json` 一同保存在当前工作区，Git 工作区会一起版本管理
 - ✅ 支持 `mock run` 无界面运行，可将工作区复制到服务器或 CI 自行托管
 - ✅ 管理页可直接复制对应工作区和服务的自托管启动命令
@@ -107,6 +107,22 @@ if (Number(input.amount) === 0.5) {
 ```
 
 `pm.request` 提供 `method`、`path`、`body`、`header(name)`、`query(name)` 和 `pathVariable(name)`；`pm.response` 可设置状态码、header、body 和 `delayMs`。状态仅存于内存，清空状态、刷新服务运行时或退出应用后不保留。
+
+---
+
+## 🤖 MCP 与 AI 客户端
+
+- ✅ 内置标准 MCP stdio Server，可连接 Codex、Claude Desktop、Claude Code、Cursor 等本地客户端
+- ✅ 原生安装包和 Windows 便携版内置 `EasyPostmanMCP` 与 JRE，不需要另装 Java 或单独下载 MCP
+- ✅ 列出已授权工作区、集合、环境和已保存请求；环境列表不返回变量值
+- ✅ 按每次 Tool 调用选择 `workspaceId` 和 `environmentId`，不修改桌面端当前选择
+- ✅ 执行单个已保存 HTTP 请求或整个顶层集合，复用变量继承、前后置脚本、断言、Cookie、TLS 和 HTTP 执行链
+- ✅ 支持一次性 `environmentOverrides`，只在内存中生效，不写回工作区
+- ✅ MCP 进程与桌面应用可同时运行；一个连接内复用同一进程，不会为每个 API 调用重复启动
+- ✅ 响应体和明细有上限，常见认证数据与错误路径会脱敏，stdout 只输出 MCP JSON-RPC
+- 🔒 MCP 可发起真实外部请求并把响应返回客户端，仅应授权可信客户端和必要工作区
+
+安装与完整边界见 [MCP Server 文档](MCP_SERVER_DESIGN_zh.md)。
 
 ---
 
@@ -256,7 +272,8 @@ if (Number(input.amount) === 0.5) {
 
 ## 🔒 隐私与安全
 
-- ✅ **100% 本地存储**：无云同步，数据完全私密
+- ✅ **默认本地存储**：不启用 Git 同步或 MCP 时，工作区数据不会主动上传
+- 🔒 **连接由用户控制**：Git 远程、被测 API 和 MCP 客户端都可能接收用户显式发送的数据
 - ✅ **无遥测**：无跟踪，无分析
 - ✅ **离线优先**：完全离线工作
 - ✅ **开源**：代码透明可审查

@@ -1,15 +1,22 @@
 package com.laker.postman.panel.topmenu.setting;
 
 import com.laker.postman.common.component.EasyPasswordField;
+import com.laker.postman.common.UiSingletonFactory;
 import com.laker.postman.common.component.notification.NotificationCenter;
 import com.laker.postman.common.component.setting.SettingsFieldRow;
+import com.laker.postman.ioc.BeanFactory;
 import com.laker.postman.service.setting.SettingManager;
 import com.laker.postman.service.sync.WebDavRemoteSnapshot;
+import com.laker.postman.service.sync.WebDavSnapshotPreflightException;
+import com.laker.postman.service.sync.WebDavSnapshotValidationException;
+import com.laker.postman.service.sync.WebDavSyncScheduler;
 import com.laker.postman.service.sync.WebDavSyncService;
 import com.laker.postman.service.sync.WebDavSyncSettings;
+import com.laker.postman.panel.topmenu.TopMenuBar;
 import com.laker.postman.util.FontsUtil;
 import com.laker.postman.util.I18nUtil;
 import com.laker.postman.util.MessageKeys;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.HttpUrl;
 
 import javax.swing.*;
@@ -18,10 +25,13 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+@Slf4j
 public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     private static final int FIELD_SPACING = 8;
     private static final int SECTION_SPACING = 12;
@@ -34,6 +44,8 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     private final WebDavSyncService syncService = new WebDavSyncService();
 
     private JCheckBox enabledCheckBox;
+    private JCheckBox autoUploadCheckBox;
+    private JComboBox<AutoUploadIntervalOption> autoUploadIntervalComboBox;
     private JTextField serverUrlField;
     private JTextField remoteDirectoryField;
     private JTextField usernameField;
@@ -47,6 +59,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     private SettingsFieldRow remoteDirectoryRow;
     private SettingsFieldRow usernameRow;
     private SettingsFieldRow passwordRow;
+    private SettingsFieldRow autoUploadIntervalRow;
     private boolean busy;
 
     @Override
@@ -67,12 +80,38 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         ));
         section.add(createVerticalSpace(FIELD_SPACING));
 
+        autoUploadCheckBox = new JCheckBox(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_CHECKBOX),
+                settings.autoUploadEnabled()
+        );
+        section.add(createCheckBoxRow(
+                autoUploadCheckBox,
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_TOOLTIP)
+        ));
+        section.add(createVerticalSpace(FIELD_SPACING));
+
         serverUrlField = new JTextField(settings.serverUrl(), 24);
         serverUrlRow = createFieldRow(
                 I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_SERVER_URL),
                 I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_SERVER_URL_TOOLTIP),
                 serverUrlField
         );
+        int webDavFieldWidth = serverUrlField.getPreferredSize().width;
+
+        autoUploadIntervalComboBox = new JComboBox<>(createAutoUploadIntervalOptions(
+                settings.autoUploadIntervalMinutes()
+        ));
+        autoUploadIntervalComboBox.setSelectedItem(findAutoUploadIntervalOption(settings.autoUploadIntervalMinutes()));
+        autoUploadIntervalRow = createFieldRow(
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_TOOLTIP),
+                autoUploadIntervalComboBox,
+                SettingsFieldRow.DEFAULT_LABEL_WIDTH,
+                webDavFieldWidth
+        );
+        section.add(autoUploadIntervalRow);
+        section.add(createVerticalSpace(FIELD_SPACING));
+
         section.add(serverUrlRow);
         section.add(createVerticalSpace(FIELD_SPACING));
 
@@ -129,6 +168,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     @Override
     protected void registerListeners() {
         enabledCheckBox.addItemListener(e -> updateControlState());
+        autoUploadCheckBox.addItemListener(e -> updateControlState());
         addRefreshListeners(serverUrlField, remoteDirectoryField, usernameField, passwordField);
         saveBtn.addActionListener(e -> saveSettings(true));
         applyBtn.addActionListener(e -> saveSettings(false));
@@ -239,6 +279,8 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         }
         try {
             SettingManager.setWebDavSyncSettings(formSettings());
+            reloadAutoUploadSchedule();
+            refreshWebDavToolbar();
             trackWebDavFormState();
             setHasUnsavedChanges(false);
             NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_SAVE_SUCCESS_MESSAGE));
@@ -350,15 +392,17 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
                             MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS,
                             result.backupPath().toString()
                     ));
-                    NotificationCenter.showSuccess(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SUCCESS_SHORT));
-                    showRestoreRestartPrompt(result.backupPath().toString());
-                }
+                    showRestoreRestartPrompt(this, result.backupPath().toString());
+                },
+                this::showRestoreFailurePrompt
         );
     }
 
     private boolean saveSettingsForAction() {
         try {
             SettingManager.setWebDavSyncSettings(formSettings());
+            reloadAutoUploadSchedule();
+            refreshWebDavToolbar();
             trackWebDavFormState();
             setHasUnsavedChanges(false);
             return true;
@@ -368,16 +412,25 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         }
     }
 
-    private void showRestoreRestartPrompt(String backupPath) {
-        JOptionPane.showMessageDialog(
-                this,
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE, backupPath),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE),
-                JOptionPane.INFORMATION_MESSAGE
-        );
+    static void showRestoreRestartPrompt(Component parent, String backupPath) {
+        String message = I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_MESSAGE, backupPath);
+        String title = I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_RESTART_TITLE);
+        Window owner = parent instanceof Window window ? window : SwingUtilities.getWindowAncestor(parent);
+        JOptionPane pane = new JOptionPane(message, JOptionPane.INFORMATION_MESSAGE);
+        JDialog dialog = pane.createDialog(owner == null ? parent : owner, title);
+        dialog.setLocationRelativeTo(owner == null ? parent : owner);
+        dialog.setVisible(true);
+        dialog.dispose();
     }
 
     private <T> void runAsync(String busyMessage, SyncTask<T> task, SyncSuccess<T> success) {
+        runAsync(busyMessage, task, success, null);
+    }
+
+    private <T> void runAsync(String busyMessage,
+                              SyncTask<T> task,
+                              SyncSuccess<T> success,
+                              SyncFailure failure) {
         setBusy(true);
         setStatus(busyMessage);
         new SwingWorker<T, Void>() {
@@ -392,9 +445,14 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
                 try {
                     success.accept(get());
                 } catch (Exception ex) {
-                    String message = rootMessage(ex);
+                    String message = actionErrorMessage(ex);
                     setStatus(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_ACTION_FAILED, message));
-                    NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_ACTION_FAILED, message));
+                    log.error("WebDAV settings operation failed: {}", busyMessage, ex);
+                    if (failure != null) {
+                        failure.accept(ex);
+                    } else {
+                        NotificationCenter.showError(I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_ACTION_FAILED, message));
+                    }
                 }
             }
         }.execute();
@@ -419,34 +477,14 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     }
 
     private boolean confirmUpload(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
-        int result = JOptionPane.showConfirmDialog(
-                this,
-                I18nUtil.getMessage(
-                        MessageKeys.SETTINGS_WEBDAV_SYNC_UPLOAD_CONFIRM_MESSAGE,
-                        remoteSnapshotText(remoteSnapshot)
-                ),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_UPLOAD_CONFIRM_TITLE),
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE
-        );
-        return result == JOptionPane.YES_OPTION;
+        return WebDavSyncConfirmationDialog.confirmUpload(this, remoteSnapshot);
     }
 
     private boolean confirmRestore(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
-        int result = JOptionPane.showConfirmDialog(
-                this,
-                I18nUtil.getMessage(
-                        MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_CONFIRM_MESSAGE,
-                        remoteSnapshotText(remoteSnapshot)
-                ),
-                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_CONFIRM_TITLE),
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE
-        );
-        return result == JOptionPane.YES_OPTION;
+        return WebDavSyncConfirmationDialog.confirmRestore(this, remoteSnapshot);
     }
 
-    private String remoteSnapshotText(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
+    static String remoteSnapshotText(Optional<WebDavRemoteSnapshot> remoteSnapshot) {
         if (remoteSnapshot == null || remoteSnapshot.isEmpty()) {
             return I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_REMOTE_SNAPSHOT_NONE);
         }
@@ -459,13 +497,13 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         );
     }
 
-    private String valueOrUnknown(String value) {
+    private static String valueOrUnknown(String value) {
         return value == null || value.isBlank()
                 ? I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_REMOTE_SNAPSHOT_UNKNOWN)
                 : value;
     }
 
-    private String formatRemoteCreatedAt(String createdAt) {
+    private static String formatRemoteCreatedAt(String createdAt) {
         if (createdAt == null || createdAt.isBlank()) {
             return "";
         }
@@ -476,7 +514,7 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         }
     }
 
-    private String formatBytes(long bytes) {
+    private static String formatBytes(long bytes) {
         if (bytes < 1024) {
             return bytes + " B";
         }
@@ -497,6 +535,8 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         remoteDirectoryRow.setEnabled(enabled);
         usernameRow.setEnabled(enabled);
         passwordRow.setEnabled(enabled);
+        autoUploadCheckBox.setEnabled(enabled);
+        autoUploadIntervalRow.setEnabled(enabled && autoUploadCheckBox.isSelected());
         testConnectionButton.setEnabled(enabled && hasEndpoint);
         uploadButton.setEnabled(enabled && hasEndpoint);
         restoreButton.setEnabled(enabled && hasEndpoint);
@@ -531,7 +571,9 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
                 text(serverUrlField),
                 text(remoteDirectoryField),
                 text(usernameField),
-                new String(passwordField.getPassword())
+                new String(passwordField.getPassword()),
+                autoUploadCheckBox.isSelected(),
+                selectedAutoUploadIntervalMinutes()
         );
     }
 
@@ -555,6 +597,8 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     private void trackWebDavFormState() {
         originalValues.clear();
         trackComponentValue(enabledCheckBox);
+        trackComponentValue(autoUploadCheckBox);
+        trackComponentValue(autoUploadIntervalComboBox);
         trackComponentValue(serverUrlField);
         trackComponentValue(remoteDirectoryField);
         trackComponentValue(usernameField);
@@ -566,6 +610,63 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
         if (window instanceof JDialog dialog) {
             dialog.dispose();
         }
+    }
+
+    private int selectedAutoUploadIntervalMinutes() {
+        AutoUploadIntervalOption option = (AutoUploadIntervalOption) autoUploadIntervalComboBox.getSelectedItem();
+        return option == null
+                ? WebDavSyncSettings.DEFAULT_AUTO_UPLOAD_INTERVAL_MINUTES
+                : option.minutes();
+    }
+
+    private AutoUploadIntervalOption[] createAutoUploadIntervalOptions(int selectedMinutes) {
+        List<AutoUploadIntervalOption> options = new ArrayList<>();
+        addAutoUploadIntervalOption(options, 15, MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_15_MINUTES);
+        addAutoUploadIntervalOption(options, 30, MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_30_MINUTES);
+        addAutoUploadIntervalOption(options, 60, MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_1_HOUR);
+        addAutoUploadIntervalOption(options, 120, MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_2_HOURS);
+        addAutoUploadIntervalOption(options, 360, MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_6_HOURS);
+        addAutoUploadIntervalOption(options, 1440, MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_1_DAY);
+        if (options.stream().noneMatch(option -> option.minutes() == selectedMinutes)) {
+            options.add(new AutoUploadIntervalOption(
+                    selectedMinutes,
+                    I18nUtil.getMessage(
+                            MessageKeys.SETTINGS_WEBDAV_SYNC_AUTO_UPLOAD_INTERVAL_MINUTES_FORMAT,
+                            selectedMinutes
+                    )
+            ));
+        }
+        return options.toArray(new AutoUploadIntervalOption[0]);
+    }
+
+    private void addAutoUploadIntervalOption(List<AutoUploadIntervalOption> options,
+                                              int minutes,
+                                              String messageKey) {
+        options.add(new AutoUploadIntervalOption(minutes, I18nUtil.getMessage(messageKey)));
+    }
+
+    private AutoUploadIntervalOption findAutoUploadIntervalOption(int minutes) {
+        for (int i = 0; i < autoUploadIntervalComboBox.getItemCount(); i++) {
+            AutoUploadIntervalOption option = autoUploadIntervalComboBox.getItemAt(i);
+            if (option.minutes() == minutes) {
+                return option;
+            }
+        }
+        return null;
+    }
+
+    private void reloadAutoUploadSchedule() {
+        try {
+            BeanFactory.getBean(WebDavSyncScheduler.class).reload();
+        } catch (RuntimeException ignored) {
+            // The settings panel is also constructed directly by headless UI tests
+            // before the application IOC container has been initialized.
+        }
+    }
+
+    private void refreshWebDavToolbar() {
+        UiSingletonFactory.getExistingInstance(TopMenuBar.class)
+                .ifPresent(TopMenuBar::updateWorkspaceDisplay);
     }
 
     private static boolean isHttpScheme(String scheme) {
@@ -584,11 +685,66 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     }
 
     private static String rootMessage(Exception ex) {
-        Throwable current = ex;
+        Throwable current = ex instanceof java.util.concurrent.ExecutionException && ex.getCause() != null
+                ? ex.getCause()
+                : ex;
+        String directMessage = current.getMessage();
+        if (directMessage != null && !directMessage.isBlank()) {
+            return directMessage;
+        }
         while (current.getCause() != null) {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+    }
+
+    static String actionErrorMessage(Exception ex) {
+        WebDavSnapshotValidationException validationException = findSnapshotValidationException(ex);
+        if (validationException != null) {
+            if (validationException.reason() == WebDavSnapshotValidationException.Reason.SIZE_MISMATCH) {
+                return I18nUtil.getMessage(
+                        MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_SIZE_MISMATCH,
+                        formatBytes(validationException.expectedBytes()),
+                        formatBytes(validationException.actualBytes())
+                );
+            }
+            return I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_INVALID_SNAPSHOT);
+        }
+        Throwable current = ex instanceof java.util.concurrent.ExecutionException && ex.getCause() != null
+                ? ex.getCause()
+                : ex;
+        if (current instanceof WebDavSnapshotPreflightException preflight) {
+            return I18nUtil.getMessage(
+                    MessageKeys.SETTINGS_WEBDAV_SYNC_SNAPSHOT_PRECHECK_FAILED,
+                    preflight.workspaceName(),
+                    preflight.workspacePath(),
+                    formatBytes(preflight.contentBytes()),
+                    preflight.fileCount(),
+                    formatBytes(preflight.maxContentBytes()),
+                    preflight.maxFileCount()
+            );
+        }
+        return rootMessage(ex);
+    }
+
+    private static WebDavSnapshotValidationException findSnapshotValidationException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof WebDavSnapshotValidationException validationException) {
+                return validationException;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private void showRestoreFailurePrompt(Exception exception) {
+        JOptionPane.showMessageDialog(
+                this,
+                actionErrorMessage(exception),
+                I18nUtil.getMessage(MessageKeys.SETTINGS_WEBDAV_SYNC_RESTORE_FAILED_TITLE),
+                JOptionPane.ERROR_MESSAGE
+        );
     }
 
     @FunctionalInterface
@@ -600,4 +756,17 @@ public class WebDavSyncSettingsPanel extends ModernSettingsPanel {
     private interface SyncSuccess<T> {
         void accept(T result);
     }
+
+    @FunctionalInterface
+    private interface SyncFailure {
+        void accept(Exception exception);
+    }
+
+    private record AutoUploadIntervalOption(int minutes, String label) {
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
 }

@@ -3,6 +3,7 @@ package com.laker.postman.service.render;
 import com.laker.postman.common.constants.ThemeColors;
 import com.laker.postman.http.runtime.model.HttpEventInfo;
 import com.laker.postman.http.runtime.model.HttpResponse;
+import com.laker.postman.http.runtime.model.HttpRouteAttempt;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.request.model.HttpHeader;
 import org.testng.annotations.AfterMethod;
@@ -19,6 +20,7 @@ import static com.laker.postman.test.ThemeTokenTestSupport.remember;
 import static com.laker.postman.test.ThemeTokenTestSupport.restore;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class HttpHtmlRendererTest {
@@ -53,6 +55,36 @@ public class HttpHtmlRendererTest {
 
         assertTrue(html.contains("<div style='background:"));
         assertTrue(html.contains("<pre style='margin:0;"));
+    }
+
+    @Test
+    public void shouldRenderFileSummaryInsteadOfGarbledBody() {
+        HttpResponse response = new HttpResponse();
+        response.code = 200;
+        response.body = "PK\u0003\u0004garbled-binary";
+        response.detectedFileExtension = ".xlsx";
+        response.fileName = "export.xlsx";
+        response.bodySize = 8041;
+        response.fileContentOmitted = true;
+
+        String html = HttpHtmlRenderer.renderResponse(response);
+
+        assertFalse(html.contains("garbled-binary"));
+        assertTrue(html.contains("export.xlsx"));
+        assertTrue(html.contains("XLSX"));
+        assertTrue(html.contains(" KB"));
+    }
+
+    @Test
+    public void shouldRenderRecoveredRetryErrorAsEventRowNotNetworkError() {
+        HttpResponse response = new HttpResponse();
+        response.code = 200;
+        response.body = "ok";
+        response.httpEventInfo = new HttpEventInfo();
+        response.httpEventInfo.setRecoveredErrorMessage("unexpected end of stream");
+
+        assertFalse(HttpHtmlRenderer.renderResponse(response).contains("Network Error"));
+        assertTrue(HttpHtmlRenderer.renderEventInfo(response).contains("unexpected end of stream"));
     }
 
     @Test
@@ -152,6 +184,29 @@ public class HttpHtmlRendererTest {
         assertTrue(html.contains("border-top:1px solid"));
         assertFalse(html.contains("border-bottom:1px solid #101112"));
         assertFalse(html.contains("background:#101112;height:8px"));
+    }
+
+    @Test
+    public void shouldRenderTransparentRouteDiagnosticsAndEscapeNetworkErrors() {
+        HttpEventInfo eventInfo = new HttpEventInfo();
+        eventInfo.setDnsHost("dual.example.test");
+        eventInfo.replaceDnsAddresses(List.of("[2001:db8::10]", "192.0.2.10"));
+        eventInfo.setRetryDecisionCount(2);
+        eventInfo.setRetryCount(1);
+        eventInfo.addRouteAttempt(new HttpRouteAttempt(
+                "[2001:db8::10]:443", "IPv6", 100L, 125L, 25L,
+                false, true, null, "canceled <after fallback>"
+        ));
+        HttpResponse response = new HttpResponse();
+        response.httpEventInfo = eventInfo;
+
+        String html = HttpHtmlRenderer.renderEventInfo(response);
+
+        assertTrue(html.contains("dual.example.test"));
+        assertTrue(html.contains("[2001:db8::10]:443"));
+        assertTrue(html.contains("canceled &lt;after fallback&gt;"));
+        assertFalse(html.contains("canceled <after fallback>"));
+        assertTrue(html.contains("1 / 2"));
     }
 
     @Test
@@ -391,5 +446,41 @@ public class HttpHtmlRendererTest {
 
         assertTrue(html.contains("Network Error"));
         assertTrue(html.contains("timeout"));
+    }
+
+    @Test
+    public void shouldRenderFileSummaryForDeclaredBinaryResponse() {
+        HttpResponse response = new HttpResponse();
+        response.code = 200;
+        response.body = "[binary saved to temp file]";
+        response.fileName = "report.pdf";
+        response.bodySize = 2048;
+        response.headers = new LinkedHashMap<>();
+        response.headers.put("Content-Type", List.of("application/pdf"));
+
+        String html = HttpHtmlRenderer.renderResponse(response);
+
+        assertTrue(html.contains("report.pdf"));
+        assertTrue(html.contains("PDF"));
+        assertFalse(html.contains("[binary saved to temp file]"));
+    }
+
+    @Test
+    public void shouldKeepFileSummaryAfterPerformanceSimplify() {
+        HttpResponse response = new HttpResponse();
+        response.code = 200;
+        response.body = "PK\u0003\u0004garbled-binary";
+        response.rawBodyBytes = new byte[]{0x50, 0x4B, 0x03, 0x04};
+        response.detectedFileExtension = ".xlsx";
+        response.fileName = "export.xlsx";
+        response.headers = new LinkedHashMap<>();
+        response.headers.put("Content-Type", List.of("application/json"));
+
+        response.simplify();
+        String html = HttpHtmlRenderer.renderResponse(response);
+
+        assertNull(response.rawBodyBytes);
+        assertFalse(html.contains("garbled-binary"));
+        assertTrue(html.contains("XLSX"));
     }
 }

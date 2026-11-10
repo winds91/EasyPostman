@@ -22,6 +22,7 @@ import org.eclipse.jgit.api.CloneCommand;
 import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand;
+import org.eclipse.jgit.api.LsRemoteCommand;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.api.errors.RefNotAdvertisedException;
@@ -71,12 +72,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 public class GitWorkspacePluginService implements GitPluginService {
 
     private static final int GIT_OPERATION_TIMEOUT = 10;
     private static final int MAX_DIFF_PREVIEW_BYTES = 512 * 1024;
+    private static final long WORKING_TREE_STATUS_CACHE_NANOS = 500_000_000L;
+    private final AtomicReference<CachedWorkingTreeStatus> cachedWorkingTreeStatus = new AtomicReference<>();
 
     @Override
     public void prepareGitWorkspace(Workspace workspace) throws Exception {
@@ -761,7 +765,7 @@ public class GitWorkspacePluginService implements GitPluginService {
     public List<GitFileChange> listWorkingTreeChanges(Workspace workspace) throws Exception {
         ensureGitWorkspace(workspace);
         try (Git git = Git.open(new File(workspace.getPath()))) {
-            var status = git.status().call();
+            var status = readAndCacheWorkingTreeStatus(workspace, git);
             Map<String, GitFileChange.Type> changes = new HashMap<>();
             putChanges(changes, status.getAdded(), GitFileChange.Type.ADDED);
             putChanges(changes, status.getChanged(), GitFileChange.Type.MODIFIED);
@@ -783,7 +787,7 @@ public class GitWorkspacePluginService implements GitPluginService {
         String normalizedPath = normalizeWorkspaceRelativePath(filePath);
         Path workspacePath = Paths.get(workspace.getPath());
         try (Git git = Git.open(new File(workspace.getPath()))) {
-            var status = git.status().call();
+            var status = consumeCachedWorkingTreeStatus(workspace, git);
             int largeFileThresholdMb = SettingManager.getGitDiffLargeFileThresholdMb();
             long largeFileThresholdBytes = SettingManager.gitDiffLargeFileThresholdBytes(largeFileThresholdMb);
             if (status.getUntracked().contains(normalizedPath)) {
@@ -800,6 +804,30 @@ public class GitWorkspacePluginService implements GitPluginService {
             }
             return renderJGitTrackedFileDiff(git, normalizedPath);
         }
+    }
+
+    private Status readAndCacheWorkingTreeStatus(Workspace workspace, Git git) throws Exception {
+        Status status = git.status().call();
+        cachedWorkingTreeStatus.set(new CachedWorkingTreeStatus(
+                workspaceStatusCacheKey(workspace),
+                System.nanoTime(),
+                status
+        ));
+        return status;
+    }
+
+    private Status consumeCachedWorkingTreeStatus(Workspace workspace, Git git) throws Exception {
+        CachedWorkingTreeStatus cached = cachedWorkingTreeStatus.getAndSet(null);
+        if (cached != null
+                && cached.workspacePath().equals(workspaceStatusCacheKey(workspace))
+                && System.nanoTime() - cached.createdAtNanos() <= WORKING_TREE_STATUS_CACHE_NANOS) {
+            return cached.status();
+        }
+        return git.status().call();
+    }
+
+    private String workspaceStatusCacheKey(Workspace workspace) {
+        return Paths.get(workspace.getPath()).toAbsolutePath().normalize().toString();
     }
 
     private String renderLargeTrackedFileSummary(Status status,
@@ -1134,6 +1162,9 @@ public class GitWorkspacePluginService implements GitPluginService {
         }
     }
 
+    private record CachedWorkingTreeStatus(String workspacePath, long createdAtNanos, Status status) {
+    }
+
     private record UntrackedTextPreview(String content, boolean truncated) {
     }
 
@@ -1263,12 +1294,15 @@ public class GitWorkspacePluginService implements GitPluginService {
                                     GitAuthType authType, String username, String password, String token,
                                     String sshPrivateKeyPath, String sshPassphrase) throws Exception {
         ensureGitWorkspace(workspace);
-        if (workspace.getGitRepoSource() != GitRepoSource.INITIALIZED) {
-            throw new IllegalStateException("Only Git workspaces of type INITIALIZED can add a remote repository");
-        }
 
         try (Git git = Git.open(new File(workspace.getPath()))) {
-            git.remoteAdd().setName("origin").setUri(new URIish(remoteUrl)).call();
+            boolean originExists = git.remoteList().call().stream()
+                    .anyMatch(remote -> "origin".equals(remote.getName()));
+            if (originExists) {
+                git.remoteSetUrl().setRemoteName("origin").setRemoteUri(new URIish(remoteUrl)).call();
+            } else {
+                git.remoteAdd().setName("origin").setUri(new URIish(remoteUrl)).call();
+            }
 
             String currentBranch = git.getRepository().getBranch();
             String targetRemoteBranch = remoteBranch;
@@ -1313,6 +1347,37 @@ public class GitWorkspacePluginService implements GitPluginService {
             }
             workspace.setUpdatedAt(System.currentTimeMillis());
         }
+    }
+
+    @Override
+    public List<String> testRemoteConnection(String remoteUrl, GitAuthType authType,
+                                             String username, String password, String token,
+                                             String sshPrivateKeyPath, String sshPassphrase) throws Exception {
+        if (remoteUrl == null || remoteUrl.isBlank()) {
+            throw new IllegalArgumentException(I18nUtil.getMessage(MessageKeys.WORKSPACE_VALIDATION_GIT_URL_REQUIRED));
+        }
+
+        Workspace authWorkspace = new Workspace();
+        authWorkspace.setGitAuthType(authType == null ? GitAuthType.NONE : authType);
+        authWorkspace.setGitUsername(username);
+        authWorkspace.setGitPassword(password);
+        authWorkspace.setGitToken(token);
+        authWorkspace.setSshPrivateKeyPath(sshPrivateKeyPath);
+        authWorkspace.setSshPassphrase(sshPassphrase);
+
+        LsRemoteCommand command = Git.lsRemoteRepository()
+                .setRemote(remoteUrl)
+                .setHeads(true)
+                .setTags(false)
+                .setTimeout(GIT_OPERATION_TIMEOUT);
+        applyAuth(command, authWorkspace);
+
+        return command.call().stream()
+                .map(Ref::getName)
+                .filter(refName -> refName.startsWith("refs/heads/"))
+                .map(refName -> refName.substring("refs/heads/".length()))
+                .sorted()
+                .toList();
     }
 
     @Override

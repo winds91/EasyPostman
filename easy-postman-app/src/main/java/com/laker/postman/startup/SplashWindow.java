@@ -179,6 +179,7 @@ class SplashWindow extends JFrame {
         setupWindowProperties();
 
         setVisible(true); // 显示窗口
+        log.info("Splash window is visible");
     }
 
     /**
@@ -291,7 +292,7 @@ class SplashWindow extends JFrame {
 
     private void closeSplash(StartupCoordinator startupCoordinator) {
         disposeSafely();
-        startupCoordinator.scheduleBackgroundUpdateCheck();
+        startupCoordinator.scheduleBackgroundTasks();
     }
 
     /**

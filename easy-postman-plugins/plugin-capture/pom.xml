@@ -11,7 +11,7 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <version>6.0.13</version>
+    <version>6.0.15</version>
     <artifactId>easy-postman-plugin-capture</artifactId>
     <packaging>jar</packaging>
 
@@ -25,8 +25,8 @@
         <plugin.minPlatformVersion>${plugin.platform.version}</plugin.minPlatformVersion>
         <plugin.maxPlatformVersion>${plugin.platform.version}</plugin.maxPlatformVersion>
 
-        <netty.version>4.1.118.Final</netty.version>
-        <bouncycastle.version>1.83</bouncycastle.version>
+        <netty.version>4.2.18.Final</netty.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
     </properties>
 
     <dependencies>

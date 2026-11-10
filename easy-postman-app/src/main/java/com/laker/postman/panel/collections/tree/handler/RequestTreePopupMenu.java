@@ -6,6 +6,7 @@ import com.laker.postman.panel.mock.MockServerPanel;
 import com.laker.postman.panel.sidebar.SidebarTab;
 import com.laker.postman.panel.sidebar.SidebarTabPanel;
 import com.laker.postman.panel.collections.tree.CollectionTreePanel;
+import com.laker.postman.panel.collections.tree.CollectionTreeToolbar;
 import com.laker.postman.panel.collections.tree.coordinator.RequestTreeCoordinator;
 import com.laker.postman.service.collections.CollectionTreeNodes;
 import com.laker.postman.common.component.ToolWindowSurfaceStyle;
@@ -121,7 +122,7 @@ public class RequestTreePopupMenu {
         JMenuItem addGroup = createMenuItem(
                 MessageKeys.COLLECTIONS_MENU_ADD_GROUP,
                 "icons/group.svg",
-                e -> coordinator.addGroupUnderSelected()
+                e -> coordinator.showAddGroupDialog(selectedNode)
         );
         addGroup.setEnabled(!isMultipleSelection);
         menu.add(addGroup);
@@ -134,6 +135,16 @@ public class RequestTreePopupMenu {
         );
         duplicate.setEnabled(!isMultipleSelection);
         menu.add(duplicate);
+
+        JMenuItem importCurl = createMenuItem(
+                MessageKeys.COLLECTIONS_IMPORT_CURL,
+                "icons/curl.svg",
+                e -> CollectionTreeNodes.group(selectedNode)
+                        .ifPresent(group -> UiSingletonFactory.getInstance(CollectionTreeToolbar.class)
+                                .importCurlToGroup(group))
+        );
+        importCurl.setEnabled(!isMultipleSelection);
+        menu.add(importCurl);
 
         // 导出为 Postman
         JMenuItem exportPostman = createMenuItem(
@@ -271,7 +282,7 @@ public class RequestTreePopupMenu {
         // 彩色图标列表：这些图标本身有品牌色或渐变色，不应该跟随主题变化
         // - postman.svg: Postman 品牌橙色
         // - group.svg: 蓝色文件夹 (#007AFF)
-        // - curl.svg: cURL 官方深蓝/绿色符号
+        // - curl.svg: cURL 命令行图标，深蓝终端搭配绿色命令提示符
         boolean isColoredIcon = iconPath.contains("postman.svg")
                              || iconPath.contains("group.svg")
                              || iconPath.contains("curl.svg");

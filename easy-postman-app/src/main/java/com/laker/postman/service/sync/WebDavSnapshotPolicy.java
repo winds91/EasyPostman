@@ -14,12 +14,14 @@ public class WebDavSnapshotPolicy {
             "global_variables.json",
             "shortcuts.properties",
             "easy_postman_settings.properties",
-            "user_settings.json"
+            "user_settings.json",
+            "current_workspace.json"
     );
     private static final Set<String> ROOT_LOCAL_STATE_FILES = Set.of(
             "request_history.json",
             "opened_requests.json",
             "workspace_settings.json",
+            "current_workspace.json",
             "client_certificates.json",
             "elasticsearch_connection_profiles.json",
             "influxdb_connection_profiles.json"
@@ -81,6 +83,22 @@ public class WebDavSnapshotPolicy {
         }
 
         return "workspaces".equals(segments.get(0));
+    }
+
+    boolean shouldDescend(Path dataRoot, Path path) {
+        Path normalizedRoot = dataRoot.toAbsolutePath().normalize();
+        Path normalizedPath = path.toAbsolutePath().normalize();
+        if (!normalizedPath.startsWith(normalizedRoot)) {
+            return false;
+        }
+        if (normalizedPath.equals(normalizedRoot)) {
+            return true;
+        }
+
+        List<String> segments = relativeSegments(normalizedRoot, normalizedPath);
+        return !segments.isEmpty()
+                && !hasUnsafeCrossPlatformSegment(segments)
+                && !hasExcludedSegment(segments);
     }
 
     boolean shouldRestoreEntry(String entryName) {

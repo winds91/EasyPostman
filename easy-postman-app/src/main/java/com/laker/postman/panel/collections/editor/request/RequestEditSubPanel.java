@@ -35,6 +35,7 @@ public class RequestEditSubPanel extends JPanel {
 
     @Getter
     private final SavedResponse savedResponse;
+    private final HttpRequestItem savedResponseOwner;
 
     private RequestViewComponents view;
     // 主面板只保留“编排”和“状态持有”，具体行为拆给各个职责明确的协作者，避免再次演变成巨型类。
@@ -74,10 +75,6 @@ public class RequestEditSubPanel extends JPanel {
         return getEffectiveProtocol() != null && getEffectiveProtocol().isHttpProtocol();
     }
 
-    private boolean isEffectiveSseProtocol() {
-        return getEffectiveProtocol() != null && getEffectiveProtocol().isSseProtocol();
-    }
-
     private boolean isEffectiveWebSocketProtocol() {
         return getEffectiveProtocol() != null && getEffectiveProtocol().isWebSocketProtocol();
     }
@@ -87,6 +84,27 @@ public class RequestEditSubPanel extends JPanel {
      */
     public boolean isSavedResponseTab() {
         return panelType == RequestEditSubPanelType.SAVED_RESPONSE;
+    }
+
+    public boolean saveSavedResponseRequest() {
+        if (!isSavedResponseTab() || savedResponseOwner == null || savedResponse == null) {
+            return false;
+        }
+        HttpRequestItem editedRequest = getCurrentRequest();
+        boolean saved = savedResponseUiController.updateExampleRequest(
+                savedResponseOwner.getId(), savedResponse, editedRequest);
+        if (saved) {
+            dataController.setOriginalRequestItem(editedRequest);
+        }
+        return saved;
+    }
+
+    private SavedResponse responseExampleForSave() {
+        return savedResponse;
+    }
+
+    private HttpRequestItem responseExampleOwnerForSave() {
+        return savedResponseOwner;
     }
 
     private boolean isPerformanceSnapshot() {
@@ -120,7 +138,12 @@ public class RequestEditSubPanel extends JPanel {
      * 保存的响应面板构造函数
      */
     public RequestEditSubPanel(SavedResponse savedResponse) {
-        this(savedResponse.getId(), RequestItemProtocolEnum.HTTP, RequestEditSubPanelType.SAVED_RESPONSE, savedResponse, false);
+        this(savedResponse, null);
+    }
+
+    public RequestEditSubPanel(SavedResponse savedResponse, HttpRequestItem owner) {
+        this(savedResponse.getId(), RequestItemProtocolEnum.HTTP, RequestEditSubPanelType.SAVED_RESPONSE,
+                savedResponse, owner, false);
     }
 
     /**
@@ -129,13 +152,20 @@ public class RequestEditSubPanel extends JPanel {
     private RequestEditSubPanel(String id, RequestItemProtocolEnum protocol, RequestEditSubPanelType panelType,
                                 SavedResponse savedResponse,
                                 boolean deferEditorInitialization) {
-        this.protocol = protocol;
+        this(id, protocol, panelType, savedResponse, null, deferEditorInitialization);
+    }
+
+    private RequestEditSubPanel(String id, RequestItemProtocolEnum protocol, RequestEditSubPanelType panelType,
+                                SavedResponse savedResponse, HttpRequestItem savedResponseOwner,
+                                boolean deferEditorInitialization) {
+        this.protocol = protocol == null ? RequestItemProtocolEnum.HTTP : protocol;
         this.panelType = panelType;
         this.savedResponse = savedResponse;
+        this.savedResponseOwner = savedResponseOwner;
         this.deferEditorInitialization = deferEditorInitialization && panelType != RequestEditSubPanelType.SAVED_RESPONSE;
         this.dataController = new RequestEditorDataController(
                 id,
-                protocol,
+                this.protocol,
                 () -> editorInitialized,
                 this::isPerformanceSnapshot,
                 loading -> isLoadingData = loading,
@@ -260,16 +290,11 @@ public class RequestEditSubPanel extends JPanel {
                 this::sendRequest,
                 this::isBaseHttpProtocol,
                 this::isEffectiveHttpProtocol,
-                this::isEffectiveSseProtocol,
                 this::isEffectiveWebSocketProtocol,
-                this::getEffectiveProtocol,
-                dataController::setCurrentProtocol,
-                this::updateParentTabProtocol,
                 this::initPanelData,
                 this::getCurrentRequestFromModel,
                 this::updateParentTabDirty,
                 this::recordExchange,
-                this::updateTabDirty,
                 MAX_REDIRECT_COUNT
         ));
     }
@@ -449,6 +474,8 @@ public class RequestEditSubPanel extends JPanel {
                     () -> lastRequest,
                     () -> lastResponse,
                     this::getOriginalRequestItem,
+                    this::responseExampleForSave,
+                    this::responseExampleOwnerForSave,
                     requestEditorBinder,
                     requestEditorDefaultTabSelector,
                     this::getEffectiveProtocol,

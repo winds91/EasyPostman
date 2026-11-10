@@ -77,9 +77,6 @@ class RequestEditorUiBinder {
             RequestTabSelector.removeIfPresent(reqTabs, authTabPanel);
             RequestTabSelector.selectFirstVisible(reqTabs, requestBodyPanel, paramsTabPanel);
             requestBodyPanel.setWebSocketConnected(false);
-        } else if (protocol.isSseProtocol()) {
-            RequestTabSelector.removeIfPresent(reqTabs, authTabPanel);
-            RequestTabSelector.selectFirstVisible(reqTabs, requestBodyPanel, paramsTabPanel);
         } else {
             RequestTabSelector.selectFirstVisible(reqTabs, paramsTabPanel, requestBodyPanel);
         }
@@ -93,7 +90,7 @@ class RequestEditorUiBinder {
             return;
         }
         if (protocol.isHttpProtocol()
-                && panelType != RequestEditSubPanelType.SAVED_RESPONSE
+                && panelType != RequestEditSubPanelType.PERFORMANCE_SNAPSHOT
                 && responsePanel.getSaveResponseButton() != null) {
             responsePanel.getSaveResponseButton().addActionListener(saveAction);
         }

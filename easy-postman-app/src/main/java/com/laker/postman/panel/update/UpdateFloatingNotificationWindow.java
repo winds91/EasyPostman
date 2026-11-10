@@ -1,6 +1,6 @@
 package com.laker.postman.panel.update;
 
-import com.laker.postman.common.component.ToolWindowSurfaceStyle;
+import com.laker.postman.common.component.WindowOpacitySupport;
 
 import javax.swing.*;
 import java.awt.*;
@@ -13,9 +13,10 @@ class UpdateFloatingNotificationWindow {
     private static final float FADE_STEP = 0.05f;
     private static final int FADE_TIMER_DELAY = 10;
 
-    private final JDialog dialog;
+    private final JWindow window;
     private final JFrame parent;
     private final int displayDurationMs;
+    private final boolean opacitySupported;
     private Timer fadeTimer;
     private Timer autoCloseTimer;
     private float opacity = 0f;
@@ -24,20 +25,21 @@ class UpdateFloatingNotificationWindow {
     UpdateFloatingNotificationWindow(JFrame parent, int displayDurationMs) {
         this.parent = parent;
         this.displayDurationMs = displayDurationMs;
-        this.dialog = new JDialog(parent, false);
-        configureDialog();
+        this.window = new JWindow(parent);
+        this.opacitySupported = WindowOpacitySupport.isOpacitySupported(window);
+        configureWindow();
     }
 
     void installContent(JPanel contentPanel, int width) {
-        dialog.setContentPane(contentPanel);
-        dialog.pack();
-        dialog.setSize(width, dialog.getHeight());
-        positionDialog();
+        window.setContentPane(contentPanel);
+        window.pack();
+        window.setSize(width, window.getHeight());
+        positionWindow();
         registerParentMoveListener();
     }
 
     void display() {
-        dialog.setVisible(true);
+        window.setVisible(true);
         fadeIn();
         resumeAutoClose();
     }
@@ -56,10 +58,20 @@ class UpdateFloatingNotificationWindow {
     void fadeOut() {
         stopFadeTimer();
         stopAutoCloseTimer();
+        if (!opacitySupported) {
+            cleanupAndClose();
+            return;
+        }
         fadeTimer = new Timer(FADE_TIMER_DELAY, null);
         fadeTimer.addActionListener(e -> {
             opacity = Math.max(opacity - FADE_STEP, 0f);
-            dialog.setOpacity(opacity);
+            try {
+                window.setOpacity(opacity);
+            } catch (UnsupportedOperationException | IllegalComponentStateException ignored) {
+                stopFadeTimer();
+                cleanupAndClose();
+                return;
+            }
             if (opacity <= 0f) {
                 stopFadeTimer();
                 cleanupAndClose();
@@ -75,22 +87,35 @@ class UpdateFloatingNotificationWindow {
         delayTimer.start();
     }
 
-    private void configureDialog() {
-        dialog.setUndecorated(true);
-        dialog.setFocusableWindowState(false);
-        dialog.setType(Window.Type.UTILITY);
-        dialog.setOpacity(0f);
-        dialog.getRootPane().putClientProperty("Window.shadow", Boolean.FALSE);
-        ToolWindowSurfaceStyle.skipDialogWindowChrome(dialog);
-        dialog.setBackground(new Color(0, 0, 0, 0));
+    private void configureWindow() {
+        window.setFocusableWindowState(false);
+        window.setType(Window.Type.UTILITY);
+        if (opacitySupported) {
+            window.setOpacity(0f);
+        } else {
+            opacity = 1f;
+        }
+        window.getRootPane().putClientProperty("Window.shadow", Boolean.FALSE);
+        window.getRootPane().setOpaque(false);
+        window.getLayeredPane().setOpaque(false);
+        window.setBackground(new Color(0, 0, 0, 0));
     }
 
     private void fadeIn() {
         stopFadeTimer();
+        if (!opacitySupported) {
+            return;
+        }
         fadeTimer = new Timer(FADE_TIMER_DELAY, null);
         fadeTimer.addActionListener(e -> {
             opacity = Math.min(opacity + FADE_STEP, 1.0f);
-            dialog.setOpacity(opacity);
+            try {
+                window.setOpacity(opacity);
+            } catch (UnsupportedOperationException | IllegalComponentStateException ignored) {
+                stopFadeTimer();
+                opacity = 1f;
+                return;
+            }
             if (opacity >= 1.0f) {
                 stopFadeTimer();
             }
@@ -119,25 +144,25 @@ class UpdateFloatingNotificationWindow {
             parent.removeComponentListener(parentMoveListener);
             parentMoveListener = null;
         }
-        dialog.dispose();
+        window.dispose();
     }
 
     private void registerParentMoveListener() {
         parentMoveListener = new ComponentAdapter() {
             @Override
             public void componentMoved(ComponentEvent e) {
-                positionDialog();
+                positionWindow();
             }
 
             @Override
             public void componentResized(ComponentEvent e) {
-                positionDialog();
+                positionWindow();
             }
         };
         parent.addComponentListener(parentMoveListener);
     }
 
-    private void positionDialog() {
-        UpdateNotificationPlacement.positionDialog(dialog, parent);
+    private void positionWindow() {
+        UpdateNotificationPlacement.positionWindow(window, parent);
     }
 }

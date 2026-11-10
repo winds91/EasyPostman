@@ -1,6 +1,8 @@
 package com.laker.postman.service.render;
 
 import com.laker.postman.http.runtime.model.HttpEventInfo;
+import com.laker.postman.http.runtime.model.HttpRouteAttempt;
+import com.laker.postman.http.runtime.file.ResponseFiles;
 import com.laker.postman.http.runtime.model.HttpResponse;
 import com.laker.postman.http.runtime.model.PreparedRequest;
 import com.laker.postman.functional.model.RequestResult;
@@ -12,10 +14,15 @@ import com.laker.postman.common.constants.ModernColors;
 import com.laker.postman.performance.model.PerformanceInternalHeaders;
 import com.laker.postman.performance.model.ResultNodeInfo;
 import com.laker.postman.service.setting.SettingManager;
+import com.laker.postman.util.FileExtensionUtil;
+import com.laker.postman.util.FileSizeDisplayUtil;
+import com.laker.postman.util.I18nUtil;
+import com.laker.postman.util.MessageKeys;
 import lombok.experimental.UtilityClass;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -235,10 +242,38 @@ public class HttpHtmlRenderer {
 
         appendResponseHeaders(sb, resp.headers);
 
-        sb.append(sectionTitle(colorSuccess(), "Body"));
-        sb.append(codeBlock(truncate(resp.body)));
+        appendResponseBody(sb, resp);
 
         return htmlDoc(sb.toString());
+    }
+
+    private static void appendResponseBody(StringBuilder sb, HttpResponse resp) {
+        if (!ResponseFiles.isFileResponse(resp)) {
+            sb.append(sectionTitle(colorSuccess(), "Body"));
+            sb.append(codeBlock(truncate(resp.body)));
+            return;
+        }
+        // 二进制文件按文本解码只会得到乱码，这里只展示文件信息
+        sb.append(sectionTitle(colorSuccess(), I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_SECTION_TITLE)));
+        String extension = resp.detectedFileExtension != null
+                ? resp.detectedFileExtension
+                : FileExtensionUtil.guessExtension(ResponseFiles.contentType(resp));
+        String type = extension != null
+                ? extension.substring(1).toUpperCase(Locale.ROOT)
+                : I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_GENERIC_TYPE);
+        StringBuilder info = new StringBuilder();
+        if (isNotEmpty(resp.fileName)) {
+            info.append(kvRow(colorPrimary(), I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_LABEL_NAME), escapeHtml(resp.fileName), false));
+        }
+        info.append(kvRow(colorPrimary(), I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_LABEL_TYPE), escapeHtml(type), true));
+        if (resp.bodySize > 0) {
+            info.append(kvRow(colorPrimary(), I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_LABEL_SIZE), escapeHtml(FileSizeDisplayUtil.formatCompactSize(resp.bodySize)), false));
+        }
+        sb.append(info);
+        String hint = resp.fileContentOmitted
+                ? I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_CONTENT_NOT_KEPT)
+                : I18nUtil.getMessage(MessageKeys.RESPONSE_FILE_BODY_HIDDEN);
+        sb.append(noData(escapeHtml(hint)));
     }
 
     private static void appendNetworkErrorAlert(StringBuilder sb, HttpEventInfo eventInfo) {
@@ -327,8 +362,7 @@ public class HttpHtmlRenderer {
                             + escapeHtml(safeStr(resp.httpEventInfo.getRemoteAddress())), true));
         }
         appendResponseHeaders(sb, resp.headers);
-        sb.append(sectionTitle(colorSuccess(), "Body"));
-        sb.append(codeBlock(truncate(resp.body)));
+        appendResponseBody(sb, resp);
         return sb.toString();
     }
 
@@ -579,10 +613,76 @@ public class HttpHtmlRenderer {
         eventRow(sb, "Protocol",       info.getProtocol() != null ? info.getProtocol() : "-", false);
         eventRow(sb, "TLS Version",    safeStr(info.getTlsVersion()),        true);
         eventRow(sb, "Thread",         safeStr(info.getThreadName()),        false);
+        if (isNotEmpty(info.getDnsHost())) {
+            eventRow(sb, I18nUtil.getMessage(MessageKeys.HTTP_EVENT_DNS_HOST),
+                    escapeHtml(info.getDnsHost()), true);
+        }
+        if (info.getDnsAddresses() != null && !info.getDnsAddresses().isEmpty()) {
+            eventRow(sb, I18nUtil.getMessage(MessageKeys.HTTP_EVENT_DNS_ADDRESSES),
+                    escapeHtml(String.join(", ", info.getDnsAddresses())), false);
+        }
+        if (isNotEmpty(info.getDnsError())) {
+            eventRow(sb, I18nUtil.getMessage(MessageKeys.HTTP_EVENT_DNS_ERROR),
+                    "<span style='color:" + colorError() + ";'>"
+                    + escapeHtml(info.getDnsError()) + "</span>", true);
+        }
+        if (info.getRetryDecisionCount() > 0) {
+            eventRow(sb, I18nUtil.getMessage(MessageKeys.HTTP_EVENT_RETRIES),
+                    I18nUtil.getMessage(MessageKeys.HTTP_EVENT_DECISIONS,
+                            info.getRetryCount(), info.getRetryDecisionCount()), false);
+        }
+        if (info.getFollowUpDecisionCount() > 0) {
+            eventRow(sb, I18nUtil.getMessage(MessageKeys.HTTP_EVENT_FOLLOW_UPS),
+                    I18nUtil.getMessage(MessageKeys.HTTP_EVENT_DECISIONS,
+                            info.getFollowUpCount(), info.getFollowUpDecisionCount()), true);
+        }
+        if (isNotEmpty(info.getRecoveredErrorMessage())) {
+            eventRow(sb, I18nUtil.getMessage(MessageKeys.HTTP_EVENT_RECOVERED_ERROR), "<span style='color:" + colorWarning() + ";'>"
+                    + escapeHtml(info.getRecoveredErrorMessage()) + "</span>", false);
+        }
         if (isNotEmpty(info.getErrorMessage())) {
             eventRow(sb, "Error", "<span style='color:" + colorError() + ";'>" + escapeHtml(info.getErrorMessage()) + "</span>", true);
         }
         sb.append("</table>");
+
+        if (info.getRouteAttempts() != null && !info.getRouteAttempts().isEmpty()) {
+            sb.append(sectionTitle(colorPrimary(), I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_ATTEMPTS)));
+            sb.append("<table style='border-collapse:collapse;width:100%;margin-bottom:8px;'>");
+            sb.append("<tr style='font-weight:bold;border-bottom:1px solid ").append(rowDividerColor())
+                    .append(";color:").append(colorGray()).append(";'>")
+                    .append("<th style='padding:3px 8px;text-align:left;'>")
+                    .append(escapeHtml(I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_FAMILY)))
+                    .append("</th>")
+                    .append("<th style='padding:3px 8px;text-align:left;'>")
+                    .append(escapeHtml(I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_ADDRESS)))
+                    .append("</th>")
+                    .append("<th style='padding:3px 8px;text-align:left;'>")
+                    .append(escapeHtml(I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_RESULT)))
+                    .append("</th>")
+                    .append("<th style='padding:3px 8px;text-align:left;'>")
+                    .append(escapeHtml(I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_DURATION)))
+                    .append("</th>")
+                    .append("</tr>");
+            boolean alt = false;
+            List<HttpRouteAttempt> routeAttempts = new ArrayList<>(info.getRouteAttempts());
+            routeAttempts.sort(Comparator.comparingLong(HttpRouteAttempt::startTime));
+            for (HttpRouteAttempt attempt : routeAttempts) {
+                String result;
+                if (attempt.connected()) {
+                    result = I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_CONNECTED);
+                } else if (attempt.canceled()) {
+                    result = I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_CANCELED);
+                } else {
+                    result = I18nUtil.getMessage(MessageKeys.HTTP_EVENT_ROUTE_FAILED);
+                }
+                if (!attempt.connected() && isNotEmpty(attempt.error())) {
+                    result += ": " + attempt.error();
+                }
+                appendRouteAttemptRow(sb, attempt, result, alt);
+                alt = !alt;
+            }
+            sb.append("</table>");
+        }
 
         sb.append(sectionTitle(colorPrimary(), "Event Timestamps"));
         sb.append("<table style='border-collapse:collapse;width:100%;'>");
@@ -594,6 +694,8 @@ public class HttpHtmlRenderer {
         // 只显示非空（>0）的时间戳，减少噪音
         appendEventTimingRowIfSet(sb, "QueueStart",          info.getQueueStart(),          colorGray(),    false);
         appendEventTimingRowIfSet(sb, "CallStart",            info.getCallStart(),            colorPrimary(), true);
+        appendEventTimingRowIfSet(sb, "DispatcherQueueStart", info.getDispatcherQueueStart(), null, false);
+        appendEventTimingRowIfSet(sb, "DispatcherQueueEnd",   info.getDispatcherQueueEnd(),   null, true);
         appendEventTimingRowIfSet(sb, "DnsStart",             info.getDnsStart(),             null,          false);
         appendEventTimingRowIfSet(sb, "DnsEnd",               info.getDnsEnd(),               null,          true);
         appendEventTimingRowIfSet(sb, "ConnectStart",         info.getConnectStart(),         null,          false);
@@ -622,6 +724,22 @@ public class HttpHtmlRenderer {
         sb.append("<tr>")
                 .append("<td style='width:35%;color:").append(colorGray()).append(";padding:3px 8px;'>").append(label).append("</td>")
                 .append("<td style='width:65%;padding:3px 8px;word-break:break-all;'>").append(value).append("</td>")
+                .append("</tr>");
+    }
+
+    private static void appendRouteAttemptRow(StringBuilder sb,
+                                              HttpRouteAttempt attempt,
+                                              String result,
+                                              boolean alt) {
+        String background = alt ? "background:" + codeBgColor() + ";" : "";
+        String resultHtml = attempt.connected()
+                ? escapeHtml(result)
+                : "<span style='color:" + colorError() + ";'>" + escapeHtml(result) + "</span>";
+        sb.append("<tr style='").append(background).append("'>")
+                .append("<td style='padding:3px 8px;'>").append(escapeHtml(attempt.addressFamily())).append("</td>")
+                .append("<td style='padding:3px 8px;word-break:break-all;'>").append(escapeHtml(attempt.address())).append("</td>")
+                .append("<td style='padding:3px 8px;'>").append(resultHtml).append("</td>")
+                .append("<td style='padding:3px 8px;'>").append(attempt.durationMs()).append(" ms</td>")
                 .append("</tr>");
     }
 
