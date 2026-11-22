@@ -435,6 +435,7 @@ public final class MessageKeys {
     public static final String NETWORK_LOG_MESSAGE_PROXY_FALLBACK = "network_log.message.proxy_fallback";
     public static final String NETWORK_LOG_MESSAGE_JVM_SOCKS_ACTIVE = "network_log.message.jvm_socks_active";
     public static final String NETWORK_LOG_MESSAGE_CONNECTION_REUSED = "network_log.message.connection_reused";
+    public static final String NETWORK_LOG_MESSAGE_ROUTE_INTERCEPTED = "network_log.message.route_intercepted";
     public static final String NETWORK_LOG_MESSAGE_HEADER_SNAPSHOT = "network_log.message.header_snapshot";
     public static final String NETWORK_LOG_MESSAGE_HEADER_SNAPSHOT_HTTP2 = "network_log.message.header_snapshot_http2";
     public static final String NETWORK_LOG_MESSAGE_REQUEST_BODY_PREVIEW_UNAVAILABLE = "network_log.message.request_body_preview_unavailable";
@@ -708,6 +709,36 @@ public final class MessageKeys {
     public static final String WORKSPACE_PATH_OPEN_TOOLTIP = "workspace.path.open.tooltip";
     public static final String WORKSPACE_PATH_NOT_EXIST = "workspace.path.not.exist";
     public static final String WORKSPACE_SELECT_PATH = "workspace.select.path";
+    public static final String WORKSPACE_ACTION_NEW = "workspace.action.new";
+    public static final String WORKSPACE_ACTION_OPEN_FOLDER = "workspace.action.open_folder";
+    public static final String WORKSPACE_ACTION_CLONE = "workspace.action.clone";
+    public static final String WORKSPACE_OPEN_FOLDER_REPO_ROOT_PROMPT = "workspace.open_folder.repo_root_prompt";
+    public static final String WORKSPACE_OPEN_FOLDER_USE_SUBDIRECTORY = "workspace.open_folder.use_subdirectory";
+    public static final String WORKSPACE_OPEN_FOLDER_USE_SELECTED = "workspace.open_folder.use_selected";
+    public static final String WORKSPACE_OPEN_FOLDER_EXISTS = "workspace.open_folder.exists";
+    public static final String WORKSPACE_OPEN_FOLDER_FAILED = "workspace.open_folder.failed";
+    public static final String WORKSPACE_PATH_IN_REPOSITORY = "workspace.path.in_repository";
+    public static final String WORKSPACE_PATH_HAS_DATA = "workspace.path.has_data";
+    public static final String WORKSPACE_RELOAD_FROM_DISK = "workspace.reload_from_disk";
+    public static final String WORKSPACE_RELOAD_FROM_DISK_DONE = "workspace.reload_from_disk.done";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_TITLE = "workspace.external_change.title";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_CONFIRM = "workspace.external_change.confirm";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_LATER = "workspace.external_change.later";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_DISCARD_UNSAVED = "workspace.external_change.discard_unsaved";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_STOP_MOCK = "workspace.external_change.stop_mock";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_STOP_PERFORMANCE = "workspace.external_change.stop_performance";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_RELOADED = "workspace.external_change.reloaded";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_POSTPONED = "workspace.external_change.postponed";
+    public static final String WORKSPACE_EXTERNAL_CHANGE_UNREADABLE = "workspace.external_change.unreadable";
+    public static final String WORKSPACE_CREATE_DATA_TITLE = "workspace.create_data.title";
+    public static final String WORKSPACE_CREATE_DATA_CONFIRM = "workspace.create_data.confirm";
+    public static final String WORKSPACE_CREATE_DATA_IN_REPO_CONFIRM = "workspace.create_data.in_repo_confirm";
+    public static final String WORKSPACE_INIT_GIT = "workspace.init_git";
+    public static final String WORKSPACE_INIT_GIT_IN_REPO = "workspace.init_git.in_repo";
+    public static final String GIT_REPO_WIDE_OPERATION_TITLE = "git.repo_wide_operation.title";
+    public static final String GIT_REPO_WIDE_OPERATION_CONFIRM = "git.repo_wide_operation.confirm";
+    public static final String GIT_SCOPED_OUTSIDE_CONFLICTS = "git.scoped.outside_conflicts";
+    public static final String GIT_SCOPED_PULL_OUTSIDE_OVERLAP = "git.scoped.pull_outside_overlap";
     public static final String WORKSPACE_GIT_URL = "workspace.git.url";
     public static final String WORKSPACE_GIT_USERNAME = "workspace.git.username";
     public static final String WORKSPACE_GIT_PASSWORD = "workspace.git.password";
@@ -795,6 +826,10 @@ public final class MessageKeys {
     public static final String GIT_DIFF_SIZE_STAGED = "git.diff.size.staged";
     public static final String GIT_DIFF_SIZE_WORKTREE = "git.diff.size.worktree";
     public static final String GIT_WORKSPACE_REPOSITORY_MISSING = "git.workspace.repository_missing";
+    public static final String GIT_WORKSPACE_ALREADY_IN_REPOSITORY = "git.workspace.already_in_repository";
+    public static final String GIT_WORKSPACE_EMBEDDED_HINT = "git.workspace.embedded_hint";
+    public static final String GIT_WORKSPACE_EXISTING_REPOSITORY_HINT = "git.workspace.existing_repository_hint";
+    public static final String GIT_OPERATION_REQUIRES_DEDICATED_REPOSITORY = "git.operation.requires_dedicated_repository";
 
     // Git Branch Dialog
     public static final String GIT_BRANCH_TITLE = "git.branch.title";
@@ -1075,6 +1110,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_MSG_SELECT_THREAD_GROUP = "performance.msg.select_thread_group";
     public static final String PERFORMANCE_NODE_NAME_EMPTY = "performance.node.name.empty";
     public static final String PERFORMANCE_MSG_EXECUTION_INTERRUPTED = "performance.msg.execution_interrupted";
+    public static final String PERFORMANCE_MSG_ITERATION_FAILED_CONTINUING = "performance.msg.iteration_failed_continuing";
     public static final String PERFORMANCE_MSG_EXECUTION_COMPLETED = "performance.msg.execution_completed";
     public static final String PERFORMANCE_RESULT_CANCELLED = "performance.result.cancelled";
     public static final String PERFORMANCE_MSG_PRE_SCRIPT_FAILED = "performance.msg.pre_script_failed";
@@ -1236,6 +1272,7 @@ public final class MessageKeys {
     public static final String PERFORMANCE_TREND_LATENCY_DURATION_MS = "performance.trend.latency_duration_ms";
     public static final String PERFORMANCE_TREND_SESSION_DURATION_MS = "performance.trend.session_duration_ms";
     public static final String PERFORMANCE_TREND_STREAM_DURATION_MS = "performance.trend.stream_duration_ms";
+    public static final String PERFORMANCE_TREND_MAX_RESPONSE_TIME_MS = "performance.trend.max_response_time_ms";
 
     // ============ 性能结果树相关 ============
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_PROTOCOL = "performance.result_tree.column.protocol";
@@ -1243,7 +1280,15 @@ public final class MessageKeys {
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_STATUS = "performance.result_tree.column.status";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_COST = "performance.result_tree.column.cost";
     public static final String PERFORMANCE_RESULT_TREE_COLUMN_ASSERTION = "performance.result_tree.column.assertion";
+    public static final String PERFORMANCE_RESULT_TREE_COLUMN_START_TIME = "performance.result_tree.column.start_time";
+    public static final String PERFORMANCE_RESULT_TREE_COLUMN_LATENCY = "performance.result_tree.column.latency";
+    public static final String PERFORMANCE_RESULT_TREE_COLUMN_CONNECT = "performance.result_tree.column.connect";
     public static final String PERFORMANCE_RESULT_TREE_SEARCH_PLACEHOLDER = "performance.result_tree.search_placeholder";
+    public static final String PERFORMANCE_RESULT_TREE_FAILED_ONLY = "performance.result_tree.failed_only";
+    public static final String PERFORMANCE_RESULT_TREE_ROW_COUNT_TOTAL = "performance.result_tree.row_count.total";
+    public static final String PERFORMANCE_RESULT_TREE_ROW_COUNT_FILTERED = "performance.result_tree.row_count.filtered";
+    public static final String PERFORMANCE_RESULT_TREE_DETAIL_CLOSE = "performance.result_tree.detail.close";
+    public static final String PERFORMANCE_RESULT_TREE_DETAIL_SUMMARY = "performance.result_tree.detail.summary";
 
     // ============ 历史记录相关 ============
     public static final String HISTORY_EMPTY_BODY = "history.empty_body";
@@ -1907,6 +1952,8 @@ public final class MessageKeys {
     public static final String RESPONSE_INCOMPLETE = "response.incomplete";
     public static final String RESPONSE_BODY_SKIPPED_PERFORMANCE = "response.body.skipped.performance";
     public static final String RESPONSE_BODY_TRUNCATED_PERFORMANCE = "response.body.truncated.performance";
+    public static final String PERFORMANCE_MSG_RESPONSE_BODY_TOO_LARGE_TO_EVALUATE =
+            "performance.msg.response_body_too_large_to_evaluate";
 
     // ============ ResponseAssertion 国际化 ============
     public static final String RESPONSE_ASSERTION_STATUS_FAILED = "response.assertion.status_failed";
@@ -2574,6 +2621,9 @@ public final class MessageKeys {
     public static final String SETTINGS_PROXY_SYSTEM_AUTH_HINT = "settings.proxy.system_auth_hint";
     public static final String SETTINGS_PROXY_AUTH_SECTION_TITLE = "settings.proxy.auth_section.title";
     public static final String SETTINGS_PROXY_AUTH_SECTION_DESCRIPTION = "settings.proxy.auth_section.description";
+    public static final String SETTINGS_PROXY_AUTH_CHECKBOX = "settings.proxy.auth.checkbox";
+    public static final String SETTINGS_PROXY_AUTH_TOOLTIP = "settings.proxy.auth.tooltip";
+    public static final String SETTINGS_PROXY_AUTH_REQUIRED = "settings.proxy.auth.required";
     public static final String SETTINGS_PROXY_ADVANCED_SECTION_TITLE = "settings.proxy.advanced_section.title";
     public static final String SETTINGS_PROXY_ADVANCED_SECTION_DESCRIPTION = "settings.proxy.advanced_section.description";
     public static final String SETTINGS_PROXY_SSL_VERIFICATION_TOOLTIP = "settings.proxy.ssl.verification.tooltip";
@@ -2588,6 +2638,14 @@ public final class MessageKeys {
     public static final String SETTINGS_PROXY_STATUS_SYSTEM_ACTIVE = "settings.proxy.status.system.active";
     public static final String SETTINGS_PROXY_STATUS_DIRECT = "settings.proxy.status.direct";
     public static final String SETTINGS_PROXY_STATUS_UNAVAILABLE = "settings.proxy.status.unavailable";
+    public static final String SETTINGS_PROXY_CHECK_BUTTON = "settings.proxy.check.button";
+    public static final String SETTINGS_PROXY_CHECK_TOOLTIP = "settings.proxy.check.tooltip";
+    public static final String SETTINGS_PROXY_CHECK_RUNNING = "settings.proxy.check.running";
+    public static final String SETTINGS_PROXY_CHECK_SUCCESS = "settings.proxy.check.success";
+    public static final String SETTINGS_PROXY_CHECK_AUTH_FAILED = "settings.proxy.check.auth_failed";
+    public static final String SETTINGS_PROXY_CHECK_FAILED = "settings.proxy.check.failed";
+    public static final String SETTINGS_PROXY_CHECK_ROUTE_PROXY = "settings.proxy.check.route.proxy";
+    public static final String SETTINGS_PROXY_CHECK_ROUTE_DIRECT = "settings.proxy.check.route.direct";
     public static final String NETWORK_ERROR_PROXY_SOCKS_MALFORMED = "network.error.proxy.socks.malformed";
     public static final String NETWORK_ERROR_UNKNOWN_HOST = "network.error.unknown_host";
 
